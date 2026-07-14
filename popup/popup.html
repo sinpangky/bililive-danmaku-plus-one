@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>弹幕回声设置</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="panel">
+      <header class="hero">
+        <span class="hero__mark">+1</span>
+        <div>
+          <h1>弹幕回声</h1>
+          <p>右侧与全屏弹幕，一键复读</p>
+        </div>
+      </header>
+
+      <section class="card" aria-labelledby="general-title">
+        <h2 id="general-title">常规</h2>
+        <label class="row">
+          <span>
+            <strong>启用插件</strong>
+            <small>在支持的直播间显示 +1</small>
+          </span>
+          <input id="enabled" type="checkbox" role="switch">
+        </label>
+        <label class="row">
+          <span>
+            <strong>Alt + 单击回退</strong>
+            <small>类名变化时也可尝试复读</small>
+          </span>
+          <input id="altClick" type="checkbox" role="switch">
+        </label>
+      </section>
+
+      <section class="card" aria-labelledby="platform-title">
+        <h2 id="platform-title">平台</h2>
+        <label class="platform-row">
+          <span class="dot dot--huya"></span>
+          <span>虎牙直播</span>
+          <input id="platform-huya" type="checkbox" role="switch">
+        </label>
+        <label class="platform-row">
+          <span class="dot dot--bilibili"></span>
+          <span>哔哩哔哩直播</span>
+          <input id="platform-bilibili" type="checkbox" role="switch">
+        </label>
+        <label class="platform-row">
+          <span class="dot dot--douyin"></span>
+          <span>抖音直播</span>
+          <input id="platform-douyin" type="checkbox" role="switch">
+        </label>
+      </section>
+
+      <p id="status" class="status" role="status" aria-live="polite">设置会自动保存</p>
+    </main>
+    <script src="../src/shared.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

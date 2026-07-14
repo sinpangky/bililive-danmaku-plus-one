@@ -1,0 +1,22 @@
+{
+  "name": "danmaku-echo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "One-click danmaku echoing for Huya Live, Bilibili Live, and Douyin Live",
+  "license": "GPL-3.0-or-later",
+  "keywords": [
+    "danmaku",
+    "browser-extension",
+    "bilibili-live",
+    "huya-live",
+    "douyin-live"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test tests/shared.test.js",
+    "check": "node tests/validate-manifest.js && node --check src/shared.js && node --check src/content.js && node --check src/douyin-page-hook.js && node --check popup/popup.js && node --check tests/fixture-server.js && node --check tests/inspect-live-dom.js && npm test",
+    "package": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1"
+  }
+}

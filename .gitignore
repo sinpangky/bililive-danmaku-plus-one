@@ -1,0 +1,20 @@
+# Generated release archives
+dist/
+
+# Dependencies and coverage
+node_modules/
+coverage/
+
+# Browser-extension signing material
+*.crx
+*.pem
+
+# Editor and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
