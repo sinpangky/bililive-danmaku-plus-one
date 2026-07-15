@@ -231,12 +231,30 @@
   };
 
   const config = PLATFORM_CONFIG[platformId];
+  const EDITABLE_CONTROL_SELECTOR = [
+    "input",
+    "textarea",
+    "[contenteditable='true']",
+    "[role='textbox']"
+  ].join(",");
+  const BILIBILI_QUICK_BAR_SELECTORS = [
+    ".bpx-player-ctrl-dm-input",
+    ".bilibili-player-video-danmaku-input-wrap",
+    ".bilibili-player-video-danmaku-input",
+    "[class*='danmaku-input']",
+    "[class*='dm-input']"
+  ];
   const BILIBILI_QUICK_INPUTS = [
     ".bpx-player-dm-input",
     ".bilibili-player-video-danmaku-input",
     ".bpx-player-ctrl-dm-input input",
     ".bpx-player-ctrl-dm-input textarea",
-    ".bpx-player-ctrl-dm-input [contenteditable='true']"
+    ".bpx-player-ctrl-dm-input [contenteditable='true']",
+    ".bpx-player-ctrl-dm-input [role='textbox']",
+    ".bilibili-player-video-danmaku-input-wrap input",
+    ".bilibili-player-video-danmaku-input-wrap textarea",
+    ".bilibili-player-video-danmaku-input-wrap [contenteditable='true']",
+    ".bilibili-player-video-danmaku-input-wrap [role='textbox']"
   ];
   const OVERLAY_HOVER_PADDING = 14;
   const OVERLAY_LEAVE_DELAY = 160;
@@ -259,7 +277,8 @@
     pointerFrame: 0,
     pointerX: 0,
     pointerY: 0,
-    hiddenBilibiliQuickBars: new Map()
+    hiddenBilibiliQuickBars: new Map(),
+    bilibiliDismissToken: 0
   };
 
   function storageGet() {
@@ -384,6 +403,59 @@
     return null;
   }
 
+  function elementMarker(element) {
+    if (!(element instanceof Element)) {
+      return "";
+    }
+    return [
+      element.tagName,
+      element.id,
+      typeof element.className === "string" ? element.className : "",
+      element.getAttribute("aria-label"),
+      element.getAttribute("title"),
+      element.getAttribute("placeholder"),
+      element.getAttribute("data-placeholder"),
+      element.getAttribute("role")
+    ].filter(Boolean).join(" ");
+  }
+
+  function isBilibiliQuickInputRegion(element) {
+    if (platformId !== "bilibili" || !(element instanceof Element)) {
+      return false;
+    }
+
+    if (closestMatching(element, BILIBILI_QUICK_BAR_SELECTORS)) {
+      return true;
+    }
+
+    const insidePlayer = Boolean(closestMatching(element, config.videoRoots));
+    if (!insidePlayer) {
+      return false;
+    }
+
+    if (element.matches(EDITABLE_CONTROL_SELECTOR)) {
+      return true;
+    }
+
+    const nestedEditor = element.querySelector(EDITABLE_CONTROL_SELECTOR);
+    if (nestedEditor && !matchesAny(element, config.videoRoots)) {
+      const rect = element.getBoundingClientRect();
+      if (rect.height > 0
+        && rect.height <= 160
+        && rect.width <= Math.max(900, innerWidth * 0.95)) {
+        return true;
+      }
+    }
+
+    return /(?:danmaku|danmu|dm)[-_ ]?(?:input|send)|(?:input|send)[-_ ]?(?:danmaku|danmu|dm)|快捷(?:输入|发送)|发送弹幕/i
+      .test(elementMarker(element));
+  }
+
+  function pathTouchesBilibiliQuickInput(path) {
+    return platformId === "bilibili"
+      && path.some((item) => item instanceof Element && isBilibiliQuickInputRegion(item));
+  }
+
   function findChatRoot(path) {
     const inPath = closestFromPath(path, config.chatRoots);
     if (inPath) {
@@ -406,6 +478,10 @@
   }
 
   function findCandidate(path) {
+    if (pathTouchesBilibiliQuickInput(path)) {
+      return null;
+    }
+
     const overlay = closestFromPath(path, config.overlayMessages);
     if (overlay && isOverlayMessageElement(overlay)) {
       return { element: overlay, kind: "overlay" };
@@ -453,8 +529,13 @@
       return false;
     }
 
-    if (matchesAny(element, config.videoRoots)
+    if (isBilibiliQuickInputRegion(element)
+      || matchesAny(element, config.videoRoots)
       || element.matches("video, canvas, button, input, textarea, [role='button'], [contenteditable='true']")) {
+      return false;
+    }
+
+    if (element.querySelector(EDITABLE_CONTROL_SELECTOR)) {
       return false;
     }
 
@@ -491,7 +572,9 @@
       return false;
     }
 
-    if (element.matches("button, input, textarea, video, canvas, a, [contenteditable='true']")) {
+    if (isBilibiliQuickInputRegion(element)
+      || element.matches("button, input, textarea, video, canvas, a, [contenteditable='true']")
+      || element.querySelector(EDITABLE_CONTROL_SELECTOR)) {
       return false;
     }
 
@@ -1427,6 +1510,9 @@
   }
 
   function releaseInputFocus(input) {
+    const bilibiliDismissToken = platformId === "bilibili"
+      ? ++state.bilibiliDismissToken
+      : 0;
     const quickBarStyleProperties = ["display", "visibility", "opacity", "pointer-events"];
     const restorePlaybackState = (snapshots) => {
       for (const snapshot of snapshots) {
@@ -1449,12 +1535,7 @@
         const player = fullscreenElement()
           || closestMatching(editor, config.videoRoots)
           || queryAllDeep(config.videoRoots).find((element) => isVisible(element));
-        let container = editor.closest([
-          ".bpx-player-ctrl-dm-input",
-          ".bilibili-player-video-danmaku-input-wrap",
-          "[class*='danmaku-input']",
-          "[class*='dm-input']"
-        ].join(","));
+        let container = editor.closest(BILIBILI_QUICK_BAR_SELECTORS.join(","));
         if (!container || container === editor) {
           container = editor.parentElement || editor;
           const playerRect = player && player.getBoundingClientRect();
@@ -1594,6 +1675,9 @@
       restorePlaybackState(videos);
       setTimeout(() => restorePlaybackState(videos), 80);
       setTimeout(() => {
+        if (bilibiliDismissToken !== state.bilibiliDismissToken) {
+          return;
+        }
         const stillVisible = quickEditors.filter((editor) => editor.isConnected && isVisible(editor));
         if (stillVisible.length) {
           forceHideBilibiliQuickBars(stillVisible);
@@ -1602,6 +1686,11 @@
     };
 
     const release = () => {
+      if (platformId === "bilibili"
+        && bilibiliDismissToken !== state.bilibiliDismissToken) {
+        return;
+      }
+
       const editors = new Set(input ? [input] : []);
       if (platformId === "bilibili") {
         for (const editor of queryAllDeep(config.inputs)) {
@@ -1729,33 +1818,46 @@
   }
 
   function restoreBilibiliQuickBars(event) {
-    if (platformId !== "bilibili" || !state.hiddenBilibiliQuickBars.size) {
+    if (platformId !== "bilibili") {
       return;
     }
     if (event && !event.isTrusted) {
       return;
     }
-    if (event && event.type === "keydown" && event.key !== "Enter") {
+
+    const path = event
+      ? (event.composedPath ? event.composedPath() : [event.target])
+      : [];
+    const elements = path
+      .filter((item) => item instanceof Element)
+      .slice(0, 8);
+    const marker = elements.map(elementMarker).join(" ");
+    const targetsQuickInput = elements.some((element) => isBilibiliQuickInputRegion(element));
+    const keyboardOpensQuickInput = Boolean(event
+      && event.type === "keydown"
+      && event.key === "Enter"
+      && fullscreenElement());
+    const markerRequestsQuickInput = /(?:danmaku|danmu|dm)[-_ ]?(?:input|send)|(?:input|send)[-_ ]?(?:danmaku|danmu|dm)|弹幕|快捷(?:输入|发送)|发送|send|input/i
+      .test(marker);
+    const requestsQuickInput = targetsQuickInput
+      || keyboardOpensQuickInput
+      || markerRequestsQuickInput;
+
+    if (event && !requestsQuickInput) {
       return;
     }
-    if (event && event.type === "pointerdown") {
-      const marker = (event.composedPath ? event.composedPath() : [event.target])
-        .filter((item) => item instanceof Element)
-        .slice(0, 6)
-        .map((item) => [
-          item.id,
-          typeof item.className === "string" ? item.className : "",
-          item.getAttribute("aria-label"),
-          item.getAttribute("title")
-        ].filter(Boolean).join(" "))
-        .join(" ");
-      if (!/(danmaku|danmu|\bdm\b|弹幕|send|发送|input)/i.test(marker)) {
-        return;
-      }
+    if (event) {
+      // A real user interaction takes ownership of the native editor. Cancel
+      // all delayed blur/hide callbacks left by the previous +1 operation.
+      state.bilibiliDismissToken += 1;
     }
+    if (!state.hiddenBilibiliQuickBars.size) {
+      return;
+    }
+
     const now = Date.now();
     for (const [container, saved] of state.hiddenBilibiliQuickBars) {
-      if (now - saved.hiddenAt < 500) {
+      if (!event && now - saved.hiddenAt < 500) {
         continue;
       }
       if (container.isConnected) {

@@ -154,7 +154,7 @@ const bilibiliHtml = String.raw`<!doctype html>
           <span class="bili-danmaku-x-dm-content">B站单条弹幕</span>
         </div>
       </div>
-      <div class="bpx-player-ctrl-dm-input" style="display:none;position:absolute;left:20px;bottom:20px;z-index:2">
+      <div class="bili-danmaku-x-dm bpx-player-ctrl-dm-input" style="display:none;position:absolute;left:20px;top:auto;bottom:20px;z-index:2">
         <textarea class="bpx-player-dm-input" placeholder="发送弹幕" aria-label="全屏快捷弹幕输入框"></textarea>
         <button class="bpx-player-dm-btn" type="button">发送</button>
       </div>
@@ -202,6 +202,9 @@ const bilibiliHtml = String.raw`<!doctype html>
         input.value = "";
       });
       quickSend.addEventListener("click", () => {
+        if (quickInput.value === "全屏快捷栏手动发送") {
+          document.body.dataset.bilibiliManualQuickSent = quickInput.value;
+        }
         document.body.dataset.bilibiliSendMethod = "quick-button";
         document.body.dataset.bilibiliSent = quickInput.value;
         quickInput.value = "";
@@ -239,6 +242,31 @@ const bilibiliHtml = String.raw`<!doctype html>
       const timer = setInterval(() => {
         if (!document.querySelector(".bcp-one-button")) {
           return;
+        }
+
+        if (parameters.get("fullscreen") === "1" && !document.body.dataset.quickInputCheckStartedAt) {
+          const rect = quickInput.getBoundingClientRect();
+          quickInput.dispatchEvent(new PointerEvent("pointerover", {
+            bubbles: true,
+            clientX: rect.left + rect.width / 2,
+            clientY: rect.top + rect.height / 2
+          }));
+          document.body.dataset.quickInputCheckStartedAt = String(Date.now());
+          return;
+        }
+
+        if (parameters.get("fullscreen") === "1" && !document.body.dataset.quickInputRejected) {
+          if (Date.now() - Number(document.body.dataset.quickInputCheckStartedAt) < 200) {
+            return;
+          }
+          const wrongButton = document.querySelector(".bcp-one-button:not([hidden])");
+          document.body.dataset.quickInputRejected = String(!wrongButton);
+          if (wrongButton) {
+            clearInterval(timer);
+            return;
+          }
+          quickInput.value = "全屏快捷栏手动发送";
+          quickSend.click();
         }
 
         if (!document.body.dataset.containerCheckStartedAt) {
@@ -279,6 +307,44 @@ const bilibiliHtml = String.raw`<!doctype html>
         document.body.dataset.singleDanmakuSelected = String(singleSelected);
         plusOne.click();
         clearInterval(timer);
+      }, 100);
+    </script>
+  </body>
+</html>`;
+
+const bilibiliActivityHtml = String.raw`<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8"><title>B站活动背景嵌入直播间测试夹具</title>
+    <style>
+      body { margin: 0; min-height: 100vh; background: #160a38; }
+      .activity-roster { height: 240px; color: white; padding: 24px; }
+      iframe { display: block; width: 900px; height: 600px; border: 0; margin: 0 auto; }
+    </style>
+  </head>
+  <body>
+    <section class="activity-roster">活动背景与赛事信息</section>
+    <iframe title="活动内嵌直播间" src="/blanc/5236391?fixture=embedded"></iframe>
+    <script>
+      const frame = document.querySelector("iframe");
+      const timer = setInterval(() => {
+        const frameDocument = frame.contentDocument;
+        if (!frameDocument || !frameDocument.body) {
+          return;
+        }
+
+        document.body.dataset.bilibiliActivityFrameLoaded = "true";
+        document.body.dataset.bilibiliActivityButtonFound = String(
+          Boolean(frameDocument.querySelector(".bcp-one-button"))
+        );
+        document.body.dataset.bilibiliActivitySelected =
+          frameDocument.body.dataset.singleDanmakuSelected || "";
+        document.body.dataset.bilibiliActivitySent =
+          frameDocument.body.dataset.bilibiliSent || "";
+
+        if (frameDocument.body.dataset.bilibiliSent) {
+          clearInterval(timer);
+        }
       }, 100);
     </script>
   </body>
@@ -366,7 +432,10 @@ const server = http.createServer((request, response) => {
   const hostname = String(request.headers.host || "").split(":")[0];
   const requestUrl = new URL(request.url || "/", "http://fixture.local");
   const requestedPlatform = requestUrl.searchParams.get("platform");
-  if (hostname === "live.bilibili.com" || requestedPlatform === "bilibili") {
+  if ((hostname === "live.bilibili.com" || requestedPlatform === "bilibili")
+      && requestUrl.searchParams.get("activity") === "1") {
+    response.end(bilibiliActivityHtml);
+  } else if (hostname === "live.bilibili.com" || requestedPlatform === "bilibili") {
     response.end(bilibiliHtml);
   } else if (hostname === "live.douyin.com" || requestedPlatform === "douyin") {
     response.end(douyinHtml);

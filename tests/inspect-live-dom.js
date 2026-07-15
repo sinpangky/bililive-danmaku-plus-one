@@ -33,6 +33,7 @@ if (extensionPath) {
 }
 if (hostResolverRules) {
   browserArguments.push(`--host-resolver-rules=${hostResolverRules}`);
+  browserArguments.push("--no-proxy-server");
 }
 browserArguments.push(targetUrl);
 

@@ -34,7 +34,6 @@
     {
       "matches": [
         "*://*.huya.com/*",
-        "*://live.bilibili.com/*",
         "*://live.douyin.com/*"
       ],
       "js": [
@@ -45,6 +44,20 @@
         "src/content.css"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://live.bilibili.com/*"
+      ],
+      "js": [
+        "src/shared.js",
+        "src/content.js"
+      ],
+      "css": [
+        "src/content.css"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ]
 }

@@ -31,4 +31,12 @@ for (const required of ["huya.com", "bilibili.com", "douyin.com"]) {
   }
 }
 
+const bilibiliContentScript = manifest.content_scripts.find((entry) =>
+  (entry.matches || []).includes("*://live.bilibili.com/*")
+  && (entry.js || []).includes("src/content.js")
+);
+if (!bilibiliContentScript || bilibiliContentScript.all_frames !== true) {
+  throw new Error("Bilibili content script must run in embedded activity-page frames");
+}
+
 console.log(`Manifest OK (${referencedFiles.length} referenced files, ${matches.length} host matches)`);
