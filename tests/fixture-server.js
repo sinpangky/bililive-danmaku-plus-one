@@ -411,7 +411,7 @@ const douyinHtml = String.raw`<!doctype html>
             devicePixelRatio: 1,
             fontSize: 24,
             channelHeight: 40,
-            duration: 15_000,
+            duration: 4_000,
             gap: 20
           },
           offscrrenCanvas: transferResult,
@@ -462,8 +462,10 @@ const douyinHtml = String.raw`<!doctype html>
           }]
         }
       });
+      const barragePostedAt = performance.now();
       const input = document.querySelector("textarea");
       const send = document.querySelector(".sendButton");
+      let actionScheduled = false;
 
       send.addEventListener("click", () => {
         document.body.dataset.douyinSent = input.value;
@@ -473,62 +475,53 @@ const douyinHtml = String.raw`<!doctype html>
 
       const timer = setInterval(() => {
         document.body.dataset.douyinHookLoaded = String(Boolean(window.__bulletPlusOneDouyinCanvasHook));
-        const hitbox = document.querySelector("[data-bcp-douyin-canvas-text='抖音画面弹幕']");
-        const otherHitbox = document.querySelector(
-          "[data-bcp-douyin-canvas-text='其他弹幕继续移动']"
+        document.body.dataset.douyinLegacyHitboxCount = String(
+          document.querySelectorAll("[data-bcp-douyin-canvas='true']").length
         );
-        document.body.dataset.douyinHitboxFound = String(Boolean(hitbox));
-        const plusOne = document.querySelector(".bcp-one-button");
-        document.body.dataset.douyinButtonFound = String(Boolean(plusOne));
-        if (!hitbox || !plusOne) {
-          return;
-        }
-
-        const rect = hitbox.getBoundingClientRect();
+        const rect = canvas.getBoundingClientRect();
+        const elapsed = Math.max(0, performance.now() - barragePostedAt - 80);
+        const estimatedWidth = 188;
+        const left = rect.right - (rect.width + estimatedWidth) * elapsed / 4_000;
         canvas.dispatchEvent(new PointerEvent("pointermove", {
           bubbles: true,
-          clientX: rect.left + rect.width / 2,
-          clientY: rect.top + rect.height / 2
+          clientX: left + estimatedWidth / 2,
+          clientY: rect.top + 18,
+          pointerType: "mouse"
         }));
 
-        const visibleButton = document.querySelector(".bcp-one-button:not([hidden])");
-        const frozen = document.querySelector(".bcp-one-frozen");
-        if (visibleButton) {
-          const animation = hitbox.getAnimations()[0];
-          const otherAnimation = otherHitbox && otherHitbox.getAnimations()[0];
-          document.body.dataset.douyinCanvasCaptured = "true";
-          document.body.dataset.douyinWorkerTrackPaused = String(
-            Boolean(animation && animation.playState === "paused")
-          );
-          document.body.dataset.douyinOtherWorkerTrackStayedRunning = String(
-            Boolean(otherAnimation && otherAnimation.playState === "running")
-          );
+        const card = document.querySelector(
+          "[data-bcp-douyin-interaction-card='true']:not([hidden])"
+        );
+        document.body.dataset.douyinCardFound = String(Boolean(card));
+        if (card && !actionScheduled) {
+          actionScheduled = true;
+          const cardRect = card.getBoundingClientRect();
           document.body.dataset.douyinWorkerStopWasNotSent = String(
             !workerControls.some((message) => message && message.method === "stop")
           );
-          document.body.dataset.douyinWorkerCanvasHidden = String(
-            getComputedStyle(canvas).visibility === "hidden"
+          document.body.dataset.douyinNativeCanvasUntouched = String(
+            getComputedStyle(canvas).visibility !== "hidden"
+              && getComputedStyle(canvas).display !== "none"
           );
-          document.body.dataset.douyinWorkerOverlayCount = String(
-            document.querySelectorAll("[data-bcp-douyin-worker-overlay='true']").length
+          document.body.dataset.douyinPreviewText = card.querySelector(
+            ".bcp-douyin-preview"
+          ).textContent;
+          document.body.dataset.douyinPreviewImageCount = String(
+            card.querySelectorAll(".bcp-douyin-preview img").length
           );
-          const selectedOverlay = document.querySelector(
-            "[data-bcp-douyin-worker-overlay-selected='true']"
+          document.body.dataset.douyinLegacyFreezeNodeCount = String(
+            document.querySelectorAll(".bcp-one-frozen,[data-bcp-douyin-worker-overlay]").length
           );
-          document.body.dataset.douyinWorkerOverlayFallback = String(
-            Boolean(selectedOverlay
-              && selectedOverlay.dataset.bcpDouyinWorkerOverlayFallback === "true")
-          );
-          document.body.dataset.douyinWorkerOverlayText = selectedOverlay
-            ? selectedOverlay.textContent
-            : "";
-          document.body.dataset.douyinWorkerOverlayImageCount = String(
-            selectedOverlay ? selectedOverlay.querySelectorAll("img").length : 0
-          );
-          document.body.dataset.douyinFrozenCloneAbsent = String(!frozen);
-          visibleButton.click();
+          setTimeout(() => {
+            const currentRect = card.getBoundingClientRect();
+            document.body.dataset.douyinCardDrift = String(Math.max(
+              Math.abs(currentRect.left - cardRect.left),
+              Math.abs(currentRect.top - cardRect.top)
+            ));
+            card.querySelector(".bcp-douyin-button").click();
+          }, 180);
         }
-      }, 100);
+      }, 50);
     </script>
   </body>
 </html>`;

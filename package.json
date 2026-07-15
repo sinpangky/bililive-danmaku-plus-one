@@ -16,7 +16,7 @@
   },
   "scripts": {
     "test": "node --test tests/shared.test.js",
-    "check": "node tests/validate-manifest.js && node --check src/shared.js && node --check src/content.js && node --check src/douyin-page-hook.js && node --check popup/popup.js && node --check tests/fixture-server.js && node --check tests/inspect-live-dom.js && npm test",
+    "check": "node tests/validate-manifest.js && node --check src/shared.js && node --check src/content.js && node --check src/douyin-page-hook.js && node --check src/douyin-content.js && node --check popup/popup.js && node --check tests/fixture-server.js && node --check tests/inspect-live-dom.js && npm test",
     "package": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1"
   }
 }

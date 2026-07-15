@@ -51,7 +51,7 @@ try {
         throw "ZIP contains non-standard backslash entry names."
     }
 
-    foreach ($required in @("manifest.json", "README.md", "LICENSE", "assets/danmaku-echo-icon.png", "assets/icons/icon-128.png", "src/shared.js", "src/content.js", "src/douyin-page-hook.js", "popup/popup.html")) {
+    foreach ($required in @("manifest.json", "README.md", "LICENSE", "assets/danmaku-echo-icon.png", "assets/icons/icon-128.png", "src/shared.js", "src/content.js", "src/douyin-page-hook.js", "src/douyin-content.js", "src/douyin-content.css", "popup/popup.html")) {
         if ($entryNames -notcontains $required) {
             throw "ZIP is missing required entry: $required"
         }

@@ -33,8 +33,20 @@
     },
     {
       "matches": [
-        "*://*.huya.com/*",
         "*://live.douyin.com/*"
+      ],
+      "js": [
+        "src/shared.js",
+        "src/douyin-content.js"
+      ],
+      "css": [
+        "src/douyin-content.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.huya.com/*"
       ],
       "js": [
         "src/shared.js",

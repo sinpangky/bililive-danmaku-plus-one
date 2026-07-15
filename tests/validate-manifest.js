@@ -39,4 +39,12 @@ if (!bilibiliContentScript || bilibiliContentScript.all_frames !== true) {
   throw new Error("Bilibili content script must run in embedded activity-page frames");
 }
 
+const douyinContentScript = manifest.content_scripts.find((entry) =>
+  (entry.matches || []).includes("*://live.douyin.com/*")
+  && (entry.js || []).includes("src/douyin-content.js")
+);
+if (!douyinContentScript || (douyinContentScript.js || []).includes("src/content.js")) {
+  throw new Error("Douyin must use its dedicated content adapter");
+}
+
 console.log(`Manifest OK (${referencedFiles.length} referenced files, ${matches.length} host matches)`);

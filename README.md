@@ -31,16 +31,18 @@ Danmaku Echo（弹幕回声）是一个适用于 Chrome 和 Edge 的 Manifest V3
 
 这是弹幕回声的首个开源版本，支持虎牙、哔哩哔哩和抖音直播聊天区、视频弹幕及全屏模式下的一键 `+1`。
 
-> **已知问题：** 抖音适配仍存在少量 Bug。由于抖音直播弹幕使用 Canvas 绘制且页面结构会动态变化，部分直播间可能偶发弹幕识别、悬停响应、文字与 Emoji 分组或自动发送行为不一致的问题，后续版本会继续改进。
+抖音使用独立于虎牙、哔哩哔哩的运行逻辑：扩展只读取官方 Worker 的弹幕数据来计算鼠标命中，不暂停 Worker、不隐藏 Canvas，也不复制画面像素。命中后会在鼠标附近固定一张可点击的交互卡，原生弹幕继续正常移动。
 
 ### 核心功能
 
 - 鼠标悬停弹幕时显示 `+1` 按钮，点击后自动发送相同内容。
-- 视频弹幕悬停后暂停，移出操作缓冲区后从原位置继续移动。
+- 虎牙与哔哩哔哩的视频弹幕悬停后暂停，移出操作缓冲区后从原位置继续移动。
+- 抖音 Canvas 弹幕保持原生运动；命中后生成位置固定的交互卡，便于移动鼠标并点击 `+1`。
 - 避免相邻或重叠的后续弹幕抢占当前选择。
 - 过滤清晰度、设置菜单等播放器控件，只识别真实弹幕。
 - 支持文字、Emoji 和最长 1000 个 Unicode 字符的弹幕识别；实际发送长度仍受平台规则限制。
-- 抖音 Canvas 弹幕使用像素快照保持原生字体、描边和表情外观。
+- 抖音交互卡会根据官方弹幕数据还原文字、描边、颜色与表情预览，并将表情映射回官方发送文本。
+- 支持抖音首次进入直播间、SPA 切房和 Worker/OffscreenCanvas 弹幕，无需二次刷新页面。
 - 自动适配原生全屏，并在发送后释放官方输入框焦点。
 - 提供 `Alt + 单击` 通用回退操作，应对直播站点类名调整。
 - 设置通过 `chrome.storage.sync` 保存，不读取账号凭据。
@@ -92,10 +94,12 @@ npm run package
 
 ```text
 manifest.json              Manifest V3 清单
-src/content.js             弹幕识别、悬停、输入与发送适配
-src/content.css            页面内按钮、冻结层和提示样式
+src/content.js             虎牙与哔哩哔哩的识别、悬停和发送适配
+src/content.css            虎牙与哔哩哔哩的按钮、冻结层和提示样式
 src/shared.js              平台判断、文本清洗和设置合并
-src/douyin-page-hook.js    抖音 Canvas 捕获、分组与冻结适配
+src/douyin-page-hook.js    抖音 Worker 数据观察、轨迹计算与命中协议
+src/douyin-content.js      抖音固定交互卡、表情映射与官方发送适配
+src/douyin-content.css     抖音交互卡和提示样式
 popup/                     扩展设置弹窗
 scripts/package.ps1        可复现的发布包生成脚本
 tests/                     清单校验、单元测试和浏览器测试夹具
@@ -148,16 +152,18 @@ Danmaku Echo is a Manifest V3 browser extension for Chrome and Edge. It adds a `
 
 This is the first open-source release of Danmaku Echo. It supports one-click `+1` actions in side chat, on-video danmaku, and fullscreen mode on Huya Live, Bilibili Live, and Douyin Live.
 
-> **Known issue:** Douyin support still has a few bugs. Because its live danmaku is Canvas-rendered and its page structure changes dynamically, some rooms may occasionally show inconsistent danmaku detection, hover response, text-and-emoji grouping, or automatic sending. These cases will continue to be improved in later releases.
+Douyin now uses a runtime isolated from the Huya and Bilibili adapters. The extension observes official Worker messages only to calculate pointer hits; it never pauses the Worker, hides the Canvas, or copies rendered pixels. A stationary interaction card appears near the pointer while the native danmaku keeps moving normally.
 
 ### Features
 
 - Shows a `+1` action when a danmaku is hovered and sends the same content automatically.
-- Pauses on-video danmaku on hover and resumes it from the held position after the pointer leaves.
+- Pauses Huya and Bilibili on-video danmaku on hover, then resumes it from the held position after the pointer leaves.
+- Keeps Douyin's native Canvas danmaku moving and presents a stationary interaction card that remains easy to click.
 - Keeps adjacent or overlapping danmaku from stealing the current selection.
 - Rejects player controls such as quality and settings menus.
 - Recognizes text, emoji, and messages up to 1,000 Unicode characters; the platform's own sending limit still applies.
-- Preserves Douyin's native Canvas fonts, outlines, and emoji with pixel snapshots.
+- Reconstructs Douyin text, outlines, colors, and emoji previews from official danmaku data and maps emoji back to official send tokens.
+- Supports first room entry, SPA room changes, and Worker/OffscreenCanvas danmaku on Douyin without a second refresh.
 - Supports native fullscreen and releases official editor focus after sending.
 - Includes an `Alt + click` fallback for future site markup changes.
 - Stores settings with `chrome.storage.sync` and never reads account credentials.
@@ -209,10 +215,12 @@ The archive is written to `dist/danmaku-echo-v<version>.zip`.
 
 ```text
 manifest.json              Manifest V3 definition
-src/content.js             Danmaku detection, hover, editor, and send adapters
-src/content.css            In-page action, frozen layer, and toast styles
+src/content.js             Huya and Bilibili detection, hover, and send adapters
+src/content.css            Huya and Bilibili action, frozen-layer, and toast styles
 src/shared.js              Platform detection, text parsing, and settings
-src/douyin-page-hook.js    Douyin Canvas capture, grouping, and freeze adapter
+src/douyin-page-hook.js    Douyin Worker observation, trajectory, and hit protocol
+src/douyin-content.js      Douyin fixed card, emoji mapping, and send adapter
+src/douyin-content.css     Douyin interaction-card and toast styles
 popup/                     Extension settings popup
 scripts/package.ps1        Reproducible release packaging
 tests/                     Manifest checks, unit tests, and browser fixtures

@@ -97,7 +97,10 @@ async function inspect() {
     const root = path.resolve(__dirname, "..");
     const sharedSource = readFileSync(path.join(root, "src", "shared.js"), "utf8")
       .replace("    detectPlatform,", `    detectPlatform: () => ${JSON.stringify(injectPlatform)},`);
-    const contentSource = readFileSync(path.join(root, "src", "content.js"), "utf8");
+    const contentFile = injectPlatform === "douyin" ? "douyin-content.js" : "content.js";
+    const cssFile = injectPlatform === "douyin" ? "douyin-content.css" : "content.css";
+    const contentSource = readFileSync(path.join(root, "src", contentFile), "utf8");
+    const cssSource = readFileSync(path.join(root, "src", cssFile), "utf8");
     await send("Page.enable");
     if (injectPlatform === "douyin") {
       const pageHookSource = readFileSync(path.join(root, "src", "douyin-page-hook.js"), "utf8");
@@ -105,6 +108,9 @@ async function inspect() {
     }
     await send("Page.navigate", { url: targetUrl });
     await delay(500);
+    await send("Runtime.evaluate", {
+      expression: `(() => { const style = document.createElement("style"); style.textContent = ${JSON.stringify(cssSource)}; document.documentElement.appendChild(style); })()`
+    });
     await send("Runtime.evaluate", { expression: sharedSource });
     await send("Runtime.evaluate", { expression: contentSource });
     await delay(2_000);
@@ -232,6 +238,7 @@ async function inspect() {
           self.addEventListener("message", (event) => {
             const message = event.data || {};
             const params = message.params || {};
+            self.postMessage({ observedMethod: message.method || "" });
             if (message.method === "createInstance") {
               const canvas = params.offscrrenCanvas || params.offscreenCanvas;
               const config = params.config || {};
@@ -265,6 +272,7 @@ async function inspect() {
         const channel = new Worker(workerUrl, { name: "probe-canvas-danmaku" });
         const workerControls = [];
         channel.addEventListener("message", (event) => workerControls.push(event.data));
+        const firstBarrageStartedAt = Date.now();
         channel.postMessage({
           method: "createInstance",
           _uniqueId: "probe-worker-instance",
@@ -287,12 +295,17 @@ async function inspect() {
           _uniqueId: "probe-worker-instance",
           params: {
             id: "probe-barrage",
-            startTime: Date.now(),
+            startTime: firstBarrageStartedAt,
             reserveDuration: 5_000,
             padding: [4, 4, 4, 4],
             content: [
               { type: "text", text: "一起", fontSize: 40, color: "#fff" },
-              { type: "image", width: 40, height: 40 },
+              {
+                type: "image",
+                src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Ccircle cx='20' cy='20' r='18' fill='%23ffd84d'/%3E%3C/svg%3E",
+                width: 40,
+                height: 40
+              },
               { type: "text", text: "加油", fontSize: 40, color: "#fff" }
             ]
           }
@@ -310,139 +323,81 @@ async function inspect() {
             ]
           }
         });
-        // Let both synthetic barrages fully enter the canvas so the freeze
-        // path exercises a real pixel crop instead of the edge fallback.
+        // Let both synthetic barrages enter the visible area before probing.
         await new Promise((resolve) => setTimeout(resolve, 1_400));
 
-        const hitbox = document.querySelector("[data-bcp-douyin-canvas-text='一起加油']");
-        const otherHitbox = document.querySelector(
-          "[data-bcp-douyin-canvas-text='其他弹幕继续移动']"
-        );
-        let buttonVisible = false;
-        let frozenTag = "";
-        let hitboxRect = null;
-        let hoverLatency = null;
-        let frozenStartLeft = null;
-        let frozenRect = null;
-        let frozenBackingSize = null;
-        let frozenAspectError = null;
-        let frozenWithinCanvas = null;
-        let resumedLeft = null;
-        let inputValue = "";
-        let inputFocusedAfterSend = null;
-        let sentValue = "";
-        let workerTrackPaused = false;
-        let otherWorkerTrackStayedRunning = false;
-        let workerStopWasNotSent = false;
-        let selectedFreezeDrift = null;
-        let workerCanvasHidden = false;
-        let workerOverlayCount = 0;
-        let selectedOverlayTag = "";
-        let selectedOverlayUsedFallback = null;
-        let selectedOverlayFailure = "";
-        let workerCanvasRestored = false;
-        let workerOverlaysCleared = false;
-        let workerTrackResumed = false;
-        if (hitbox) {
-          const rect = hitbox.getBoundingClientRect();
-          hitboxRect = [rect.left, rect.top, rect.width, rect.height];
-          const hoverStartedAt = performance.now();
-          hitbox.dispatchEvent(new PointerEvent("pointermove", {
-            bubbles: true,
-            composed: true,
-            clientX: rect.left + rect.width / 2,
-            clientY: rect.top + rect.height / 2
-          }));
-          for (let attempt = 0; attempt < 20 && !document.querySelector(".bcp-one-button:not([hidden])"); attempt += 1) {
-            await new Promise((resolve) => requestAnimationFrame(resolve));
-          }
-          await new Promise((resolve) => setTimeout(resolve, 30));
-          const button = document.querySelector(".bcp-one-button");
-          const frozen = document.querySelector(".bcp-one-frozen");
-          const workerAnimation = hitbox.getAnimations()[0];
-          const otherWorkerAnimation = otherHitbox && otherHitbox.getAnimations()[0];
-          workerTrackPaused = Boolean(workerAnimation && workerAnimation.playState === "paused");
-          otherWorkerTrackStayedRunning = Boolean(
-            otherWorkerAnimation && otherWorkerAnimation.playState === "running"
-          );
-          workerStopWasNotSent = !workerControls.some((message) => message && message.method === "stop");
-          workerCanvasHidden = getComputedStyle(canvas).visibility === "hidden";
-          workerOverlayCount = document.querySelectorAll("[data-bcp-douyin-worker-overlay='true']").length;
-          const selectedOverlay = document.querySelector(
-            "[data-bcp-douyin-worker-overlay-selected='true']"
-          );
-          selectedOverlayTag = selectedOverlay ? selectedOverlay.tagName : "";
-          selectedOverlayUsedFallback = selectedOverlay
-            ? selectedOverlay.dataset.bcpDouyinWorkerOverlayFallback === "true"
-            : null;
-          selectedOverlayFailure = selectedOverlay
-            ? selectedOverlay.dataset.bcpDouyinWorkerOverlayFailure || ""
-            : "missing-overlay";
-          hoverLatency = button && !button.hidden ? performance.now() - hoverStartedAt : null;
-          frozenStartLeft = frozen ? frozen.getBoundingClientRect().left : null;
-          if (frozen instanceof HTMLCanvasElement) {
-            const frozenBounds = frozen.getBoundingClientRect();
-            const canvasBounds = canvas.getBoundingClientRect();
-            frozenRect = [frozenBounds.left, frozenBounds.top, frozenBounds.width, frozenBounds.height];
-            frozenBackingSize = [frozen.width, frozen.height];
-            frozenAspectError = Math.abs(
-              (frozen.width / frozen.height) / (frozenBounds.width / frozenBounds.height) - 1
-            );
-            frozenWithinCanvas = frozenBounds.left >= canvasBounds.left - 1
-              && frozenBounds.top >= canvasBounds.top - 1
-              && frozenBounds.right <= canvasBounds.right + 1
-              && frozenBounds.bottom <= canvasBounds.bottom + 1;
-          }
-          buttonVisible = Boolean(button && !button.hidden && button.getBoundingClientRect().width > 0);
-          frozenTag = frozen ? frozen.tagName : "";
-          if (buttonVisible) {
-            const hitboxStart = hitbox.getBoundingClientRect().left;
-            const buttonStart = button.getBoundingClientRect().left;
-            await new Promise((resolve) => setTimeout(resolve, 120));
-            const hitboxDelta = hitbox.getBoundingClientRect().left - hitboxStart;
-            const buttonDelta = button.getBoundingClientRect().left - buttonStart;
-            selectedFreezeDrift = Math.max(Math.abs(hitboxDelta), Math.abs(buttonDelta));
-          }
+        const canvasRect = canvas.getBoundingClientRect();
+        const elapsed = Date.now() - firstBarrageStartedAt;
+        const expectedWidth = 208;
+        const expectedLeft = canvasRect.right
+          - (canvasRect.width + expectedWidth) * elapsed / 4_000;
+        const pointerX = expectedLeft + expectedWidth / 2;
+        const pointerY = canvasRect.top + 24;
+        const hoverStartedAt = performance.now();
+        canvas.dispatchEvent(new PointerEvent("pointermove", {
+          bubbles: true,
+          composed: true,
+          clientX: pointerX,
+          clientY: pointerY,
+          pointerType: "mouse"
+        }));
+        for (let attempt = 0; attempt < 40 && !document.querySelector(
+          "[data-bcp-douyin-interaction-card='true']:not([hidden])"
+        ); attempt += 1) {
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+        }
+        await new Promise((resolve) => setTimeout(resolve, 40));
 
-          const controls = document.createElement("div");
-          Object.assign(controls.style, {
-            position: "fixed",
-            left: "20px",
-            bottom: "20px",
-            zIndex: "1001"
-          });
-          const input = document.createElement("textarea");
-          input.placeholder = "说点什么";
-          input.style.width = "180px";
-          input.style.height = "40px";
-          const send = document.createElement("button");
-          send.dataset.e2e = "chat-room-send";
-          send.textContent = "发送";
-          input.addEventListener("keydown", (event) => {
-            if (event.key === "Enter") {
-              sentValue = input.value;
-              input.value = "";
-            }
-          });
-          controls.append(input, send);
-          document.body.appendChild(controls);
-          if (button) {
-            button.click();
-            await new Promise((resolve) => setTimeout(resolve, 260));
-            const resuming = document.querySelector(".bcp-one-resuming");
-            resumedLeft = resuming ? resuming.getBoundingClientRect().left : null;
-            await new Promise((resolve) => setTimeout(resolve, 220));
-            workerCanvasRestored = getComputedStyle(canvas).visibility !== "hidden";
-            workerOverlaysCleared = document.querySelectorAll(
-              "[data-bcp-douyin-worker-overlay='true']"
-            ).length === 0;
-            workerTrackResumed = Boolean(
-              hitbox.isConnected && workerAnimation && workerAnimation.playState === "running"
-            );
-          }
-          inputValue = input.value;
-          inputFocusedAfterSend = document.activeElement === input;
-          controls.remove();
+        const card = document.querySelector(
+          "[data-bcp-douyin-interaction-card='true']:not([hidden])"
+        );
+        const button = card && card.querySelector(".bcp-douyin-button");
+        const cardRect = card && card.getBoundingClientRect();
+        const hoverLatency = card ? performance.now() - hoverStartedAt : null;
+        const buttonVisible = Boolean(button && button.getBoundingClientRect().width > 0);
+        const previewText = card
+          ? card.querySelector(".bcp-douyin-preview").textContent
+          : "";
+        const previewImageCount = card
+          ? card.querySelectorAll(".bcp-douyin-preview img").length
+          : 0;
+        const cardMessage = button
+          ? String(button.getAttribute("aria-label") || "").replace(/^弹幕加一：/, "")
+          : "";
+        await new Promise((resolve) => setTimeout(resolve, 160));
+        const stableRect = card && card.getBoundingClientRect();
+        const cardDrift = cardRect && stableRect
+          ? Math.max(Math.abs(stableRect.left - cardRect.left), Math.abs(stableRect.top - cardRect.top))
+          : null;
+
+        const controls = document.createElement("div");
+        Object.assign(controls.style, {
+          position: "fixed",
+          left: "20px",
+          bottom: "20px",
+          zIndex: "1001"
+        });
+        const input = document.createElement("textarea");
+        input.placeholder = "说点什么";
+        input.style.width = "180px";
+        input.style.height = "40px";
+        const send = document.createElement("button");
+        send.dataset.e2e = "chat-room-send";
+        send.textContent = "发送";
+        let sentValue = "";
+        const consumeInput = () => {
+          sentValue = input.value;
+          input.value = "";
+        };
+        input.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") consumeInput();
+        });
+        send.addEventListener("click", consumeInput);
+        controls.append(input, send);
+        document.body.appendChild(controls);
+        if (button) {
+          button.click();
+          await new Promise((resolve) => setTimeout(resolve, 520));
         }
 
         const result = {
@@ -450,36 +405,32 @@ async function inspect() {
           transferStayedNative: transferResult !== null,
           mainThreadCanvasMethodsUntouched:
             CanvasRenderingContext2D.prototype.fillText.name !== "bulletPlusOneCanvasText",
-          hitboxText: hitbox && hitbox.dataset.bcpDouyinCanvasText,
-          hitboxTrackIds: hitbox && hitbox.dataset.bcpDouyinCanvasTrackIds,
-          hitboxImageCount: hitbox && hitbox.dataset.bcpDouyinCanvasImageCount,
-          hitboxVelocityX: hitbox && hitbox.dataset.bcpDouyinCanvasVelocityX,
-          hitboxRect,
-          hoverLatency,
-          frozenStartLeft,
-          frozenRect,
-          frozenBackingSize,
-          frozenAspectError,
-          frozenWithinCanvas,
-          resumedLeft,
+          cardVisible: Boolean(card),
           buttonVisible,
-          frozenTag,
-          inputValue,
-          inputFocusedAfterSend,
+          hoverLatency,
+          cardRect: cardRect ? [cardRect.left, cardRect.top, cardRect.width, cardRect.height] : null,
+          cardDrift,
+          previewText,
+          previewImageCount,
+          cardMessage,
           sentValue,
-          workerTrackPaused,
-          otherWorkerTrackStayedRunning,
-          workerStopWasNotSent,
-          selectedFreezeDrift,
-          workerCanvasHidden,
-          workerOverlayCount,
-          selectedOverlayTag,
-          selectedOverlayUsedFallback,
-          selectedOverlayFailure,
-          workerCanvasRestored,
-          workerOverlaysCleared,
-          workerTrackResumed
+          inputValue: input.value,
+          inputFocusedAfterSend: document.activeElement === input,
+          nativeCanvasUntouched: getComputedStyle(canvas).visibility !== "hidden"
+            && getComputedStyle(canvas).display !== "none",
+          workerStopWasNotSent: !workerControls.some(
+            (message) => message && message.observedMethod === "stop"
+          ),
+          trackerDomNodeCount: document.querySelectorAll(
+            "[data-bcp-douyin-canvas='true'],[data-bcp-douyin-worker-overlay]"
+          ).length,
+          legacyFreezeNodeCount: document.querySelectorAll(
+            ".bcp-one-frozen,.bcp-one-resuming"
+          ).length,
+          expectedNativeTravelDuringCardCheck: (canvasRect.width + expectedWidth) * 160 / 4_000,
+          cardClearedAfterSend: Boolean(card && card.hidden)
         };
+        controls.remove();
         channel.terminate();
         URL.revokeObjectURL(workerUrl);
         host.remove();
@@ -544,7 +495,9 @@ async function inspect() {
         .join(" | ").slice(0, 400);
       return item;
     });
-    const captured = Array.from(document.querySelectorAll("[data-bcp-douyin-canvas='true']"))
+    const captured = Array.from(document.querySelectorAll(
+      "[data-bcp-douyin-interaction-card='true'],[data-bcp-douyin-canvas='true']"
+    ))
       .slice(0, 100).map(describe);
     const resources = performance.getEntriesByType("resource")
       .map((entry) => entry.name)
@@ -565,7 +518,9 @@ async function inspect() {
       movingText,
       canvasLike,
       captured,
-      extensionButtonCount: document.querySelectorAll(".bcp-one-button").length,
+      extensionButtonCount: document.querySelectorAll(
+        ".bcp-one-button,.bcp-douyin-button"
+      ).length,
       activeElement: document.activeElement ? {
         tag: document.activeElement.tagName,
         className: typeof document.activeElement.className === "string" ? document.activeElement.className : "",
