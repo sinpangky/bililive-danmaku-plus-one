@@ -906,19 +906,30 @@
       return null;
     }
 
+    const visibleLeft = Math.max(rect.left, sourceRect.left);
+    const visibleTop = Math.max(rect.top, sourceRect.top);
+    const visibleRight = Math.min(rect.right, sourceRect.right);
+    const visibleBottom = Math.min(rect.bottom, sourceRect.bottom);
+    const visibleWidth = visibleRight - visibleLeft;
+    const visibleHeight = visibleBottom - visibleTop;
+    if (visibleWidth <= 0 || visibleHeight <= 0) {
+      return null;
+    }
+
     const scaleX = source.width / sourceRect.width;
     const scaleY = source.height / sourceRect.height;
-    const sourceX = Math.max(0, (rect.left - sourceRect.left) * scaleX);
-    const sourceY = Math.max(0, (rect.top - sourceRect.top) * scaleY);
-    const sourceWidth = Math.min(rect.width * scaleX, source.width - sourceX);
-    const sourceHeight = Math.min(rect.height * scaleY, source.height - sourceY);
+    const sourceX = (visibleLeft - sourceRect.left) * scaleX;
+    const sourceY = (visibleTop - sourceRect.top) * scaleY;
+    const sourceWidth = Math.min(visibleWidth * scaleX, source.width - sourceX);
+    const sourceHeight = Math.min(visibleHeight * scaleY, source.height - sourceY);
     if (sourceWidth <= 0 || sourceHeight <= 0) {
       return null;
     }
 
     const snapshot = document.createElement("canvas");
-    snapshot.width = Math.max(1, Math.ceil(sourceWidth));
-    snapshot.height = Math.max(1, Math.ceil(sourceHeight));
+    const pixelScale = Math.max(1, Math.min(4, Math.max(scaleX, scaleY)));
+    snapshot.width = Math.max(1, Math.round(visibleWidth * pixelScale));
+    snapshot.height = Math.max(1, Math.round(visibleHeight * pixelScale));
     const context = snapshot.getContext("2d");
     if (!context) {
       return null;
@@ -940,16 +951,24 @@
     }
     snapshot.dataset.bcpDouyinSnapshot = "true";
     snapshot.setAttribute("aria-hidden", "true");
-    return snapshot;
+    return {
+      element: snapshot,
+      rect: {
+        left: visibleLeft,
+        top: visibleTop,
+        width: visibleWidth,
+        height: visibleHeight
+      }
+    };
   }
 
   function freezeOverlayCandidate(candidate) {
     const rect = candidate.getBoundingClientRect();
     const computed = getComputedStyle(candidate);
     const isDouyinCanvas = candidate.dataset.bcpDouyinCanvas === "true";
-    const clone = isDouyinCanvas
-      ? createDouyinCanvasSnapshot(candidate, rect) || candidate.cloneNode(true)
-      : candidate.cloneNode(true);
+    const snapshot = isDouyinCanvas ? createDouyinCanvasSnapshot(candidate, rect) : null;
+    const clone = snapshot ? snapshot.element : candidate.cloneNode(true);
+    const frozenRect = snapshot ? snapshot.rect : rect;
     const copiedProperties = [
       "display",
       "box-sizing",
@@ -1014,12 +1033,12 @@
     }
 
     clone.style.setProperty("position", "fixed", "important");
-    clone.style.setProperty("left", `${rect.left}px`, "important");
-    clone.style.setProperty("top", `${rect.top}px`, "important");
+    clone.style.setProperty("left", `${frozenRect.left}px`, "important");
+    clone.style.setProperty("top", `${frozenRect.top}px`, "important");
     clone.style.setProperty("right", "auto", "important");
     clone.style.setProperty("bottom", "auto", "important");
-    clone.style.setProperty("width", `${rect.width}px`, "important");
-    clone.style.setProperty("height", `${rect.height}px`, "important");
+    clone.style.setProperty("width", `${frozenRect.width}px`, "important");
+    clone.style.setProperty("height", `${frozenRect.height}px`, "important");
     clone.style.setProperty("margin", "0", "important");
     clone.style.setProperty("transform", "none", "important");
     clone.style.setProperty("animation", "none", "important");

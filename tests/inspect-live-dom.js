@@ -112,18 +112,17 @@ async function inspect() {
         Object.assign(host.style, {
           position: "fixed",
           left: "40px",
-          top: "80px",
+          top: "60px",
           width: "640px",
-          height: "240px",
+          height: "360px",
           zIndex: "1000",
           pointerEvents: "none"
         });
         const canvas = document.createElement("canvas");
         canvas.width = 1280;
-        canvas.height = 480;
+        canvas.height = 720;
         canvas.style.width = "640px";
-        canvas.style.height = "240px";
-        host.appendChild(canvas);
+        canvas.style.height = "360px";
         document.body.appendChild(host);
 
         const chatMessage = document.createElement("div");
@@ -143,6 +142,7 @@ async function inspect() {
         if (typeof canvas.transferControlToOffscreen === "function") {
           transferResult = canvas.transferControlToOffscreen();
         }
+        host.appendChild(canvas);
         const context = canvas.getContext("2d");
         context.font = "40px Arial";
         context.textBaseline = "top";
@@ -161,7 +161,7 @@ async function inspect() {
         emojiContext.fillStyle = "#111";
         emojiContext.fillRect(9, 11, 5, 5);
         emojiContext.fillRect(26, 11, 5, 5);
-        for (const left of [760, 750, 740, 730, 720]) {
+        for (const left of [1240, 1230, 1220, 1210, 1200]) {
           context.clearRect(0, 0, canvas.width, canvas.height);
           context.strokeText(firstText, left, 160);
           context.fillText(firstText, left, 160);
@@ -178,6 +178,10 @@ async function inspect() {
         let hitboxRect = null;
         let hoverLatency = null;
         let frozenStartLeft = null;
+        let frozenRect = null;
+        let frozenBackingSize = null;
+        let frozenAspectError = null;
+        let frozenWithinCanvas = null;
         let resumedLeft = null;
         let inputValue = "";
         let inputFocusedAfterSend = null;
@@ -199,6 +203,19 @@ async function inspect() {
           const frozen = document.querySelector(".bcp-one-frozen");
           hoverLatency = frozen ? performance.now() - hoverStartedAt : null;
           frozenStartLeft = frozen ? frozen.getBoundingClientRect().left : null;
+          if (frozen instanceof HTMLCanvasElement) {
+            const frozenBounds = frozen.getBoundingClientRect();
+            const canvasBounds = canvas.getBoundingClientRect();
+            frozenRect = [frozenBounds.left, frozenBounds.top, frozenBounds.width, frozenBounds.height];
+            frozenBackingSize = [frozen.width, frozen.height];
+            frozenAspectError = Math.abs(
+              (frozen.width / frozen.height) / (frozenBounds.width / frozenBounds.height) - 1
+            );
+            frozenWithinCanvas = frozenBounds.left >= canvasBounds.left - 1
+              && frozenBounds.top >= canvasBounds.top - 1
+              && frozenBounds.right <= canvasBounds.right + 1
+              && frozenBounds.bottom <= canvasBounds.bottom + 1;
+          }
           buttonVisible = Boolean(button && !button.hidden && button.getBoundingClientRect().width > 0);
           frozenTag = frozen ? frozen.tagName : "";
 
@@ -245,6 +262,10 @@ async function inspect() {
           hitboxRect,
           hoverLatency,
           frozenStartLeft,
+          frozenRect,
+          frozenBackingSize,
+          frozenAspectError,
+          frozenWithinCanvas,
           resumedLeft,
           buttonVisible,
           frozenTag,

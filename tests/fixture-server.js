@@ -369,13 +369,44 @@ const douyinHtml = String.raw`<!doctype html>
     <textarea placeholder="说点什么" aria-label="弹幕输入框"></textarea>
     <button class="sendButton" type="button">发送</button>
     <script>
-      const canvas = document.querySelector("canvas");
-      const context = canvas.getContext("2d");
+      const parameters = new URLSearchParams(location.search);
+      const spaMode = parameters.get("spa") === "1";
+      const edgeMode = parameters.get("edge") === "1";
+      const canvasHost = document.querySelector(".CanvasDanmakuPlugin");
+      let canvas = canvasHost.querySelector("canvas");
+      let transferResult = "not-called";
+
+      if (spaMode) {
+        history.pushState({}, "", "/123456?platform=douyin&spa=1" + (edgeMode ? "&edge=1" : ""));
+        canvasHost.replaceChildren();
+        canvas = document.createElement("canvas");
+        canvas.width = 1440;
+        canvas.height = 813;
+        if (typeof canvas.transferControlToOffscreen === "function") {
+          try {
+            transferResult = canvas.transferControlToOffscreen();
+          } catch (error) {
+            transferResult = error;
+          }
+        }
+        document.body.dataset.douyinDetachedTransferBlocked = String(transferResult === null);
+        canvasHost.appendChild(canvas);
+      }
+
+      let context = null;
+      try {
+        context = canvas.getContext("2d");
+      } catch (error) {
+        document.body.dataset.douyinCanvasContextError = error.name || "Error";
+      }
       const input = document.querySelector("textarea");
       const send = document.querySelector(".sendButton");
-      let x = 560;
+      let x = edgeMode ? canvas.width - 40 : canvas.width * 0.7;
 
       function draw() {
+        if (!context) {
+          return;
+        }
         context.clearRect(0, 0, canvas.width, canvas.height);
         context.font = "700 24px sans-serif";
         context.fillStyle = "#ffffff";
@@ -383,10 +414,12 @@ const douyinHtml = String.raw`<!doctype html>
         context.lineWidth = 2;
         context.strokeText("抖音画面弹幕", x, 130);
         context.fillText("抖音画面弹幕", x, 130);
-        x = x > -200 ? x - 1.5 : 800;
+        x = x > -200 ? x - 1.5 : canvas.width;
         requestAnimationFrame(draw);
       }
-      requestAnimationFrame(draw);
+      if (context) {
+        requestAnimationFrame(draw);
+      }
 
       send.addEventListener("click", () => {
         document.body.dataset.douyinSent = input.value;
@@ -415,8 +448,30 @@ const douyinHtml = String.raw`<!doctype html>
         const frozen = document.querySelector(".bcp-one-frozen");
         if (visibleButton && frozen) {
           document.body.dataset.douyinCanvasCaptured = String(
-            frozen.textContent.includes("抖音画面弹幕")
+            frozen instanceof HTMLCanvasElement || frozen.textContent.includes("抖音画面弹幕")
           );
+          if (frozen instanceof HTMLCanvasElement) {
+            const frozenRect = frozen.getBoundingClientRect();
+            const canvasRect = canvas.getBoundingClientRect();
+            const backingAspect = frozen.width / frozen.height;
+            const cssAspect = frozenRect.width / frozenRect.height;
+            document.body.dataset.douyinFrozenAspectStable = String(
+              Number.isFinite(backingAspect)
+                && Number.isFinite(cssAspect)
+                && Math.abs(backingAspect / cssAspect - 1) < 0.03
+            );
+            document.body.dataset.douyinFrozenWithinCanvas = String(
+              frozenRect.left >= canvasRect.left - 1
+                && frozenRect.top >= canvasRect.top - 1
+                && frozenRect.right <= canvasRect.right + 1
+                && frozenRect.bottom <= canvasRect.bottom + 1
+            );
+            document.body.dataset.douyinFrozenCssSize = [
+              Math.round(frozenRect.width),
+              Math.round(frozenRect.height)
+            ].join("x");
+            document.body.dataset.douyinFrozenBackingSize = [frozen.width, frozen.height].join("x");
+          }
           visibleButton.click();
         }
       }, 100);

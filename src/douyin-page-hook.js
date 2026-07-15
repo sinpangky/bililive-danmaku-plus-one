@@ -59,6 +59,31 @@
     return false;
   }
 
+  function isLikelyDetachedDanmakuCanvas(canvas) {
+    if (!(canvas instanceof HTMLCanvasElement) || canvas.isConnected) {
+      return false;
+    }
+
+    const marker = elementMarker(canvas);
+    if (/(video|background|gift|alpha|effect|lottie|avatar)/i.test(marker)) {
+      return false;
+    }
+
+    const inLiveRoom = /^\/\d+\/?$/.test(globalThis.location && globalThis.location.pathname || "")
+      || Boolean(document.querySelector("#DanmakuLayout, [class*='CanvasDanmakuPlugin']"));
+    if (!inLiveRoom) {
+      return false;
+    }
+
+    const width = Number(canvas.width);
+    const height = Number(canvas.height);
+    const aspectRatio = height > 0 ? width / height : 0;
+    return width >= 640
+      && height >= 240
+      && aspectRatio >= 1.7
+      && aspectRatio <= 1.9;
+  }
+
   function ensureCanvasId(canvas) {
     if (!canvas.dataset.bcpDouyinCanvasSourceId) {
       canvas.dataset.bcpDouyinCanvasSourceId = String(nextCanvasId);
@@ -79,7 +104,7 @@
       configurable: true,
       writable: true,
       value: function bulletPlusOneTransferControlToOffscreen() {
-        if (isDanmakuCanvas(this)) {
+        if (isDanmakuCanvas(this) || isLikelyDetachedDanmakuCanvas(this)) {
           return null;
         }
         return Reflect.apply(original, this, arguments);
