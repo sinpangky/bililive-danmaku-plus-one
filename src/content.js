@@ -612,11 +612,17 @@
   }
 
   function isInsideFrozenHoverZone(x, y) {
+    const workerCandidate = state.candidate
+      && state.candidate.dataset.bcpDouyinWorker === "true"
+      ? state.candidate
+      : null;
+    const frozenTarget = state.frozenClone && state.frozenClone.isConnected
+      ? state.frozenClone
+      : workerCandidate;
     return state.candidateKind === "overlay"
-      && state.frozenClone
-      && state.frozenClone.isConnected
+      && frozenTarget
       && pointInside(
-        state.frozenClone.getBoundingClientRect(),
+        frozenTarget.getBoundingClientRect(),
         x,
         y,
         OVERLAY_HOVER_PADDING
@@ -968,6 +974,14 @@
     const isDouyinCanvas = candidate.dataset.bcpDouyinCanvas === "true";
     const isDouyinWorker = candidate.dataset.bcpDouyinWorker === "true";
     if (isDouyinWorker) {
+      window.postMessage({
+        source: "bullet-plus-one-content",
+        type: "freeze-douyin-canvas",
+        trackId: candidate.dataset.bcpDouyinCanvasId,
+        trackIds: candidate.dataset.bcpDouyinCanvasTrackIds,
+        instanceId: candidate.dataset.bcpDouyinCanvasInstanceId,
+        text: candidate.dataset.bcpDouyinCanvasText || ""
+      }, "*");
       return;
     }
     const snapshot = isDouyinCanvas ? createDouyinCanvasSnapshot(candidate, rect) : null;
@@ -1090,9 +1104,6 @@
     const frozenClone = state.frozenClone;
     const isDouyinCanvas = candidate && candidate.dataset.bcpDouyinCanvas === "true";
     const releaseDouyinTracks = () => {
-      if (candidate && candidate.dataset.bcpDouyinWorker === "true") {
-        return;
-      }
       window.postMessage({
         source: "bullet-plus-one-content",
         type: "unfreeze-douyin-canvas",

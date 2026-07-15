@@ -201,6 +201,7 @@
     workerTracks.delete(track.id);
     if (track.instance && track.instance.tracks) {
       track.instance.tracks.delete(track.id);
+      removeWorkerFreezeOverlay(track.instance, track.id);
     }
     if (track.hitbox) {
       track.hitbox.remove();
@@ -211,6 +212,7 @@
     if (!instance) {
       return;
     }
+    endWorkerFreeze(instance, false);
     if (instance.queueTimer) {
       clearTimeout(instance.queueTimer);
       instance.queueTimer = 0;
@@ -335,7 +337,15 @@
     hitbox.setAttribute("aria-hidden", "true");
     document.documentElement.appendChild(hitbox);
 
-    const track = { id: trackId, instance, hitbox, animation: null, removed: false };
+    const track = {
+      id: trackId,
+      instance,
+      hitbox,
+      animation: null,
+      entry,
+      description,
+      removed: false
+    };
     instance.tracks.set(trackId, track);
     workerTracks.set(trackId, track);
     try {
@@ -405,6 +415,505 @@
     }
   }
 
+  function inlineStyleSnapshot(element, property) {
+    return {
+      value: element.style.getPropertyValue(property),
+      priority: element.style.getPropertyPriority(property)
+    };
+  }
+
+  function restoreInlineStyle(element, property, snapshot) {
+    if (!element || !snapshot) {
+      return;
+    }
+    if (snapshot.value) {
+      element.style.setProperty(property, snapshot.value, snapshot.priority);
+    } else {
+      element.style.removeProperty(property);
+    }
+  }
+
+  function workerCssBox(value) {
+    const edges = boxEdges(value);
+    return `${edges.top}px ${edges.right}px ${edges.bottom}px ${edges.left}px`;
+  }
+
+  function workerCssPaint(value, fallback) {
+    if (typeof value === "string" && value) {
+      return value;
+    }
+    if (!value || typeof value !== "object" || !Array.isArray(value.gradientPieces)) {
+      return fallback;
+    }
+    const stops = value.gradientPieces
+      .filter((piece) => Array.isArray(piece) && piece.length >= 2)
+      .map((piece) => `${piece[1]} ${Math.max(0, Math.min(1, numberOr(piece[0], 0))) * 100}%`);
+    if (!stops.length) {
+      return fallback;
+    }
+    return value.type === "radial"
+      ? `radial-gradient(circle, ${stops.join(", ")})`
+      : `linear-gradient(90deg, ${stops.join(", ")})`;
+  }
+
+  function workerCssSolidPaint(value, fallback) {
+    if (typeof value === "string" && value) {
+      return value;
+    }
+    const firstStop = value && Array.isArray(value.gradientPieces)
+      ? value.gradientPieces.find((piece) => Array.isArray(piece) && typeof piece[1] === "string")
+      : null;
+    return firstStop ? firstStop[1] : fallback;
+  }
+
+  function applyWorkerFallbackBoxStyle(element, style, isRoot) {
+    element.style.setProperty("box-sizing", "border-box", "important");
+    element.style.setProperty("padding", workerCssBox(style.padding), "important");
+    if (!isRoot) {
+      element.style.setProperty("margin", workerCssBox(style.margin), "important");
+    }
+    const background = workerCssPaint(style.backgroundColor, "transparent");
+    element.style.setProperty("background", background, "important");
+    const borderWidth = Math.max(0, numberOr(style.borderWidth, 0));
+    if (borderWidth > 0) {
+      element.style.setProperty("border", `${borderWidth}px solid ${workerCssSolidPaint(style.borderColor, "transparent")}`, "important");
+    }
+    const borderRadius = Math.max(0, numberOr(style.borderRadius, 0));
+    const borderRadiusRatio = Math.max(0, numberOr(style.borderRadiusRatio, 0));
+    if (borderRadius > 0) {
+      element.style.setProperty("border-radius", `${borderRadius}px`, "important");
+    } else if (borderRadiusRatio > 0) {
+      element.style.setProperty("border-radius", `${Math.min(50, borderRadiusRatio * 100)}%`, "important");
+    }
+    if (typeof style.opacity === "number") {
+      element.style.setProperty("opacity", String(Math.max(0, Math.min(1, style.opacity))), "important");
+    }
+  }
+
+  function createWorkerFallbackContent(item, inherited) {
+    if (!item || typeof item !== "object") {
+      return null;
+    }
+    const style = Object.assign({}, inherited, item);
+    const margin = workerCssBox(style.margin);
+    if (item.type === "text") {
+      const element = document.createElement("span");
+      element.textContent = item.text == null ? "" : String(item.text);
+      element.style.setProperty("display", "inline-block", "important");
+      element.style.setProperty("flex", "0 0 auto", "important");
+      element.style.setProperty("margin", margin, "important");
+      element.style.setProperty("padding", "0", "important");
+      element.style.setProperty("font-family", style.fontFamily || "Arial", "important");
+      element.style.setProperty("font-size", `${Math.max(8, numberOr(style.fontSize, 20))}px`, "important");
+      element.style.setProperty("font-weight", String(style.fontWeight || 400), "important");
+      element.style.setProperty("line-height", "1", "important");
+      element.style.setProperty("white-space", "pre", "important");
+      element.style.setProperty("color", workerCssSolidPaint(style.color, "#ffffff"), "important");
+      const strokeWidth = Math.max(0, numberOr(style.strokeWidth, 1));
+      const stroke = workerCssSolidPaint(style.strokeColor, "rgba(0, 0, 0, 0.8)");
+      if (strokeWidth > 0 && stroke !== "transparent") {
+        element.style.setProperty("-webkit-text-stroke", `${strokeWidth}px ${stroke}`, "important");
+      }
+      return element;
+    }
+    if (item.type === "image") {
+      const width = Math.max(1, numberOr(style.width, numberOr(style.height, numberOr(style.fontSize, 20))));
+      const height = Math.max(1, numberOr(style.height, numberOr(style.fontSize, 20)));
+      const element = typeof style.src === "string" && style.src
+        ? document.createElement("img")
+        : document.createElement("span");
+      if (element instanceof HTMLImageElement) {
+        element.src = style.src;
+        element.alt = "";
+        element.draggable = false;
+        element.style.setProperty("object-fit", "contain", "important");
+      }
+      element.style.setProperty("display", "inline-block", "important");
+      element.style.setProperty("flex", "0 0 auto", "important");
+      element.style.setProperty("width", `${width}px`, "important");
+      element.style.setProperty("height", `${height}px`, "important");
+      element.style.setProperty("margin", margin, "important");
+      element.style.setProperty("padding", "0", "important");
+      return element;
+    }
+
+    const element = document.createElement("span");
+    element.style.setProperty("align-items", "flex-start", "important");
+    element.style.setProperty("display", "inline-flex", "important");
+    element.style.setProperty("flex-flow", "row wrap", "important");
+    element.style.setProperty("flex", item.isInline ? "0 0 auto" : "0 0 100%", "important");
+    applyWorkerFallbackBoxStyle(element, style, false);
+    if (numberOr(style.width, 0) > 0) {
+      element.style.setProperty("width", `${numberOr(style.width, 0)}px`, "important");
+    }
+    if (numberOr(style.height, 0) > 0) {
+      element.style.setProperty("height", `${numberOr(style.height, 0)}px`, "important");
+    }
+    const content = Array.isArray(item.content) ? item.content : [];
+    content.forEach((child) => {
+      const childElement = createWorkerFallbackContent(child, style);
+      if (childElement) {
+        element.appendChild(childElement);
+      }
+    });
+    return element;
+  }
+
+  function workerFallbackOverlay(track, rect) {
+    const description = track.description || {};
+    const firstText = description.firstText || {};
+    const options = track.entry && track.entry.options || {};
+    const defaults = {
+      fontSize: firstText.fontSize || 20,
+      fontWeight: firstText.fontWeight || 400,
+      fontFamily: firstText.fontFamily || "Arial",
+      color: firstText.color || "#ffffff",
+      strokeColor: firstText.strokeColor || "rgba(0, 0, 0, 0.8)"
+    };
+    const element = document.createElement("span");
+    element.style.setProperty("align-items", "flex-start", "important");
+    element.style.setProperty("display", "flex", "important");
+    element.style.setProperty("flex-flow", "row wrap", "important");
+    element.style.setProperty("line-height", "1", "important");
+    element.style.setProperty("white-space", "nowrap", "important");
+    element.style.setProperty("overflow", "visible", "important");
+    applyWorkerFallbackBoxStyle(element, Object.assign({}, defaults, options), true);
+    const content = Array.isArray(options.content) ? options.content : [];
+    content.forEach((item) => {
+      const child = createWorkerFallbackContent(item, Object.assign({}, defaults, options));
+      if (child) {
+        element.appendChild(child);
+      }
+    });
+    if (!element.childElementCount && description.text) {
+      element.appendChild(createWorkerFallbackContent({
+        type: "text",
+        text: description.text,
+        margin: 0
+      }, defaults));
+    }
+    return {
+      element,
+      rect,
+      offsetX: 0,
+      offsetY: 0,
+      fallback: true,
+      contentOpacity: typeof options.opacity === "number"
+        ? Math.max(0, Math.min(1, options.opacity))
+        : 1
+    };
+  }
+
+  function workerCanvasSnapshotOverlay(track, hitboxRect) {
+    const fail = (reason) => {
+      track.snapshotFailure = reason;
+      return null;
+    };
+    const canvas = track.instance && track.instance.canvas;
+    if (!(canvas instanceof HTMLCanvasElement) || canvas.width < 1 || canvas.height < 1) {
+      return fail("invalid-source");
+    }
+    const canvasRect = canvas.getBoundingClientRect();
+    if (canvasRect.width < 1 || canvasRect.height < 1) {
+      return fail("invalid-source-rect");
+    }
+    const fullyVisible = hitboxRect.left >= canvasRect.left
+      && hitboxRect.top >= canvasRect.top
+      && hitboxRect.right <= canvasRect.right
+      && hitboxRect.bottom <= canvasRect.bottom;
+    if (!fullyVisible) {
+      return fail("partially-visible");
+    }
+
+    const scaleX = canvas.width / canvasRect.width;
+    const scaleY = canvas.height / canvasRect.height;
+    const sourceX = (hitboxRect.left - canvasRect.left) * scaleX;
+    const sourceY = (hitboxRect.top - canvasRect.top) * scaleY;
+    const sourceWidth = hitboxRect.width * scaleX;
+    const sourceHeight = hitboxRect.height * scaleY;
+    if (![sourceX, sourceY, sourceWidth, sourceHeight].every(Number.isFinite)
+        || sourceWidth <= 0 || sourceHeight <= 0) {
+      return fail("invalid-crop");
+    }
+
+    const snapshot = document.createElement("canvas");
+    const pixelScale = Math.max(1, Math.min(4, Math.max(scaleX, scaleY)));
+    snapshot.width = Math.max(1, Math.round(hitboxRect.width * pixelScale));
+    snapshot.height = Math.max(1, Math.round(hitboxRect.height * pixelScale));
+    const context = snapshot.getContext("2d");
+    if (!context) {
+      return fail("missing-context");
+    }
+    try {
+      context.drawImage(
+        canvas,
+        sourceX,
+        sourceY,
+        sourceWidth,
+        sourceHeight,
+        0,
+        0,
+        snapshot.width,
+        snapshot.height
+      );
+    } catch (error) {
+      return fail(`draw-error:${String(error && error.message || error)}`);
+    }
+
+    let hasVisiblePixels = true;
+    try {
+      const pixels = context.getImageData(0, 0, snapshot.width, snapshot.height).data;
+      hasVisiblePixels = false;
+      for (let index = 3; index < pixels.length; index += 4) {
+        if (pixels[index] > 2) {
+          hasVisiblePixels = true;
+          break;
+        }
+      }
+    } catch (_error) {
+      // A tainted but successfully drawn snapshot is still useful visually.
+    }
+    if (!hasVisiblePixels) {
+      return fail("transparent-crop");
+    }
+    track.snapshotFailure = "";
+    return {
+      element: snapshot,
+      rect: hitboxRect,
+      offsetX: 0,
+      offsetY: 0,
+      fallback: false
+    };
+  }
+
+  function createWorkerFreezeOverlay(session, track) {
+    if (!track || track.removed || !track.hitbox || !track.hitbox.isConnected) {
+      return null;
+    }
+    const rect = track.hitbox.getBoundingClientRect();
+    const canvasRect = session.canvas.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1
+        || rect.right <= canvasRect.left || rect.left >= canvasRect.right
+        || rect.bottom <= canvasRect.top || rect.top >= canvasRect.bottom) {
+      return null;
+    }
+    const overlay = workerCanvasSnapshotOverlay(track, rect)
+      || workerFallbackOverlay(track, rect);
+    const element = overlay.element;
+    element.dataset.bcpDouyinWorkerOverlay = "true";
+    element.dataset.bcpDouyinWorkerOverlayTrackId = String(track.id);
+    element.dataset.bcpDouyinWorkerOverlayFallback = String(overlay.fallback);
+    if (track.snapshotFailure) {
+      element.dataset.bcpDouyinWorkerOverlayFailure = track.snapshotFailure;
+    }
+    if (track.id === session.selectedTrackId) {
+      element.dataset.bcpDouyinWorkerOverlaySelected = "true";
+    }
+    element.setAttribute("aria-hidden", "true");
+    element.style.setProperty("position", "fixed", "important");
+    element.style.setProperty("width", `${overlay.rect.width}px`, "important");
+    element.style.setProperty("height", `${overlay.rect.height}px`, "important");
+    element.style.setProperty("margin", "0", "important");
+    element.style.setProperty("transform", "none", "important");
+    element.style.setProperty("animation", "none", "important");
+    element.style.setProperty("transition", "none", "important");
+    element.style.setProperty("visibility", "visible", "important");
+    element.style.setProperty("pointer-events", "none", "important");
+    element.style.setProperty("user-select", "none", "important");
+    element.style.setProperty("z-index", "2147483645", "important");
+    const canvasOpacity = Math.max(0, Math.min(1, numberOr(session.canvasOpacity, 1)));
+    const contentOpacity = Math.max(0, Math.min(1, numberOr(overlay.contentOpacity, 1)));
+    element.style.setProperty("opacity", String(canvasOpacity * contentOpacity), "important");
+    if (session.canvasFilter && session.canvasFilter !== "none") {
+      element.style.setProperty("filter", session.canvasFilter, "important");
+    }
+    positionWorkerFreezeOverlay(overlay, overlay.rect, canvasRect);
+    document.documentElement.appendChild(element);
+    const record = Object.assign({ track }, overlay);
+    session.overlays.set(track.id, record);
+    return record;
+  }
+
+  function positionWorkerFreezeOverlay(overlay, rect, canvasRect) {
+    overlay.element.style.setProperty("left", `${rect.left + overlay.offsetX}px`, "important");
+    overlay.element.style.setProperty("top", `${rect.top + overlay.offsetY}px`, "important");
+    const clipTop = Math.max(0, Math.min(rect.height, canvasRect.top - rect.top));
+    const clipRight = Math.max(0, Math.min(rect.width, rect.right - canvasRect.right));
+    const clipBottom = Math.max(0, Math.min(rect.height, rect.bottom - canvasRect.bottom));
+    const clipLeft = Math.max(0, Math.min(rect.width, canvasRect.left - rect.left));
+    overlay.element.style.setProperty(
+      "clip-path",
+      `inset(${clipTop}px ${clipRight}px ${clipBottom}px ${clipLeft}px)`,
+      "important"
+    );
+  }
+
+  function removeWorkerFreezeOverlay(instance, trackId) {
+    const session = instance && instance.freezeSession;
+    const overlay = session && session.overlays.get(trackId);
+    if (!overlay) {
+      return;
+    }
+    overlay.element.remove();
+    session.overlays.delete(trackId);
+  }
+
+  function syncWorkerFreeze(session) {
+    if (!session || session.instance.freezeSession !== session) {
+      return;
+    }
+    session.frame = 0;
+    const selectedTrack = session.instance.tracks.get(session.selectedTrackId);
+    if (!selectedTrack || selectedTrack.removed || !selectedTrack.hitbox.isConnected) {
+      endWorkerFreeze(session.instance, false);
+      return;
+    }
+
+    for (const track of session.instance.tracks.values()) {
+      if (!session.overlays.has(track.id)) {
+        createWorkerFreezeOverlay(session, track);
+      }
+    }
+    const canvasRect = session.canvas.getBoundingClientRect();
+    for (const [trackId, overlay] of session.overlays) {
+      const track = session.instance.tracks.get(trackId);
+      if (!track || track.removed || !track.hitbox.isConnected) {
+        overlay.element.remove();
+        session.overlays.delete(trackId);
+        continue;
+      }
+      if (trackId === session.selectedTrackId) {
+        continue;
+      }
+      const rect = track.hitbox.getBoundingClientRect();
+      positionWorkerFreezeOverlay(overlay, rect, canvasRect);
+    }
+    session.frame = requestAnimationFrame(() => syncWorkerFreeze(session));
+  }
+
+  function freezeActiveElapsed(session, now) {
+    if (!session) {
+      return 0;
+    }
+    return session.activeElapsed + (session.activeSince ? now - session.activeSince : 0);
+  }
+
+  function pauseWorkerFreezeClock(instance, now) {
+    const session = instance && instance.freezeSession;
+    if (!session || !session.activeSince) {
+      return;
+    }
+    session.activeElapsed += now - session.activeSince;
+    session.activeSince = 0;
+  }
+
+  function resumeWorkerFreezeClock(instance, now) {
+    const session = instance && instance.freezeSession;
+    if (session && !session.activeSince) {
+      session.activeSince = now;
+    }
+  }
+
+  function beginWorkerFreeze(track) {
+    const instance = track && track.instance;
+    if (!instance || !track.animation || track.removed) {
+      return;
+    }
+    if (instance.freezeSession) {
+      if (instance.freezeSession.selectedTrackId === track.id) {
+        return;
+      }
+      endWorkerFreeze(instance, true);
+    }
+
+    const now = performance.now();
+    const computed = getComputedStyle(instance.canvas);
+    const session = {
+      instance,
+      canvas: instance.canvas,
+      selectedTrackId: track.id,
+      overlays: new Map(),
+      frame: 0,
+      timeout: 0,
+      activeElapsed: 0,
+      activeSince: instance.active ? now : 0,
+      canvasVisibility: inlineStyleSnapshot(instance.canvas, "visibility"),
+      canvasOpacity: computed.opacity,
+      canvasFilter: computed.filter
+    };
+    instance.freezeSession = session;
+    track.hitbox.dataset.bcpDouyinWorkerFrozen = "true";
+    try {
+      track.animation.pause();
+    } catch (_error) {
+      instance.freezeSession = null;
+      delete track.hitbox.dataset.bcpDouyinWorkerFrozen;
+      return;
+    }
+
+    for (const activeTrack of instance.tracks.values()) {
+      createWorkerFreezeOverlay(session, activeTrack);
+    }
+    instance.canvas.style.setProperty("visibility", "hidden", "important");
+    session.frame = requestAnimationFrame(() => syncWorkerFreeze(session));
+    session.timeout = setTimeout(() => endWorkerFreeze(instance, true), 15_000);
+  }
+
+  function endWorkerFreeze(instance, shouldResume) {
+    const session = instance && instance.freezeSession;
+    if (!session) {
+      return;
+    }
+    instance.freezeSession = null;
+    if (session.frame) {
+      cancelAnimationFrame(session.frame);
+    }
+    if (session.timeout) {
+      clearTimeout(session.timeout);
+    }
+    restoreInlineStyle(session.canvas, "visibility", session.canvasVisibility);
+    for (const overlay of session.overlays.values()) {
+      overlay.element.remove();
+    }
+    session.overlays.clear();
+
+    const track = instance.tracks.get(session.selectedTrackId);
+    if (!track || track.removed || !track.animation) {
+      return;
+    }
+    delete track.hitbox.dataset.bcpDouyinWorkerFrozen;
+    if (!shouldResume) {
+      return;
+    }
+
+    const now = performance.now();
+    const currentTime = Math.max(0, numberOr(track.animation.currentTime, 0));
+    const nextTime = currentTime + freezeActiveElapsed(session, now);
+    let endTime = Infinity;
+    try {
+      endTime = numberOr(track.animation.effect.getComputedTiming().endTime, Infinity);
+    } catch (_error) {
+      endTime = Infinity;
+    }
+    if (nextTime >= endTime) {
+      try {
+        track.animation.cancel();
+      } catch (_error) {
+        // The shadow animation may already have completed.
+      }
+      cleanupWorkerTrack(track);
+      return;
+    }
+    try {
+      track.animation.currentTime = nextTime;
+      if (instance.active) {
+        track.animation.play();
+      }
+    } catch (_error) {
+      cleanupWorkerTrack(track);
+    }
+  }
+
   function setWorkerAnimationsPaused(instance, paused) {
     for (const track of instance.tracks.values()) {
       if (!track.animation) {
@@ -413,7 +922,8 @@
       try {
         if (paused) {
           track.animation.pause();
-        } else {
+        } else if (!instance.freezeSession
+            || instance.freezeSession.selectedTrackId !== track.id) {
           track.animation.play();
         }
       } catch (_error) {
@@ -453,7 +963,8 @@
         queue: [],
         queueTimer: 0,
         channelAvailableAt: [],
-        active: true
+        active: true,
+        freezeSession: null
       };
       workerInstances.set(id, instance);
       const barrages = Array.isArray(params.barrages) ? params.barrages : [];
@@ -475,10 +986,12 @@
       clearWorkerInstance(instance);
       workerInstances.delete(id);
     } else if (message.method === "stop") {
+      pauseWorkerFreezeClock(instance, performance.now());
       instance.active = false;
       setWorkerAnimationsPaused(instance, true);
     } else if (message.method === "start") {
       instance.active = true;
+      resumeWorkerFreezeClock(instance, performance.now());
       setWorkerAnimationsPaused(instance, false);
       processWorkerQueue(instance);
     }
@@ -974,6 +1487,19 @@
       .split(",")
       .map((value) => Number(value))
       .filter(Number.isFinite);
+    const instanceId = String(event.data.instanceId || "");
+    const workerInstance = instanceId ? workerInstances.get(instanceId) : null;
+    const workerTrack = trackIds
+      .map((trackId) => workerTracks.get(trackId))
+      .find((track) => track && (!workerInstance || track.instance === workerInstance));
+    if (event.data.type === "freeze-douyin-canvas" && workerTrack) {
+      beginWorkerFreeze(workerTrack);
+      return;
+    }
+    if (event.data.type === "unfreeze-douyin-canvas" && workerInstance) {
+      endWorkerFreeze(workerInstance, true);
+      return;
+    }
     if (!trackIds.length) {
       return;
     }

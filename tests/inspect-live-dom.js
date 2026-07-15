@@ -98,6 +98,13 @@ async function inspect() {
     const sharedSource = readFileSync(path.join(root, "src", "shared.js"), "utf8")
       .replace("    detectPlatform,", `    detectPlatform: () => ${JSON.stringify(injectPlatform)},`);
     const contentSource = readFileSync(path.join(root, "src", "content.js"), "utf8");
+    await send("Page.enable");
+    if (injectPlatform === "douyin") {
+      const pageHookSource = readFileSync(path.join(root, "src", "douyin-page-hook.js"), "utf8");
+      await send("Page.addScriptToEvaluateOnNewDocument", { source: pageHookSource });
+    }
+    await send("Page.navigate", { url: targetUrl });
+    await delay(500);
     await send("Runtime.evaluate", { expression: sharedSource });
     await send("Runtime.evaluate", { expression: contentSource });
     await delay(2_000);
@@ -145,11 +152,120 @@ async function inspect() {
           transferResult = canvas.transferControlToOffscreen();
         }
         host.appendChild(canvas);
-        const channel = new MessageChannel();
+        const workerMain = () => {
+          const instances = new Map();
+          const edges = (value) => {
+            const list = Array.isArray(value) ? value : [value || 0];
+            const top = Number(list[0]) || 0;
+            const right = Number(list[1] == null ? top : list[1]) || 0;
+            const bottom = Number(list[2] == null ? top : list[2]) || 0;
+            const left = Number(list[3] == null ? right : list[3]) || 0;
+            return { top, right, bottom, left };
+          };
+          const flatten = (item, inherited, result) => {
+            if (!item || typeof item !== "object") return;
+            const style = Object.assign({}, inherited, item);
+            if (item.type === "text" || item.type === "image") {
+              result.push(style);
+              return;
+            }
+            (Array.isArray(item.content) ? item.content : []).forEach(
+              (child) => flatten(child, style, result)
+            );
+          };
+          const measure = (instance, options) => {
+            const items = [];
+            flatten(options, { fontSize: instance.config.fontSize || 20 }, items);
+            const padding = edges(options.padding);
+            let width = padding.left + padding.right;
+            let height = 0;
+            for (const item of items) {
+              const fontSize = Number(item.fontSize) || instance.config.fontSize || 20;
+              if (item.type === "text") {
+                instance.context.font = (item.fontWeight || 400) + " "
+                  + (fontSize * instance.dpr) + "px " + (item.fontFamily || "Arial");
+                width += instance.context.measureText(item.text || "").width / instance.dpr;
+                height = Math.max(height, fontSize);
+              } else {
+                width += Number(item.width || item.height || fontSize);
+                height = Math.max(height, Number(item.height || fontSize));
+              }
+            }
+            return { items, padding, width, height };
+          };
+          const draw = (instance) => {
+            if (!instance.active) return;
+            const context = instance.context;
+            const dpr = instance.dpr;
+            context.clearRect(0, 0, instance.canvas.width, instance.canvas.height);
+            instance.barrages.forEach((barrage, channel) => {
+              const layout = measure(instance, barrage);
+              const duration = Number(barrage.duration || instance.config.duration || 15_000);
+              const elapsed = Math.max(0, Date.now() - Number(barrage.startTime || Date.now()));
+              const left = instance.config.width
+                - elapsed * (instance.config.width + layout.width) / duration;
+              let x = (left + layout.padding.left) * dpr;
+              const top = (channel * instance.config.channelHeight + 2) * dpr;
+              for (const item of layout.items) {
+                const fontSize = Number(item.fontSize) || instance.config.fontSize || 20;
+                if (item.type === "text") {
+                  context.font = (item.fontWeight || 400) + " "
+                    + (fontSize * dpr) + "px " + (item.fontFamily || "Arial");
+                  context.textBaseline = "top";
+                  context.lineWidth = 2 * dpr;
+                  context.strokeStyle = item.strokeColor || "#000";
+                  context.fillStyle = item.color || "#fff";
+                  context.strokeText(item.text || "", x, top);
+                  context.fillText(item.text || "", x, top);
+                  x += context.measureText(item.text || "").width;
+                } else {
+                  const width = Number(item.width || item.height || fontSize) * dpr;
+                  const height = Number(item.height || fontSize) * dpr;
+                  context.fillStyle = "#ffd84d";
+                  context.fillRect(x, top, width, height);
+                  x += width;
+                }
+              }
+            });
+          };
+          setInterval(() => instances.forEach(draw), 16);
+          self.addEventListener("message", (event) => {
+            const message = event.data || {};
+            const params = message.params || {};
+            if (message.method === "createInstance") {
+              const canvas = params.offscrrenCanvas || params.offscreenCanvas;
+              const config = params.config || {};
+              instances.set(message._uniqueId, {
+                canvas,
+                context: canvas.getContext("2d"),
+                config,
+                dpr: Number(config.devicePixelRatio) || 1,
+                barrages: Array.isArray(params.barrages) ? params.barrages.slice() : [],
+                active: true
+              });
+              self.postMessage({
+                method: "createInstanceResult",
+                isSuccess: true,
+                _uniqueId: message._uniqueId
+              });
+              return;
+            }
+            const instance = instances.get(message._uniqueId);
+            if (!instance) return;
+            if (message.method === "addBarrage") instance.barrages.push(params);
+            if (message.method === "stop") instance.active = false;
+            if (message.method === "start") instance.active = true;
+            if (message.method === "clear") instance.barrages = [];
+            if (message.method === "destroy") instances.delete(message._uniqueId);
+          });
+        };
+        const workerUrl = URL.createObjectURL(new Blob([
+          "(" + workerMain.toString() + ")()"
+        ], { type: "text/javascript" }));
+        const channel = new Worker(workerUrl, { name: "probe-canvas-danmaku" });
         const workerControls = [];
-        channel.port2.addEventListener("message", (event) => workerControls.push(event.data));
-        channel.port2.start();
-        channel.port1.postMessage({
+        channel.addEventListener("message", (event) => workerControls.push(event.data));
+        channel.postMessage({
           method: "createInstance",
           _uniqueId: "probe-worker-instance",
           params: {
@@ -159,14 +275,14 @@ async function inspect() {
               devicePixelRatio: 2,
               fontSize: 40,
               channelHeight: 48,
-              duration: 15_000,
+              duration: 4_000,
               gap: 20
             },
             offscrrenCanvas: transferResult,
             barrages: []
           }
         }, { transfer: [transferResult] });
-        channel.port1.postMessage({
+        channel.postMessage({
           method: "addBarrage",
           _uniqueId: "probe-worker-instance",
           params: {
@@ -181,9 +297,27 @@ async function inspect() {
             ]
           }
         });
-        await new Promise((resolve) => setTimeout(resolve, 120));
+        channel.postMessage({
+          method: "addBarrage",
+          _uniqueId: "probe-worker-instance",
+          params: {
+            id: "probe-other-barrage",
+            startTime: Date.now(),
+            reserveDuration: 5_000,
+            padding: [4, 4, 4, 4],
+            content: [
+              { type: "text", text: "其他弹幕继续移动", fontSize: 40, color: "#fff" }
+            ]
+          }
+        });
+        // Let both synthetic barrages fully enter the canvas so the freeze
+        // path exercises a real pixel crop instead of the edge fallback.
+        await new Promise((resolve) => setTimeout(resolve, 1_400));
 
         const hitbox = document.querySelector("[data-bcp-douyin-canvas-text='一起加油']");
+        const otherHitbox = document.querySelector(
+          "[data-bcp-douyin-canvas-text='其他弹幕继续移动']"
+        );
         let buttonVisible = false;
         let frozenTag = "";
         let hitboxRect = null;
@@ -197,9 +331,18 @@ async function inspect() {
         let inputValue = "";
         let inputFocusedAfterSend = null;
         let sentValue = "";
-        let workerTrackStayedRunning = false;
+        let workerTrackPaused = false;
+        let otherWorkerTrackStayedRunning = false;
         let workerStopWasNotSent = false;
-        let buttonFollowError = null;
+        let selectedFreezeDrift = null;
+        let workerCanvasHidden = false;
+        let workerOverlayCount = 0;
+        let selectedOverlayTag = "";
+        let selectedOverlayUsedFallback = null;
+        let selectedOverlayFailure = "";
+        let workerCanvasRestored = false;
+        let workerOverlaysCleared = false;
+        let workerTrackResumed = false;
         if (hitbox) {
           const rect = hitbox.getBoundingClientRect();
           hitboxRect = [rect.left, rect.top, rect.width, rect.height];
@@ -217,8 +360,24 @@ async function inspect() {
           const button = document.querySelector(".bcp-one-button");
           const frozen = document.querySelector(".bcp-one-frozen");
           const workerAnimation = hitbox.getAnimations()[0];
-          workerTrackStayedRunning = Boolean(workerAnimation && workerAnimation.playState === "running");
+          const otherWorkerAnimation = otherHitbox && otherHitbox.getAnimations()[0];
+          workerTrackPaused = Boolean(workerAnimation && workerAnimation.playState === "paused");
+          otherWorkerTrackStayedRunning = Boolean(
+            otherWorkerAnimation && otherWorkerAnimation.playState === "running"
+          );
           workerStopWasNotSent = !workerControls.some((message) => message && message.method === "stop");
+          workerCanvasHidden = getComputedStyle(canvas).visibility === "hidden";
+          workerOverlayCount = document.querySelectorAll("[data-bcp-douyin-worker-overlay='true']").length;
+          const selectedOverlay = document.querySelector(
+            "[data-bcp-douyin-worker-overlay-selected='true']"
+          );
+          selectedOverlayTag = selectedOverlay ? selectedOverlay.tagName : "";
+          selectedOverlayUsedFallback = selectedOverlay
+            ? selectedOverlay.dataset.bcpDouyinWorkerOverlayFallback === "true"
+            : null;
+          selectedOverlayFailure = selectedOverlay
+            ? selectedOverlay.dataset.bcpDouyinWorkerOverlayFailure || ""
+            : "missing-overlay";
           hoverLatency = button && !button.hidden ? performance.now() - hoverStartedAt : null;
           frozenStartLeft = frozen ? frozen.getBoundingClientRect().left : null;
           if (frozen instanceof HTMLCanvasElement) {
@@ -242,7 +401,7 @@ async function inspect() {
             await new Promise((resolve) => setTimeout(resolve, 120));
             const hitboxDelta = hitbox.getBoundingClientRect().left - hitboxStart;
             const buttonDelta = button.getBoundingClientRect().left - buttonStart;
-            buttonFollowError = Math.abs(hitboxDelta - buttonDelta);
+            selectedFreezeDrift = Math.max(Math.abs(hitboxDelta), Math.abs(buttonDelta));
           }
 
           const controls = document.createElement("div");
@@ -273,6 +432,13 @@ async function inspect() {
             const resuming = document.querySelector(".bcp-one-resuming");
             resumedLeft = resuming ? resuming.getBoundingClientRect().left : null;
             await new Promise((resolve) => setTimeout(resolve, 220));
+            workerCanvasRestored = getComputedStyle(canvas).visibility !== "hidden";
+            workerOverlaysCleared = document.querySelectorAll(
+              "[data-bcp-douyin-worker-overlay='true']"
+            ).length === 0;
+            workerTrackResumed = Boolean(
+              hitbox.isConnected && workerAnimation && workerAnimation.playState === "running"
+            );
           }
           inputValue = input.value;
           inputFocusedAfterSend = document.activeElement === input;
@@ -301,10 +467,21 @@ async function inspect() {
           inputValue,
           inputFocusedAfterSend,
           sentValue,
-          workerTrackStayedRunning,
+          workerTrackPaused,
+          otherWorkerTrackStayedRunning,
           workerStopWasNotSent,
-          buttonFollowError
+          selectedFreezeDrift,
+          workerCanvasHidden,
+          workerOverlayCount,
+          selectedOverlayTag,
+          selectedOverlayUsedFallback,
+          selectedOverlayFailure,
+          workerCanvasRestored,
+          workerOverlaysCleared,
+          workerTrackResumed
         };
+        channel.terminate();
+        URL.revokeObjectURL(workerUrl);
         host.remove();
         chatMessage.remove();
         return result;

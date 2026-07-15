@@ -434,6 +434,31 @@ const douyinHtml = String.raw`<!doctype html>
             fontFamily: "sans-serif",
             color: "#ffffff",
             strokeColor: "#000000"
+          }, {
+            type: "image",
+            src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%23ffd84d'/%3E%3C/svg%3E",
+            width: 24,
+            height: 24,
+            margin: [0, 0, 0, 4]
+          }]
+        }
+      });
+      channel.port1.postMessage({
+        method: "addBarrage",
+        _uniqueId: "fixture-worker-instance",
+        params: {
+          id: "fixture-other-barrage",
+          startTime: Date.now(),
+          reserveDuration: 5_000,
+          padding: [4, 8, 4, 8],
+          content: [{
+            type: "text",
+            text: "其他弹幕继续移动",
+            fontSize: 24,
+            fontWeight: 700,
+            fontFamily: "sans-serif",
+            color: "#ffffff",
+            strokeColor: "#000000"
           }]
         }
       });
@@ -448,7 +473,10 @@ const douyinHtml = String.raw`<!doctype html>
 
       const timer = setInterval(() => {
         document.body.dataset.douyinHookLoaded = String(Boolean(window.__bulletPlusOneDouyinCanvasHook));
-        const hitbox = document.querySelector("[data-bcp-douyin-canvas='true']");
+        const hitbox = document.querySelector("[data-bcp-douyin-canvas-text='抖音画面弹幕']");
+        const otherHitbox = document.querySelector(
+          "[data-bcp-douyin-canvas-text='其他弹幕继续移动']"
+        );
         document.body.dataset.douyinHitboxFound = String(Boolean(hitbox));
         const plusOne = document.querySelector(".bcp-one-button");
         document.body.dataset.douyinButtonFound = String(Boolean(plusOne));
@@ -467,12 +495,35 @@ const douyinHtml = String.raw`<!doctype html>
         const frozen = document.querySelector(".bcp-one-frozen");
         if (visibleButton) {
           const animation = hitbox.getAnimations()[0];
+          const otherAnimation = otherHitbox && otherHitbox.getAnimations()[0];
           document.body.dataset.douyinCanvasCaptured = "true";
-          document.body.dataset.douyinWorkerTrackStayedRunning = String(
-            Boolean(animation && animation.playState === "running")
+          document.body.dataset.douyinWorkerTrackPaused = String(
+            Boolean(animation && animation.playState === "paused")
+          );
+          document.body.dataset.douyinOtherWorkerTrackStayedRunning = String(
+            Boolean(otherAnimation && otherAnimation.playState === "running")
           );
           document.body.dataset.douyinWorkerStopWasNotSent = String(
             !workerControls.some((message) => message && message.method === "stop")
+          );
+          document.body.dataset.douyinWorkerCanvasHidden = String(
+            getComputedStyle(canvas).visibility === "hidden"
+          );
+          document.body.dataset.douyinWorkerOverlayCount = String(
+            document.querySelectorAll("[data-bcp-douyin-worker-overlay='true']").length
+          );
+          const selectedOverlay = document.querySelector(
+            "[data-bcp-douyin-worker-overlay-selected='true']"
+          );
+          document.body.dataset.douyinWorkerOverlayFallback = String(
+            Boolean(selectedOverlay
+              && selectedOverlay.dataset.bcpDouyinWorkerOverlayFallback === "true")
+          );
+          document.body.dataset.douyinWorkerOverlayText = selectedOverlay
+            ? selectedOverlay.textContent
+            : "";
+          document.body.dataset.douyinWorkerOverlayImageCount = String(
+            selectedOverlay ? selectedOverlay.querySelectorAll("img").length : 0
           );
           document.body.dataset.douyinFrozenCloneAbsent = String(!frozen);
           visibleButton.click();
