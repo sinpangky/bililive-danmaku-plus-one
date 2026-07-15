@@ -392,34 +392,53 @@ const douyinHtml = String.raw`<!doctype html>
         document.body.dataset.douyinDetachedTransferBlocked = String(transferResult === null);
         canvasHost.appendChild(canvas);
       }
-
-      let context = null;
-      try {
-        context = canvas.getContext("2d");
-      } catch (error) {
-        document.body.dataset.douyinCanvasContextError = error.name || "Error";
+      if (!spaMode && typeof canvas.transferControlToOffscreen === "function") {
+        transferResult = canvas.transferControlToOffscreen();
       }
+      document.body.dataset.douyinTransferStayedNative = String(transferResult !== null);
+
+      const channel = new MessageChannel();
+      const workerControls = [];
+      channel.port2.addEventListener("message", (event) => workerControls.push(event.data));
+      channel.port2.start();
+      channel.port1.postMessage({
+        method: "createInstance",
+        _uniqueId: "fixture-worker-instance",
+        params: {
+          config: {
+            width: 800,
+            height: 450,
+            devicePixelRatio: 1,
+            fontSize: 24,
+            channelHeight: 40,
+            duration: 15_000,
+            gap: 20
+          },
+          offscrrenCanvas: transferResult,
+          barrages: []
+        }
+      }, { transfer: [transferResult] });
+      channel.port1.postMessage({
+        method: "addBarrage",
+        _uniqueId: "fixture-worker-instance",
+        params: {
+          id: "fixture-barrage",
+          startTime: Date.now(),
+          reserveDuration: 5_000,
+          padding: [4, 8, 4, 8],
+          content: [{
+            type: "text",
+            text: "抖音画面弹幕",
+            fontSize: 24,
+            fontWeight: 700,
+            fontFamily: "sans-serif",
+            color: "#ffffff",
+            strokeColor: "#000000"
+          }]
+        }
+      });
       const input = document.querySelector("textarea");
       const send = document.querySelector(".sendButton");
-      let x = edgeMode ? canvas.width - 40 : canvas.width * 0.7;
-
-      function draw() {
-        if (!context) {
-          return;
-        }
-        context.clearRect(0, 0, canvas.width, canvas.height);
-        context.font = "700 24px sans-serif";
-        context.fillStyle = "#ffffff";
-        context.strokeStyle = "#000000";
-        context.lineWidth = 2;
-        context.strokeText("抖音画面弹幕", x, 130);
-        context.fillText("抖音画面弹幕", x, 130);
-        x = x > -200 ? x - 1.5 : canvas.width;
-        requestAnimationFrame(draw);
-      }
-      if (context) {
-        requestAnimationFrame(draw);
-      }
 
       send.addEventListener("click", () => {
         document.body.dataset.douyinSent = input.value;
@@ -446,32 +465,16 @@ const douyinHtml = String.raw`<!doctype html>
 
         const visibleButton = document.querySelector(".bcp-one-button:not([hidden])");
         const frozen = document.querySelector(".bcp-one-frozen");
-        if (visibleButton && frozen) {
-          document.body.dataset.douyinCanvasCaptured = String(
-            frozen instanceof HTMLCanvasElement || frozen.textContent.includes("抖音画面弹幕")
+        if (visibleButton) {
+          const animation = hitbox.getAnimations()[0];
+          document.body.dataset.douyinCanvasCaptured = "true";
+          document.body.dataset.douyinWorkerTrackPaused = String(
+            Boolean(animation && animation.playState === "paused")
           );
-          if (frozen instanceof HTMLCanvasElement) {
-            const frozenRect = frozen.getBoundingClientRect();
-            const canvasRect = canvas.getBoundingClientRect();
-            const backingAspect = frozen.width / frozen.height;
-            const cssAspect = frozenRect.width / frozenRect.height;
-            document.body.dataset.douyinFrozenAspectStable = String(
-              Number.isFinite(backingAspect)
-                && Number.isFinite(cssAspect)
-                && Math.abs(backingAspect / cssAspect - 1) < 0.03
-            );
-            document.body.dataset.douyinFrozenWithinCanvas = String(
-              frozenRect.left >= canvasRect.left - 1
-                && frozenRect.top >= canvasRect.top - 1
-                && frozenRect.right <= canvasRect.right + 1
-                && frozenRect.bottom <= canvasRect.bottom + 1
-            );
-            document.body.dataset.douyinFrozenCssSize = [
-              Math.round(frozenRect.width),
-              Math.round(frozenRect.height)
-            ].join("x");
-            document.body.dataset.douyinFrozenBackingSize = [frozen.width, frozen.height].join("x");
-          }
+          document.body.dataset.douyinWorkerStopReceived = String(
+            workerControls.some((message) => message && message.method === "stop")
+          );
+          document.body.dataset.douyinFrozenCloneAbsent = String(!frozen);
           visibleButton.click();
         }
       }, 100);

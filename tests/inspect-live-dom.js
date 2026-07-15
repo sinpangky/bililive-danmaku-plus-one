@@ -143,34 +143,43 @@ async function inspect() {
           transferResult = canvas.transferControlToOffscreen();
         }
         host.appendChild(canvas);
-        const context = canvas.getContext("2d");
-        context.font = "40px Arial";
-        context.textBaseline = "top";
-        context.strokeStyle = "rgba(0, 0, 0, 0.8)";
-        context.fillStyle = "#fff";
-        context.lineWidth = 2;
-        const firstText = "一起";
-        const secondText = "加油";
-        const firstWidth = context.measureText(firstText).width;
-        const emojiCanvas = document.createElement("canvas");
-        emojiCanvas.width = 40;
-        emojiCanvas.height = 40;
-        const emojiContext = emojiCanvas.getContext("2d");
-        emojiContext.fillStyle = "#ffcc33";
-        emojiContext.fillRect(0, 0, 40, 40);
-        emojiContext.fillStyle = "#111";
-        emojiContext.fillRect(9, 11, 5, 5);
-        emojiContext.fillRect(26, 11, 5, 5);
-        for (const left of [1240, 1230, 1220, 1210, 1200]) {
-          context.clearRect(0, 0, canvas.width, canvas.height);
-          context.strokeText(firstText, left, 160);
-          context.fillText(firstText, left, 160);
-          context.drawImage(emojiCanvas, left + firstWidth, 160, 40, 40);
-          context.strokeText(secondText, left + 40 + firstWidth, 160);
-          context.fillText(secondText, left + 40 + firstWidth, 160);
-          await new Promise((resolve) => setTimeout(resolve, 18));
-        }
-        await new Promise((resolve) => setTimeout(resolve, 40));
+        const channel = new MessageChannel();
+        const workerControls = [];
+        channel.port2.addEventListener("message", (event) => workerControls.push(event.data));
+        channel.port2.start();
+        channel.port1.postMessage({
+          method: "createInstance",
+          _uniqueId: "probe-worker-instance",
+          params: {
+            config: {
+              width: 640,
+              height: 360,
+              devicePixelRatio: 2,
+              fontSize: 40,
+              channelHeight: 48,
+              duration: 15_000,
+              gap: 20
+            },
+            offscrrenCanvas: transferResult,
+            barrages: []
+          }
+        }, { transfer: [transferResult] });
+        channel.port1.postMessage({
+          method: "addBarrage",
+          _uniqueId: "probe-worker-instance",
+          params: {
+            id: "probe-barrage",
+            startTime: Date.now(),
+            reserveDuration: 5_000,
+            padding: [4, 4, 4, 4],
+            content: [
+              { type: "text", text: "一起", fontSize: 40, color: "#fff" },
+              { type: "image", width: 40, height: 40 },
+              { type: "text", text: "加油", fontSize: 40, color: "#fff" }
+            ]
+          }
+        });
+        await new Promise((resolve) => setTimeout(resolve, 120));
 
         const hitbox = document.querySelector("[data-bcp-douyin-canvas-text='一起加油']");
         let buttonVisible = false;
@@ -186,6 +195,9 @@ async function inspect() {
         let inputValue = "";
         let inputFocusedAfterSend = null;
         let sentValue = "";
+        let workerTrackPaused = false;
+        let workerStopReceived = false;
+        let workerStartReceived = false;
         if (hitbox) {
           const rect = hitbox.getBoundingClientRect();
           hitboxRect = [rect.left, rect.top, rect.width, rect.height];
@@ -196,12 +208,16 @@ async function inspect() {
             clientX: rect.left + rect.width / 2,
             clientY: rect.top + rect.height / 2
           }));
-          for (let attempt = 0; attempt < 20 && !document.querySelector(".bcp-one-frozen"); attempt += 1) {
+          for (let attempt = 0; attempt < 20 && !document.querySelector(".bcp-one-button:not([hidden])"); attempt += 1) {
             await new Promise((resolve) => requestAnimationFrame(resolve));
           }
+          await new Promise((resolve) => setTimeout(resolve, 30));
           const button = document.querySelector(".bcp-one-button");
           const frozen = document.querySelector(".bcp-one-frozen");
-          hoverLatency = frozen ? performance.now() - hoverStartedAt : null;
+          const workerAnimation = hitbox.getAnimations()[0];
+          workerTrackPaused = Boolean(workerAnimation && workerAnimation.playState === "paused");
+          workerStopReceived = workerControls.some((message) => message && message.method === "stop");
+          hoverLatency = button && !button.hidden ? performance.now() - hoverStartedAt : null;
           frozenStartLeft = frozen ? frozen.getBoundingClientRect().left : null;
           if (frozen instanceof HTMLCanvasElement) {
             const frozenBounds = frozen.getBoundingClientRect();
@@ -247,6 +263,7 @@ async function inspect() {
             const resuming = document.querySelector(".bcp-one-resuming");
             resumedLeft = resuming ? resuming.getBoundingClientRect().left : null;
             await new Promise((resolve) => setTimeout(resolve, 220));
+            workerStartReceived = workerControls.some((message) => message && message.method === "start");
           }
           inputValue = input.value;
           inputFocusedAfterSend = document.activeElement === input;
@@ -255,6 +272,9 @@ async function inspect() {
 
         const result = {
           transferWasBlocked: transferResult === null,
+          transferStayedNative: transferResult !== null,
+          mainThreadCanvasMethodsUntouched:
+            CanvasRenderingContext2D.prototype.fillText.name !== "bulletPlusOneCanvasText",
           hitboxText: hitbox && hitbox.dataset.bcpDouyinCanvasText,
           hitboxTrackIds: hitbox && hitbox.dataset.bcpDouyinCanvasTrackIds,
           hitboxImageCount: hitbox && hitbox.dataset.bcpDouyinCanvasImageCount,
@@ -271,7 +291,10 @@ async function inspect() {
           frozenTag,
           inputValue,
           inputFocusedAfterSend,
-          sentValue
+          sentValue,
+          workerTrackPaused,
+          workerStopReceived,
+          workerStartReceived
         };
         host.remove();
         chatMessage.remove();

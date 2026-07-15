@@ -966,6 +966,18 @@
     const rect = candidate.getBoundingClientRect();
     const computed = getComputedStyle(candidate);
     const isDouyinCanvas = candidate.dataset.bcpDouyinCanvas === "true";
+    const isDouyinWorker = candidate.dataset.bcpDouyinWorker === "true";
+    if (isDouyinWorker) {
+      window.postMessage({
+        source: "bullet-plus-one-content",
+        type: "freeze-douyin-canvas",
+        trackId: candidate.dataset.bcpDouyinCanvasId,
+        trackIds: candidate.dataset.bcpDouyinCanvasTrackIds,
+        instanceId: candidate.dataset.bcpDouyinCanvasInstanceId,
+        text: candidate.dataset.bcpDouyinCanvasText || ""
+      }, "*");
+      return;
+    }
     const snapshot = isDouyinCanvas ? createDouyinCanvasSnapshot(candidate, rect) : null;
     const clone = snapshot ? snapshot.element : candidate.cloneNode(true);
     const frozenRect = snapshot ? snapshot.rect : rect;
@@ -1073,6 +1085,7 @@
         type: "freeze-douyin-canvas",
         trackId: candidate.dataset.bcpDouyinCanvasId,
         trackIds: candidate.dataset.bcpDouyinCanvasTrackIds,
+        instanceId: candidate.dataset.bcpDouyinCanvasInstanceId,
         text: candidate.dataset.bcpDouyinCanvasText || ""
       }, "*");
     }
@@ -1090,6 +1103,7 @@
         type: "unfreeze-douyin-canvas",
         trackId: candidate.dataset.bcpDouyinCanvasId,
         trackIds: candidate.dataset.bcpDouyinCanvasTrackIds,
+        instanceId: candidate.dataset.bcpDouyinCanvasInstanceId,
         text: candidate.dataset.bcpDouyinCanvasText || ""
       }, "*");
     };
