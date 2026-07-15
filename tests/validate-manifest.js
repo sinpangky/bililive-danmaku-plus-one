@@ -13,6 +13,7 @@ if (manifest.manifest_version !== 3) {
 
 const referencedFiles = [
   manifest.action && manifest.action.default_popup,
+  manifest.background && manifest.background.service_worker,
   ...Object.values(manifest.icons || {}),
   ...Object.values((manifest.action && manifest.action.default_icon) || {}),
   ...manifest.content_scripts.flatMap((entry) => [...(entry.js || []), ...(entry.css || [])])
@@ -45,6 +46,18 @@ const douyinContentScript = manifest.content_scripts.find((entry) =>
 );
 if (!douyinContentScript || (douyinContentScript.js || []).includes("src/content.js")) {
   throw new Error("Douyin must use its dedicated content adapter");
+}
+
+const douyinBootstrap = manifest.content_scripts.find((entry) =>
+  (entry.matches || []).includes("*://live.douyin.com/*")
+  && (entry.js || []).includes("src/douyin-bootstrap.js")
+);
+if (!douyinBootstrap || douyinBootstrap.run_at !== "document_start") {
+  throw new Error("Douyin recovery bootstrap must run at document_start");
+}
+if (!(manifest.permissions || []).includes("scripting")
+    || manifest.background?.service_worker !== "background/service-worker.js") {
+  throw new Error("Douyin recovery requires the scripting fallback service worker");
 }
 
 console.log(`Manifest OK (${referencedFiles.length} referenced files, ${matches.length} host matches)`);

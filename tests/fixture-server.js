@@ -372,6 +372,7 @@ const douyinHtml = String.raw`<!doctype html>
       const parameters = new URLSearchParams(location.search);
       const spaMode = parameters.get("spa") === "1";
       const edgeMode = parameters.get("edge") === "1";
+      const lateHookMode = parameters.get("latehook") === "1";
       const canvasHost = document.querySelector(".CanvasDanmakuPlugin");
       let canvas = canvasHost.querySelector("canvas");
       let transferResult = "not-called";
@@ -409,7 +410,7 @@ const douyinHtml = String.raw`<!doctype html>
             width: 800,
             height: 450,
             devicePixelRatio: 1,
-            fontSize: 24,
+            fontSize: 20,
             channelHeight: 40,
             duration: 4_000,
             gap: 20
@@ -443,7 +444,7 @@ const douyinHtml = String.raw`<!doctype html>
           }]
         }
       });
-      channel.port1.postMessage({
+      setTimeout(() => channel.port1.postMessage({
         method: "addBarrage",
         _uniqueId: "fixture-worker-instance",
         params: {
@@ -461,8 +462,38 @@ const douyinHtml = String.raw`<!doctype html>
             strokeColor: "#000000"
           }]
         }
-      });
-      const barragePostedAt = performance.now();
+      }), 160);
+      let barragePostedAt = performance.now();
+      if (lateHookMode) {
+        setTimeout(() => {
+          barragePostedAt = performance.now();
+          channel.port1.postMessage({
+            method: "addBarrage",
+            _uniqueId: "fixture-worker-instance",
+            params: {
+              id: "fixture-late-barrage",
+              startTime: Date.now(),
+              reserveDuration: 5_000,
+              padding: [4, 8, 4, 8],
+              content: [{
+                type: "text",
+                text: "抖音画面弹幕",
+                fontSize: 24,
+                fontWeight: 700,
+                fontFamily: "sans-serif",
+                color: "#ffffff",
+                strokeColor: "#000000"
+              }, {
+                type: "image",
+                src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%23ffd84d'/%3E%3C/svg%3E",
+                width: 24,
+                height: 24,
+                margin: [0, 0, 0, 4]
+              }]
+            }
+          });
+        }, 1_000);
+      }
       const input = document.querySelector("textarea");
       const send = document.querySelector(".sendButton");
       let actionScheduled = false;
@@ -512,14 +543,31 @@ const douyinHtml = String.raw`<!doctype html>
           document.body.dataset.douyinLegacyFreezeNodeCount = String(
             document.querySelectorAll(".bcp-one-frozen,[data-bcp-douyin-worker-overlay]").length
           );
+          canvas.dispatchEvent(new PointerEvent("pointermove", {
+            bubbles: true,
+            clientX: rect.right - 12,
+            clientY: rect.bottom - 12,
+            pointerType: "mouse"
+          }));
           setTimeout(() => {
             const currentRect = card.getBoundingClientRect();
             document.body.dataset.douyinCardDrift = String(Math.max(
               Math.abs(currentRect.left - cardRect.left),
               Math.abs(currentRect.top - cardRect.top)
             ));
-            card.querySelector(".bcp-douyin-button").click();
-          }, 180);
+            document.body.dataset.douyinCardStayedClickable = String(!card.hidden);
+            const button = card.querySelector(".bcp-douyin-button");
+            button.dispatchEvent(new PointerEvent("pointermove", {
+              bubbles: true,
+              clientX: currentRect.right - 16,
+              clientY: currentRect.top + currentRect.height / 2,
+              pointerType: "mouse"
+            }));
+            document.body.dataset.douyinCardAcceptedPointer = String(
+              !card.hidden && getComputedStyle(button).pointerEvents !== "none"
+            );
+            button.click();
+          }, 900);
         }
       }, 50);
     </script>

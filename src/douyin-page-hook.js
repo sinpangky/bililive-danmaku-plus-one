@@ -8,12 +8,155 @@
 
   const CONTENT_SOURCE = "danmaku-echo-douyin-content";
   const PAGE_SOURCE = "danmaku-echo-douyin-page";
+  const DEBUG_VERSION = "douyin-tracker-v3";
   const instances = new Map();
   const offscreenSources = new WeakMap();
   const canvasIds = new WeakMap();
+  const orphanMessages = new Map();
   let nextCanvasId = 1;
   let nextTrackId = 1;
   let measurementContext = null;
+  let debugMarkerTimer = 0;
+
+  const debugState = {
+    version: DEBUG_VERSION,
+    installedAt: new Date().toISOString(),
+    installedAtMs: Date.now(),
+    href: location.href,
+    readyState: document.readyState,
+    counters: {
+      canvasTransfers: 0,
+      workerMessages: 0,
+      instancesCreated: 0,
+      instancesRecovered: 0,
+      barragesObserved: 0,
+      barragesStarted: 0,
+      probes: 0,
+      probeHits: 0,
+      probeMisses: 0
+    },
+    lastProbe: null,
+    lastError: "",
+    events: []
+  };
+  globalThis.__danmakuEchoDouyinDebug = debugState;
+
+  function conciseDebugValue(value, depth) {
+    if (depth > 3) {
+      return "[depth-limit]";
+    }
+    if (value == null || typeof value === "boolean" || typeof value === "number") {
+      return value;
+    }
+    if (typeof value === "string") {
+      return value.slice(0, 240);
+    }
+    if (Array.isArray(value)) {
+      return value.slice(0, 12).map((item) => conciseDebugValue(item, depth + 1));
+    }
+    if (typeof value === "object") {
+      const result = {};
+      Object.keys(value).slice(0, 20).forEach((key) => {
+        result[key] = conciseDebugValue(value[key], depth + 1);
+      });
+      return result;
+    }
+    return String(value).slice(0, 120);
+  }
+
+  function instanceDebugSummary(instance) {
+    const rect = instance.canvas instanceof HTMLCanvasElement
+      ? instance.canvas.getBoundingClientRect()
+      : null;
+    return {
+      id: instance.id,
+      canvasId: instance.canvasId,
+      recovered: Boolean(instance.recovered),
+      active: Boolean(instance.active),
+      connected: Boolean(instance.canvas && instance.canvas.isConnected),
+      canvasRect: rect ? [rect.left, rect.top, rect.width, rect.height] : null,
+      config: {
+        width: numberOr(instance.config.width, 0),
+        height: numberOr(instance.config.height, 0),
+        devicePixelRatio: numberOr(instance.config.devicePixelRatio, 1),
+        fontSize: numberOr(instance.config.fontSize, 20),
+        channelHeight: numberOr(instance.config.channelHeight, 40),
+        duration: numberOr(instance.config.duration, 15_000),
+        gap: numberOr(instance.config.gap, 100)
+      },
+      pendingCount: instance.pending ? instance.pending.length : 0,
+      trackCount: instance.tracks.size,
+      channelCount: instance.channels ? instance.channels.length : 0
+    };
+  }
+
+  function debugSnapshot() {
+    return {
+      version: debugState.version,
+      installedAt: debugState.installedAt,
+      installedAtMs: debugState.installedAtMs,
+      href: location.href,
+      readyState: document.readyState,
+      counters: Object.assign({}, debugState.counters),
+      lastProbe: debugState.lastProbe,
+      lastError: debugState.lastError,
+      instanceCount: instances.size,
+      orphanCount: orphanMessages.size,
+      instances: Array.from(instances.values()).map(instanceDebugSummary),
+      events: debugState.events.slice(-80)
+    };
+  }
+
+  function syncDebugMarker() {
+    debugMarkerTimer = 0;
+    const root = document.documentElement;
+    if (!root) {
+      return;
+    }
+    let marker = document.getElementById("bcp-douyin-page-debug");
+    if (!marker) {
+      marker = document.createElement("script");
+      marker.id = "bcp-douyin-page-debug";
+      marker.type = "application/json";
+      marker.hidden = true;
+      root.appendChild(marker);
+    }
+    const snapshot = debugSnapshot();
+    marker.dataset.version = DEBUG_VERSION;
+    marker.dataset.instanceCount = String(snapshot.instanceCount);
+    marker.dataset.orphanCount = String(snapshot.orphanCount);
+    marker.textContent = JSON.stringify(snapshot);
+  }
+
+  function scheduleDebugMarker() {
+    if (!debugMarkerTimer) {
+      debugMarkerTimer = setTimeout(syncDebugMarker, 80);
+    }
+  }
+
+  function debugEvent(type, details, level) {
+    const entry = {
+      at: Date.now(),
+      sinceInstall: Date.now() - debugState.installedAtMs,
+      type,
+      details: conciseDebugValue(details || {}, 0)
+    };
+    debugState.events.push(entry);
+    if (debugState.events.length > 240) {
+      debugState.events.splice(0, debugState.events.length - 240);
+    }
+    if (level === "error") {
+      debugState.lastError = String(details && (details.message || details.error) || type).slice(0, 500);
+      console.error("[Danmaku Echo][Douyin page]", type, entry.details);
+    } else if (level === "info") {
+      console.info("[Danmaku Echo][Douyin page]", type, entry.details);
+    } else if (level === "warn") {
+      console.warn("[Danmaku Echo][Douyin page]", type, entry.details);
+    } else {
+      console.debug("[Danmaku Echo][Douyin page]", type, entry.details);
+    }
+    scheduleDebugMarker();
+  }
 
   function numberOr(value, fallback) {
     const numeric = Number(value);
@@ -93,10 +236,15 @@
     };
   }
 
-  function measureImageItem(item, style) {
+  function measureImageItem(item, style, imageRatios) {
     const fontSize = Math.max(8, numberOr(style.fontSize, 20));
-    const width = Math.max(1, numberOr(item.width, numberOr(item.height, fontSize)));
     const height = Math.max(1, numberOr(item.height, fontSize));
+    const ratio = imageRatios && typeof item.src === "string"
+      ? imageRatios.get(item.src)
+      : null;
+    const width = Math.max(1, Number.isFinite(ratio) && ratio > 0
+      ? height * ratio
+      : numberOr(item.width, numberOr(item.height, fontSize)));
     const margin = boxEdges(item.margin);
     const padding = boxEdges(item.padding);
     const border = Math.max(0, numberOr(item.borderWidth, 0));
@@ -133,7 +281,7 @@
     };
   }
 
-  function measureContent(item, inherited) {
+  function measureContent(item, inherited, imageRatios) {
     if (!item || typeof item !== "object") {
       return { width: 0, height: 0, text: "", imageCount: 0, firstText: null };
     }
@@ -142,14 +290,14 @@
       return measureTextItem(item, style);
     }
     if (item.type === "image") {
-      return measureImageItem(item, style);
+      return measureImageItem(item, style, imageRatios);
     }
 
     const result = { width: 0, height: 0, text: "", imageCount: 0, firstText: null };
     const content = Array.isArray(item.content) ? item.content : [];
     const childStyle = inheritableTextStyle(style);
     content.forEach((child) => {
-      const childResult = measureContent(child, childStyle);
+      const childResult = measureContent(child, childStyle, imageRatios);
       const isBlock = !child.type || child.type === "block";
       mergeMeasurement(result, childResult, !isBlock || Boolean(child.isInline));
     });
@@ -161,7 +309,7 @@
     return result;
   }
 
-  function describeBarrage(options, config) {
+  function describeBarrage(options, config, imageRatios) {
     const result = measureContent(options, {
       fontSize: numberOr(config.fontSize, 20),
       fontWeight: 400,
@@ -169,7 +317,7 @@
       color: "#ffffff",
       strokeColor: "rgba(0, 0, 0, 0.8)",
       strokeWidth: 1
-    });
+    }, imageRatios);
     result.width = Math.max(4, result.width);
     result.height = Math.max(8, result.height || numberOr(config.fontSize, 20));
     result.text = normalizeText(result.text);
@@ -291,6 +439,14 @@
       const offscreen = Reflect.apply(original, this, arguments);
       if (offscreen && typeof offscreen === "object") {
         offscreenSources.set(offscreen, this);
+        debugState.counters.canvasTransfers += 1;
+        debugEvent("canvas-transferred", {
+          canvasId: canvasId(this),
+          connected: this.isConnected,
+          marker: elementMarker(this.parentElement),
+          width: this.width,
+          height: this.height
+        });
       }
       return offscreen;
     }
@@ -308,151 +464,416 @@
       .find((canvas) => isDanmakuCanvas(canvas) && !claimed.has(canvas)) || null;
   }
 
-  function activeClock(instance, now) {
-    const current = instance.active ? now : instance.pausedAt || now;
-    return current - instance.pausedTotal;
+  function modelDpr(instance) {
+    const devicePixelRatio = Math.max(0.25, numberOr(instance.config.devicePixelRatio, 1));
+    const fontSize = Math.max(1, numberOr(instance.config.fontSize, 20));
+    return devicePixelRatio * fontSize / 20;
   }
 
-  function maxChannels(instance, rect) {
-    const baseHeight = Math.max(20, numberOr(instance.config.height, rect.height));
-    const scaleY = rect.height / baseHeight;
-    const channelHeight = Math.max(8, numberOr(instance.config.channelHeight, 40) * scaleY);
-    const allChannels = Math.max(1, Math.floor(rect.height / channelHeight));
-    const limits = [allChannels];
+  function canvasPixelSize(instance, rect) {
+    const devicePixelRatio = Math.max(0.25, numberOr(instance.config.devicePixelRatio, 1));
+    return {
+      width: Math.max(20, numberOr(instance.config.width, rect.width)) * devicePixelRatio,
+      height: Math.max(20, numberOr(instance.config.height, rect.height)) * devicePixelRatio
+    };
+  }
+
+  function channelInfo(instance, rect) {
+    const pixels = canvasPixelSize(instance, rect);
+    const channelHeight = Math.max(1, numberOr(instance.config.channelHeight, 40)) * modelDpr(instance);
+    const allChannels = Math.max(1, Math.floor(pixels.height / channelHeight));
+    const limits = [pixels.height / channelHeight];
     const maxHeightRate = numberOr(instance.config.maxHeightRate, 1);
-    if (maxHeightRate > 0) {
-      limits.push(Math.max(1, Math.floor(allChannels * maxHeightRate)));
+    if (maxHeightRate * pixels.height) {
+      limits.push(maxHeightRate * pixels.height / channelHeight);
     }
     const configured = numberOr(instance.config.maxChannelCount, 0);
     if (configured > 0) {
-      limits.push(Math.max(1, Math.floor(configured)));
-    }
-    return Math.max(1, Math.min(...limits));
-  }
-
-  function channelRange(options, channelCount) {
-    const range = options && options.channelRange;
-    if (!range || numberOr(range.startIndex, -1) < 0) {
-      return { start: 0, end: channelCount - 1 };
-    }
-    const start = Math.min(channelCount - 1, Math.max(0, Math.floor(numberOr(range.startIndex, 0))));
-    const length = Math.max(1, Math.floor(numberOr(range.len, channelCount)));
-    return { start, end: Math.min(channelCount - 1, start + length - 1) };
-  }
-
-  function findChannel(instance, options, needed, clock, channelCount) {
-    const range = channelRange(options, channelCount);
-    for (let start = range.start; start + needed - 1 <= range.end; start += 1) {
-      let available = true;
-      for (let channel = start; channel < start + needed; channel += 1) {
-        if (numberOr(instance.channelAvailableAt[channel], 0) > clock) {
-          available = false;
-          break;
-        }
-      }
-      if (available) {
-        return start;
-      }
-    }
-    return -1;
-  }
-
-  function trackRect(track, now, canvasRect) {
-    const instance = track.instance;
-    const baseWidth = Math.max(20, numberOr(instance.config.width, canvasRect.width));
-    const baseHeight = Math.max(20, numberOr(instance.config.height, canvasRect.height));
-    const scaleX = Math.max(0.25, Math.min(4, canvasRect.width / baseWidth));
-    const scaleY = Math.max(0.25, Math.min(4, canvasRect.height / baseHeight));
-    const width = track.description.width * scaleX;
-    const height = track.description.height * scaleY;
-    const elapsed = activeClock(instance, now) - track.startedAt;
-    const progress = elapsed / track.duration;
-    if (progress < 0 || progress > 1) {
-      return null;
+      limits.push(configured);
     }
     return {
-      left: canvasRect.right - (canvasRect.width + width) * progress,
-      top: canvasRect.top + track.channel * numberOr(instance.config.channelHeight, 40) * scaleY + 2 * scaleY,
-      width,
-      height
+      maxCanUse: allChannels,
+      maxDisplay: Math.max(1, Math.floor(Math.min(...limits)) || 1)
     };
   }
 
-  function pruneTracks(instance, now) {
-    const clock = activeClock(instance, now);
-    for (const [id, track] of instance.tracks) {
-      if (clock - track.startedAt > track.duration + 1000) {
-        instance.tracks.delete(id);
-      }
+  function ensureChannels(instance, count) {
+    while (instance.channels.length < count) {
+      instance.channels.push([]);
+    }
+    if (instance.channels.length > count) {
+      instance.channels.length = count;
     }
   }
 
-  function startTrack(instance, entry, now) {
-    const canvas = instance.canvas;
-    if (!(canvas instanceof HTMLCanvasElement) || !canvas.isConnected) {
-      return false;
+  function trackDuration(track) {
+    return Math.max(1000, numberOr(
+      track.options.duration,
+      numberOr(track.instance.config.duration, 15_000)
+    ));
+  }
+
+  function trackInternalWidth(track) {
+    return track.description.width * modelDpr(track.instance);
+  }
+
+  function trackInternalHeight(track) {
+    return track.description.height * modelDpr(track.instance);
+  }
+
+  function trackRightPosition(track, rect) {
+    const pixels = canvasPixelSize(track.instance, rect);
+    return pixels.width - track.deltaXWithoutDpr * modelDpr(track.instance)
+      + trackInternalWidth(track);
+  }
+
+  function trackIsExpired(track, rect) {
+    return trackRightPosition(track, rect) <= 0;
+  }
+
+  function trackRightEdgeVisible(track, rect) {
+    const pixels = canvasPixelSize(track.instance, rect);
+    const gap = Math.max(0, numberOr(track.instance.config.gap, 100)) * modelDpr(track.instance);
+    return trackRightPosition(track, rect) <= pixels.width - gap;
+  }
+
+  function trackSpeed(track, rect) {
+    const pixels = canvasPixelSize(track.instance, rect);
+    return (pixels.width + trackInternalWidth(track))
+      / trackDuration(track)
+      / modelDpr(track.instance);
+  }
+
+  function usesSpecialRange(track, maxDisplay) {
+    const range = track.options && track.options.channelRange;
+    return Boolean(range && numberOr(range.startIndex, -1) >= 0
+      && maxDisplay > Math.max(1, Math.floor(numberOr(range.len, maxDisplay))));
+  }
+
+  function realChannelRange(track, maxDisplay, maxCanUse) {
+    const range = track.options && track.options.channelRange;
+    if (!usesSpecialRange(track, maxDisplay)) {
+      return { start: 0, end: Math.min(maxCanUse - 1, maxDisplay - 1) };
     }
-    const rect = canvas.getBoundingClientRect();
+    const start = Math.max(0, Math.floor(numberOr(range.startIndex, 0)));
+    const length = Math.max(1, Math.floor(numberOr(range.len, maxDisplay)));
+    return {
+      start: Math.min(maxCanUse - 1, start),
+      end: Math.min(maxCanUse - 1, start + length - 1)
+    };
+  }
+
+  function trackPriority(track, maxDisplay) {
+    const base = numberOr(track.options.prior, 0);
+    const range = track.options && track.options.channelRange;
+    return usesSpecialRange(track, maxDisplay)
+      ? base + numberOr(range && range.additionalPriority, 100)
+      : base;
+  }
+
+  function trackNeedsReserve(track, maxDisplay) {
+    const range = track.options && track.options.channelRange;
+    const additional = usesSpecialRange(track, maxDisplay)
+      ? numberOr(range && range.additionalReserveDuration, 0)
+      : 0;
+    const reserve = numberOr(track.options.reserveDuration, 0);
+    const startTime = numberOr(track.options.startTime, Date.now());
+    return startTime + reserve + additional > Date.now();
+  }
+
+  function trackRect(track, _now, canvasRect) {
+    if (!track.bookedChannel) {
+      return null;
+    }
+    const instance = track.instance;
+    const pixels = canvasPixelSize(instance, canvasRect);
+    const dpr = modelDpr(instance);
+    const scaleX = canvasRect.width / pixels.width;
+    const scaleY = canvasRect.height / pixels.height;
+    const internalLeft = pixels.width - track.deltaXWithoutDpr * dpr;
+    const internalTop = track.bookedChannel.start
+      * Math.max(1, numberOr(instance.config.channelHeight, 40)) * dpr + 2;
+    return {
+      left: canvasRect.left + internalLeft * scaleX,
+      top: canvasRect.top + internalTop * scaleY,
+      width: trackInternalWidth(track) * scaleX,
+      height: trackInternalHeight(track) * scaleY
+    };
+  }
+
+  function stopAnimation(instance) {
+    if (instance.animationFrame) {
+      cancelAnimationFrame(instance.animationFrame);
+      instance.animationFrame = 0;
+    }
+  }
+
+  function channelsEmpty(instance) {
+    return instance.channels.every((channel) => channel.length === 0);
+  }
+
+  function removeExpiredTracks(instance, rect) {
+    const expired = new Set();
+    instance.channels = instance.channels.map((channel) => channel.filter((track) => {
+      if (trackIsExpired(track, rect)) {
+        expired.add(track.id);
+        return false;
+      }
+      return true;
+    }));
+    expired.forEach((id) => instance.tracks.delete(id));
+  }
+
+  function modelFrame(instance) {
+    instance.animationFrame = 0;
+    if (!instance.active || !(instance.canvas instanceof HTMLCanvasElement)
+        || !instance.canvas.isConnected) {
+      return;
+    }
+    const rect = instance.canvas.getBoundingClientRect();
     if (rect.width < 20 || rect.height < 20) {
-      return false;
+      instance.animationFrame = requestAnimationFrame(() => modelFrame(instance));
+      return;
     }
-    pruneTracks(instance, now);
-    const maxCount = Math.max(1, numberOr(instance.config.maxCount, 100));
-    if (instance.tracks.size >= maxCount) {
-      return false;
-    }
-    const baseHeight = Math.max(20, numberOr(instance.config.height, rect.height));
-    const scaleY = Math.max(0.25, Math.min(4, rect.height / baseHeight));
-    const channelHeight = Math.max(8, numberOr(instance.config.channelHeight, 40) * scaleY);
-    const channelCount = maxChannels(instance, rect);
-    const needed = Math.min(channelCount, Math.max(1, Math.ceil(entry.description.height * scaleY / channelHeight)));
-    const clock = activeClock(instance, now);
-    const channel = findChannel(instance, entry.options, needed, clock, channelCount);
-    if (channel < 0) {
-      return false;
+    ensureChannels(instance, channelInfo(instance, rect).maxCanUse);
+    const now = Date.now();
+    const rawDelta = instance.lastFrameAt ? now - instance.lastFrameAt : 16;
+    const deltaTime = rawDelta < 1000 ? Math.max(0, rawDelta) : 16;
+    instance.lastFrameAt = now;
+    removeExpiredTracks(instance, rect);
+    if (channelsEmpty(instance)) {
+      return;
     }
 
-    const duration = Math.max(1000, numberOr(entry.options.duration, numberOr(instance.config.duration, 15_000)));
-    const baseWidth = Math.max(20, numberOr(instance.config.width, rect.width));
-    const scaleX = Math.max(0.25, Math.min(4, rect.width / baseWidth));
-    const width = entry.description.width * scaleX;
-    const speed = (rect.width + width) / duration;
-    const gap = Math.max(0, numberOr(instance.config.gap, 20) * scaleX);
-    const availableAt = clock + (width + gap) / Math.max(speed, 0.001);
-    for (let index = channel; index < channel + needed; index += 1) {
-      instance.channelAvailableAt[index] = availableAt;
-    }
+    const speeds = new Map();
+    const rightPositions = new Map();
+    const previousIds = new Map();
+    instance.channels.forEach((channel) => {
+      let channelSpeed = Infinity;
+      channel.forEach((track, index) => {
+        const barrageId = String(track.options.id || track.id);
+        const ownSpeed = trackSpeed(track, rect);
+        channelSpeed = Math.min(channelSpeed, speeds.get(barrageId) || ownSpeed, ownSpeed);
+        speeds.set(barrageId, channelSpeed);
+        rightPositions.set(barrageId, trackRightPosition(track, rect));
+        if (!previousIds.has(track.id)) {
+          previousIds.set(track.id, new Set());
+        }
+        if (index > 0) {
+          previousIds.get(track.id).add(String(channel[index - 1].options.id || channel[index - 1].id));
+        }
+      });
+    });
 
+    const moved = new Set();
+    instance.channels.forEach((channel, channelIndex) => {
+      channel.forEach((track) => {
+        if (moved.has(track.id) || !track.bookedChannel
+            || track.bookedChannel.start !== channelIndex) {
+          return;
+        }
+        moved.add(track.id);
+        const barrageId = String(track.options.id || track.id);
+        const predecessors = Array.from(previousIds.get(track.id) || []);
+        const gap = Math.max(0, numberOr(instance.config.gap, 100)) * modelDpr(instance);
+        const preRightEdge = predecessors.length
+          ? Math.max(...predecessors.map((id) => numberOr(rightPositions.get(id), -Infinity))) + gap
+          : -Infinity;
+        const pixels = canvasPixelSize(instance, rect);
+        const dpr = modelDpr(instance);
+        const speed = numberOr(speeds.get(barrageId), trackSpeed(track, rect));
+        const nextLeft = pixels.width - (track.deltaXWithoutDpr + deltaTime * speed) * dpr;
+        if (!Number.isFinite(preRightEdge) || nextLeft >= preRightEdge) {
+          track.deltaXWithoutDpr += deltaTime * speed;
+        } else {
+          track.deltaXWithoutDpr = (pixels.width - preRightEdge) / dpr;
+        }
+        rightPositions.set(barrageId, trackRightPosition(track, rect));
+      });
+    });
+    instance.animationFrame = requestAnimationFrame(() => modelFrame(instance));
+  }
+
+  function startAnimation(instance) {
+    if (!instance.animationFrame && instance.active) {
+      instance.lastFrameAt = 0;
+      instance.animationFrame = requestAnimationFrame(() => modelFrame(instance));
+    }
+  }
+
+  function assignPendingTracks(instance) {
+    instance.pushTimer = 0;
+    if (!(instance.canvas instanceof HTMLCanvasElement) || !instance.canvas.isConnected) {
+      scheduleRecovery();
+      return;
+    }
+    const rect = instance.canvas.getBoundingClientRect();
+    if (rect.width < 20 || rect.height < 20) {
+      instance.pushTimer = setTimeout(() => assignPendingTracks(instance), 300);
+      return;
+    }
+    const wasEmpty = channelsEmpty(instance);
+    const info = channelInfo(instance, rect);
+    ensureChannels(instance, info.maxCanUse);
+    instance.pending.sort((first, second) =>
+      trackPriority(first, info.maxDisplay) - trackPriority(second, info.maxDisplay));
+    const blockedPriorities = new Set();
+
+    instance.pending.forEach((track) => {
+      const priority = trackPriority(track, info.maxDisplay);
+      if (track.bookedChannel
+          || Array.from(blockedPriorities).some((blocked) => blocked > priority)) {
+        return;
+      }
+      const needed = Math.max(1, Math.ceil(
+        trackInternalHeight(track)
+        / (Math.max(1, numberOr(instance.config.channelHeight, 40)) * modelDpr(instance))
+      ));
+      const range = realChannelRange(track, info.maxDisplay, info.maxCanUse);
+      let consecutive = 0;
+      for (let index = range.start; index < info.maxCanUse; index += 1) {
+        const channel = instance.channels[index];
+        const last = channel && channel[channel.length - 1];
+        if (!last || trackRightEdgeVisible(last, rect)) {
+          consecutive += 1;
+        } else {
+          consecutive = 0;
+          if (index >= range.end) {
+            break;
+          }
+        }
+        if (consecutive >= needed) {
+          const start = index - consecutive + 1;
+          const end = index;
+          track.bookedChannel = { start, end };
+          track.startedAt = Date.now();
+          for (let channelIndex = start; channelIndex <= end; channelIndex += 1) {
+            instance.channels[channelIndex].push(track);
+          }
+          debugState.counters.barragesStarted += 1;
+          debugEvent("barrage-started", {
+            instanceId: instance.id,
+            trackId: track.id,
+            text: track.description.text,
+            channel: [start, end],
+            pendingDelay: track.startedAt - track.observedAt
+          });
+          return;
+        }
+      }
+      blockedPriorities.add(priority);
+    });
+
+    const remaining = [];
+    instance.pending.forEach((track) => {
+      if (track.bookedChannel) {
+        return;
+      }
+      if (trackNeedsReserve(track, info.maxDisplay)) {
+        remaining.push(track);
+      } else {
+        instance.tracks.delete(track.id);
+        debugEvent("barrage-dropped", {
+          instanceId: instance.id,
+          trackId: track.id,
+          text: track.description.text,
+          reason: "reserve-expired"
+        });
+      }
+    });
+    instance.pending = remaining;
+    if (instance.active && wasEmpty && !channelsEmpty(instance)) {
+      startAnimation(instance);
+    }
+    if (remaining.length) {
+      instance.pushTimer = setTimeout(() => assignPendingTracks(instance), 300);
+    }
+    scheduleDebugMarker();
+  }
+
+  function collectImageSources(item, result) {
+    if (!item || typeof item !== "object") {
+      return;
+    }
+    if (item.type === "image" && typeof item.src === "string" && item.src) {
+      result.add(item.src);
+    }
+    if (Array.isArray(item.content)) {
+      item.content.forEach((child) => collectImageSources(child, result));
+    }
+  }
+
+  function loadImageRatio(src) {
+    return new Promise((resolve) => {
+      if (typeof Image !== "function") {
+        resolve(null);
+        return;
+      }
+      const image = new Image();
+      let settled = false;
+      const finish = (ratio) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        resolve(Number.isFinite(ratio) && ratio > 0 ? ratio : null);
+      };
+      const timer = setTimeout(() => finish(null), 800);
+      image.onload = () => {
+        clearTimeout(timer);
+        finish(image.naturalWidth / Math.max(1, image.naturalHeight));
+      };
+      image.onerror = () => {
+        clearTimeout(timer);
+        finish(null);
+      };
+      image.src = src;
+    });
+  }
+
+  async function prepareBarrage(instance, options) {
+    const sources = new Set();
+    collectImageSources(options, sources);
+    const imageRatios = new Map();
+    await Promise.all(Array.from(sources).map(async (src) => {
+      imageRatios.set(src, await loadImageRatio(src));
+    }));
+    if (!instances.has(instance.id) || instances.get(instance.id) !== instance) {
+      return;
+    }
+    const description = describeBarrage(options, instance.config, imageRatios);
+    if (!plausibleText(description.text)) {
+      debugEvent("barrage-ignored", { instanceId: instance.id, reason: "implausible-text" });
+      return;
+    }
+    const maxCount = Math.max(1, numberOr(instance.config.maxCount, 200));
+    if (instance.pending.length >= maxCount) {
+      debugEvent("barrage-ignored", { instanceId: instance.id, reason: "pending-limit" });
+      return;
+    }
     const track = {
       id: nextTrackId,
       instance,
-      channel,
-      duration,
-      startedAt: clock,
-      description: entry.description,
-      content: entry.content
+      options,
+      description,
+      content: serializeBarrage(options),
+      deltaXWithoutDpr: 0,
+      bookedChannel: null,
+      observedAt: Date.now(),
+      startedAt: 0
     };
     nextTrackId += 1;
     instance.tracks.set(track.id, track);
-    return true;
-  }
-
-  function processQueue(instance) {
-    instance.queueTimer = 0;
-    if (!instance.active || !instance.queue.length) {
-      return;
-    }
-    const now = performance.now();
-    const wallNow = Date.now();
-    const remaining = [];
-    instance.queue.forEach((entry) => {
-      if (entry.expiresAt > wallNow && !startTrack(instance, entry, now)) {
-        remaining.push(entry);
+    const wasEmpty = instance.pending.length === 0;
+    instance.pending.push(track);
+    if (wasEmpty) {
+      if (instance.pushTimer) {
+        clearTimeout(instance.pushTimer);
+        instance.pushTimer = 0;
       }
-    });
-    instance.queue = remaining;
-    if (remaining.length) {
-      instance.queueTimer = setTimeout(() => processQueue(instance), 80);
+      assignPendingTracks(instance);
+    } else if (!instance.pushTimer) {
+      instance.pushTimer = setTimeout(() => assignPendingTracks(instance), 300);
     }
   }
 
@@ -460,33 +881,25 @@
     if (!options || typeof options !== "object") {
       return;
     }
-    const description = describeBarrage(options, instance.config);
-    if (!plausibleText(description.text)) {
-      return;
-    }
-    const reserveDuration = Math.max(800, numberOr(options.reserveDuration, 0));
-    instance.queue.push({
-      options,
-      description,
-      content: serializeBarrage(options),
-      expiresAt: Math.max(Date.now(), numberOr(options.startTime, Date.now())) + reserveDuration
+    debugState.counters.barragesObserved += 1;
+    prepareBarrage(instance, options).catch((error) => {
+      debugEvent("prepare-barrage-error", {
+        instanceId: instance.id,
+        message: String(error && error.message || error)
+      }, "error");
     });
-    if (!instance.queueTimer && instance.active) {
-      instance.queueTimer = setTimeout(
-        () => processQueue(instance),
-        description.imageCount ? 80 : 0
-      );
-    }
   }
 
   function clearInstance(instance) {
-    if (instance.queueTimer) {
-      clearTimeout(instance.queueTimer);
-      instance.queueTimer = 0;
+    if (instance.pushTimer) {
+      clearTimeout(instance.pushTimer);
+      instance.pushTimer = 0;
     }
-    instance.queue.length = 0;
+    stopAnimation(instance);
+    instance.pending.length = 0;
     instance.tracks.clear();
-    instance.channelAvailableAt = [];
+    instance.channels = [];
+    instance.lastFrameAt = 0;
   }
 
   function looksLikeDanmakuConfig(config, canvas) {
@@ -494,10 +907,137 @@
       || (config && numberOr(config.channelHeight, 0) > 0 && numberOr(config.duration, 0) > 0);
   }
 
+  function defaultConfigForCanvas(canvas) {
+    const rect = canvas instanceof HTMLCanvasElement
+      ? canvas.getBoundingClientRect()
+      : { width: 0, height: 0 };
+    return {
+      width: Math.max(20, rect.width || 0),
+      height: Math.max(20, rect.height || 0),
+      devicePixelRatio: Math.max(0.25, numberOr(globalThis.devicePixelRatio, 1)),
+      fontSize: 20,
+      channelHeight: 40,
+      duration: 15_000,
+      gap: 100,
+      maxCount: 200,
+      maxHeightRate: 1
+    };
+  }
+
+  function createTrackedInstance(id, canvas, config, recovered) {
+    const previous = instances.get(id);
+    if (previous) {
+      clearInstance(previous);
+    }
+    const instance = {
+      id,
+      canvas,
+      canvasId: canvasId(canvas),
+      config: Object.assign(defaultConfigForCanvas(canvas), config || {}),
+      tracks: new Map(),
+      pending: [],
+      channels: [],
+      pushTimer: 0,
+      animationFrame: 0,
+      lastFrameAt: 0,
+      active: true,
+      recovered: Boolean(recovered)
+    };
+    instances.set(id, instance);
+    if (recovered) {
+      debugState.counters.instancesRecovered += 1;
+    } else {
+      debugState.counters.instancesCreated += 1;
+    }
+    debugEvent(recovered ? "instance-recovered" : "instance-created", {
+      instanceId: id,
+      canvasId: instance.canvasId,
+      marker: elementMarker(canvas.parentElement),
+      config: instance.config
+    }, recovered ? "warn" : "info");
+    return instance;
+  }
+
+  function roughBarrageText(item) {
+    if (!item || typeof item !== "object") {
+      return "";
+    }
+    if (item.type === "text") {
+      return normalizeText(item.text);
+    }
+    return (Array.isArray(item.content) ? item.content : [])
+      .map(roughBarrageText)
+      .join("");
+  }
+
+  let recoveryTimer = 0;
+
+  function scheduleRecovery() {
+    if (!recoveryTimer && orphanMessages.size) {
+      recoveryTimer = setTimeout(recoverOrphans, 120);
+    }
+  }
+
+  function rememberOrphan(id, method, params) {
+    if (!id) {
+      return;
+    }
+    let orphan = orphanMessages.get(id);
+    if (!orphan) {
+      orphan = {
+        id,
+        createdAt: Date.now(),
+        config: {},
+        barrages: []
+      };
+      orphanMessages.set(id, orphan);
+    }
+    if (method === "createInstance" || method === "updateConfig") {
+      const config = method === "createInstance" && params.config
+        ? params.config
+        : params;
+      if (config && typeof config === "object") {
+        Object.assign(orphan.config, config);
+      }
+      if (method === "createInstance" && Array.isArray(params.barrages)) {
+        orphan.barrages.push(...params.barrages);
+      }
+    } else if (method === "addBarrage" && Array.isArray(params.content)
+        && plausibleText(roughBarrageText(params))) {
+      orphan.barrages.push(params);
+    }
+    debugEvent("orphan-observed", {
+      instanceId: id,
+      method,
+      barrageCount: orphan.barrages.length
+    }, "warn");
+    scheduleRecovery();
+  }
+
+  function recoverOrphans() {
+    recoveryTimer = 0;
+    for (const [id, orphan] of orphanMessages) {
+      if (Date.now() - orphan.createdAt > 12_000) {
+        orphanMessages.delete(id);
+        debugEvent("orphan-expired", { instanceId: id }, "warn");
+        continue;
+      }
+      const canvas = findUnclaimedCanvas();
+      if (!(canvas instanceof HTMLCanvasElement)) {
+        continue;
+      }
+      const instance = createTrackedInstance(id, canvas, orphan.config, true);
+      orphanMessages.delete(id);
+      orphan.barrages.forEach((barrage) => queueBarrage(instance, barrage));
+    }
+    scheduleRecovery();
+  }
+
   function observeWorkerMessage(message) {
     if (!message || typeof message !== "object" || !message.method) {
       return;
     }
+    debugState.counters.workerMessages += 1;
     const id = String(message._uniqueId == null ? "" : message._uniqueId);
     const params = message.params && typeof message.params === "object" ? message.params : {};
     if (message.method === "createInstance") {
@@ -505,33 +1045,11 @@
       const canvas = offscreenSources.get(offscreen) || findUnclaimedCanvas();
       const config = params.config && typeof params.config === "object" ? params.config : {};
       if (!(canvas instanceof HTMLCanvasElement) || !id || !looksLikeDanmakuConfig(config, canvas)) {
+        rememberOrphan(id, "createInstance", params);
         return;
       }
-      const previous = instances.get(id);
-      if (previous) {
-        clearInstance(previous);
-      }
-      const instance = {
-        id,
-        canvas,
-        canvasId: canvasId(canvas),
-        config: Object.assign({
-          fontSize: 20,
-          channelHeight: 40,
-          duration: 15_000,
-          gap: 20,
-          maxCount: 100,
-          maxHeightRate: 1
-        }, config),
-        tracks: new Map(),
-        queue: [],
-        queueTimer: 0,
-        channelAvailableAt: [],
-        active: true,
-        pausedAt: 0,
-        pausedTotal: 0
-      };
-      instances.set(id, instance);
+      const instance = createTrackedInstance(id, canvas, config, false);
+      orphanMessages.delete(id);
       const barrages = Array.isArray(params.barrages) ? params.barrages : [];
       barrages.forEach((barrage) => queueBarrage(instance, barrage));
       return;
@@ -539,30 +1057,38 @@
 
     const instance = instances.get(id);
     if (!instance) {
+      if (message.method === "addBarrage" || message.method === "updateConfig") {
+        rememberOrphan(id, message.method, params);
+      }
       return;
     }
     if (message.method === "addBarrage") {
       queueBarrage(instance, params);
     } else if (message.method === "updateConfig") {
       Object.assign(instance.config, params);
+      debugEvent("config-updated", { instanceId: id, config: params });
     } else if (message.method === "clear") {
       clearInstance(instance);
+      debugEvent("instance-cleared", { instanceId: id });
     } else if (message.method === "destroy") {
       clearInstance(instance);
       instances.delete(id);
+      debugEvent("instance-destroyed", { instanceId: id }, "info");
     } else if (message.method === "stop" && instance.active) {
       instance.active = false;
-      instance.pausedAt = performance.now();
-      if (instance.queueTimer) {
-        clearTimeout(instance.queueTimer);
-        instance.queueTimer = 0;
+      if (instance.pushTimer) {
+        clearTimeout(instance.pushTimer);
+        instance.pushTimer = 0;
       }
+      stopAnimation(instance);
+      debugEvent("instance-stopped", { instanceId: id });
     } else if (message.method === "start" && !instance.active) {
-      const now = performance.now();
-      instance.pausedTotal += Math.max(0, now - instance.pausedAt);
-      instance.pausedAt = 0;
       instance.active = true;
-      processQueue(instance);
+      assignPendingTracks(instance);
+      if (!channelsEmpty(instance)) {
+        startAnimation(instance);
+      }
+      debugEvent("instance-started", { instanceId: id });
     }
   }
 
@@ -574,8 +1100,12 @@
     function danmakuEchoPostMessage(message) {
       try {
         observeWorkerMessage(message);
-      } catch (_error) {
+      } catch (error) {
         // Reading metadata must never interfere with Douyin's own worker call.
+        debugEvent("observe-message-error", {
+          method: message && message.method,
+          message: String(error && error.message || error)
+        }, "error");
       }
       return Reflect.apply(original, this, arguments);
     }
@@ -585,6 +1115,11 @@
       writable: true,
       value: danmakuEchoPostMessage
     });
+    debugEvent("message-sender-patched", {
+      prototype: prototype === (globalThis.Worker && globalThis.Worker.prototype)
+        ? "Worker"
+        : "MessagePort"
+    }, "info");
   }
 
   function hitPayload(track, rect, canvasRect) {
@@ -610,20 +1145,25 @@
         strokeColor: safePaint(firstText.strokeColor) || "rgba(0, 0, 0, 0.8)",
         strokeWidth: numberOr(firstText.strokeWidth, 1)
       },
-      content: track.content
+      content: track.content,
+      model: {
+        channel: track.bookedChannel
+          ? [track.bookedChannel.start, track.bookedChannel.end]
+          : null,
+        observedAt: track.observedAt,
+        startedAt: track.startedAt,
+        recoveredInstance: Boolean(track.instance.recovered)
+      }
     };
   }
 
   function probeAt(x, y) {
-    const now = performance.now();
-    let best = null;
-    let bestScore = Infinity;
+    const candidates = [];
     for (const instance of instances.values()) {
       const canvas = instance.canvas;
       if (!(canvas instanceof HTMLCanvasElement) || !canvas.isConnected) {
         continue;
       }
-      pruneTracks(instance, now);
       const canvasRect = canvas.getBoundingClientRect();
       if (canvasRect.width < 20 || canvasRect.height < 20
           || x < canvasRect.left - 8 || x > canvasRect.right + 8
@@ -631,7 +1171,7 @@
         continue;
       }
       for (const track of instance.tracks.values()) {
-        const rect = trackRect(track, now, canvasRect);
+        const rect = trackRect(track, 0, canvasRect);
         if (!rect) {
           continue;
         }
@@ -639,18 +1179,55 @@
         const bottom = rect.top + rect.height;
         const visible = right > canvasRect.left && rect.left < canvasRect.right
           && bottom > canvasRect.top && rect.top < canvasRect.bottom;
-        if (!visible || x < rect.left - 7 || x > right + 7 || y < rect.top - 5 || y > bottom + 5) {
+        const strict = x >= rect.left && x <= right && y >= rect.top && y <= bottom;
+        if (!visible || x < rect.left - 3 || x > right + 3 || y < rect.top - 3 || y > bottom + 3) {
           continue;
         }
         const score = Math.abs(x - (rect.left + rect.width / 2))
-          + Math.abs(y - (rect.top + rect.height / 2)) * 2;
-        if (score < bestScore) {
-          bestScore = score;
-          best = hitPayload(track, rect, canvasRect);
-        }
+          + Math.abs(y - (rect.top + rect.height / 2)) * 2
+          + (strict ? 0 : 100);
+        candidates.push({ track, rect, canvasRect, score, strict });
       }
     }
-    return best;
+    candidates.sort((first, second) => first.score - second.score);
+    const best = candidates[0] || null;
+    const second = candidates[1] || null;
+    const ambiguous = Boolean(best && second
+      && best.strict === second.strict
+      && Math.abs(second.score - best.score) < 10);
+    const hit = best && !ambiguous
+      ? hitPayload(best.track, best.rect, best.canvasRect)
+      : null;
+    debugState.counters.probes += 1;
+    if (hit) {
+      debugState.counters.probeHits += 1;
+    } else {
+      debugState.counters.probeMisses += 1;
+    }
+    debugState.lastProbe = {
+      at: Date.now(),
+      x,
+      y,
+      ambiguous,
+      hit: hit ? {
+        trackId: hit.trackId,
+        text: hit.text,
+        rect: hit.rect,
+        model: hit.model
+      } : null,
+      candidates: candidates.slice(0, 5).map((candidate) => ({
+        trackId: candidate.track.id,
+        text: candidate.track.description.text,
+        score: candidate.score,
+        strict: candidate.strict,
+        rect: candidate.rect,
+        channel: candidate.track.bookedChannel
+          ? [candidate.track.bookedChannel.start, candidate.track.bookedChannel.end]
+          : null
+      }))
+    };
+    scheduleDebugMarker();
+    return hit;
   }
 
   function postReady(requestId) {
@@ -658,7 +1235,9 @@
       source: PAGE_SOURCE,
       type: "ready",
       requestId: requestId || 0,
-      instanceCount: instances.size
+      instanceCount: instances.size,
+      version: DEBUG_VERSION,
+      orphanCount: orphanMessages.size
     }, "*");
   }
 
@@ -672,6 +1251,15 @@
     }
     if (event.data.type === "ping") {
       postReady(event.data.requestId);
+      return;
+    }
+    if (event.data.type === "debug-request") {
+      window.postMessage({
+        source: PAGE_SOURCE,
+        type: "debug-snapshot",
+        requestId: Number(event.data.requestId) || 0,
+        snapshot: debugSnapshot()
+      }, "*");
       return;
     }
     if (event.data.type !== "probe") {
@@ -691,16 +1279,26 @@
   });
 
   setInterval(() => {
-    const now = performance.now();
     for (const [id, instance] of instances) {
       if (!instance.canvas.isConnected) {
         clearInstance(instance);
         instances.delete(id);
+        debugEvent("instance-detached", { instanceId: id }, "warn");
         continue;
       }
-      pruneTracks(instance, now);
     }
+    recoverOrphans();
+    scheduleDebugMarker();
   }, 500);
 
+  debugEvent("installed", {
+    href: location.href,
+    readyState: document.readyState,
+    workerAvailable: typeof globalThis.Worker === "function",
+    messagePortAvailable: typeof globalThis.MessagePort === "function"
+  }, "info");
+  if (!document.documentElement) {
+    document.addEventListener("readystatechange", scheduleDebugMarker, { once: true });
+  }
   postReady(0);
 })();

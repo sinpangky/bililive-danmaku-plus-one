@@ -1,8 +1,12 @@
 .bcp-douyin-portal {
   all: initial;
+  display: block;
+  height: 100%;
   inset: 0;
+  isolation: isolate;
   pointer-events: none;
   position: fixed;
+  width: 100%;
   z-index: 2147483647;
 }
 
@@ -21,8 +25,9 @@
   min-height: 38px;
   opacity: 0;
   padding: 5px 6px 5px 10px;
-  pointer-events: auto;
+  pointer-events: auto !important;
   position: fixed;
+  touch-action: none;
   transition: opacity 90ms ease;
   user-select: none;
   z-index: 2147483647;
@@ -83,6 +88,7 @@
   justify-content: center;
   min-width: 42px;
   padding: 0 10px;
+  pointer-events: auto !important;
 }
 
 .bcp-douyin-button:hover {

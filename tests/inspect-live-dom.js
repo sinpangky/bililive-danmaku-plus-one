@@ -13,6 +13,8 @@ const waitMilliseconds = Number(process.argv[7] || 15_000);
 const shouldProbeDouyin = process.argv[8] === "--probe-douyin";
 const hostResolverRules = process.argv[9] && process.argv[9] !== "none" ? process.argv[9] : "";
 const injectPlatform = process.argv[10] || "";
+const lateDouyinHook = injectPlatform === "douyin-late";
+const normalizedInjectPlatform = lateDouyinHook ? "douyin" : injectPlatform;
 
 if (!edgePath || !targetUrl || !profilePath) {
   throw new Error("Usage: node inspect-live-dom.js <edge> <url> <profile> [port]");
@@ -93,21 +95,28 @@ async function inspect() {
   await send("Runtime.enable");
   await delay(waitMilliseconds);
 
-  if (injectPlatform) {
+  if (normalizedInjectPlatform) {
     const root = path.resolve(__dirname, "..");
     const sharedSource = readFileSync(path.join(root, "src", "shared.js"), "utf8")
-      .replace("    detectPlatform,", `    detectPlatform: () => ${JSON.stringify(injectPlatform)},`);
-    const contentFile = injectPlatform === "douyin" ? "douyin-content.js" : "content.js";
-    const cssFile = injectPlatform === "douyin" ? "douyin-content.css" : "content.css";
+      .replace("    detectPlatform,", `    detectPlatform: () => ${JSON.stringify(normalizedInjectPlatform)},`);
+    const isDouyinInjection = normalizedInjectPlatform === "douyin";
+    const contentFile = isDouyinInjection ? "douyin-content.js" : "content.js";
+    const cssFile = isDouyinInjection ? "douyin-content.css" : "content.css";
     const contentSource = readFileSync(path.join(root, "src", contentFile), "utf8");
     const cssSource = readFileSync(path.join(root, "src", cssFile), "utf8");
     await send("Page.enable");
-    if (injectPlatform === "douyin") {
-      const pageHookSource = readFileSync(path.join(root, "src", "douyin-page-hook.js"), "utf8");
-      await send("Page.addScriptToEvaluateOnNewDocument", { source: pageHookSource });
+    let pageHookSource = "";
+    if (isDouyinInjection) {
+      pageHookSource = readFileSync(path.join(root, "src", "douyin-page-hook.js"), "utf8");
+      if (!lateDouyinHook) {
+        await send("Page.addScriptToEvaluateOnNewDocument", { source: pageHookSource });
+      }
     }
     await send("Page.navigate", { url: targetUrl });
     await delay(500);
+    if (lateDouyinHook) {
+      await send("Runtime.evaluate", { expression: pageHookSource });
+    }
     await send("Runtime.evaluate", {
       expression: `(() => { const style = document.createElement("style"); style.textContent = ${JSON.stringify(cssSource)}; document.documentElement.appendChild(style); })()`
     });
@@ -281,7 +290,7 @@ async function inspect() {
               width: 640,
               height: 360,
               devicePixelRatio: 2,
-              fontSize: 40,
+              fontSize: 20,
               channelHeight: 48,
               duration: 4_000,
               gap: 20
@@ -310,7 +319,7 @@ async function inspect() {
             ]
           }
         });
-        channel.postMessage({
+        setTimeout(() => channel.postMessage({
           method: "addBarrage",
           _uniqueId: "probe-worker-instance",
           params: {
@@ -322,7 +331,7 @@ async function inspect() {
               { type: "text", text: "其他弹幕继续移动", fontSize: 40, color: "#fff" }
             ]
           }
-        });
+        }), 200);
         // Let both synthetic barrages enter the visible area before probing.
         await new Promise((resolve) => setTimeout(resolve, 1_400));
 
@@ -503,6 +512,29 @@ async function inspect() {
       .map((entry) => entry.name)
       .filter((url) => /\.(?:js|mjs)(?:\?|$)/i.test(url) && /(live|webcast|player|danmaku|room)/i.test(url))
       .slice(-200);
+    const readDebugMarker = (id) => {
+      const marker = document.getElementById(id);
+      if (!marker) return null;
+      try {
+        const parsed = JSON.parse(marker.textContent || "{}");
+        return {
+          version: parsed.version || marker.dataset.version || "",
+          pageReady: parsed.pageReady,
+          pageVersion: parsed.pageVersion,
+          instanceCount: parsed.instanceCount,
+          orphanCount: parsed.orphanCount,
+          counters: parsed.counters || null,
+          lastProbe: parsed.lastProbe || null,
+          lastCard: parsed.lastCard || null,
+          lastError: parsed.lastError || "",
+          instances: Array.isArray(parsed.instances) ? parsed.instances.slice(0, 5) : [],
+          attempts: Array.isArray(parsed.attempts) ? parsed.attempts.slice(-5) : [],
+          events: Array.isArray(parsed.events) ? parsed.events.slice(-12) : []
+        };
+      } catch (error) {
+        return { parseError: String(error) };
+      }
+    };
     return {
       url: location.href,
       title: document.title,
@@ -527,6 +559,11 @@ async function inspect() {
         placeholder: document.activeElement.getAttribute("placeholder") || ""
       } : null,
       mainHookInstalled: Boolean(globalThis.__bulletPlusOneDouyinCanvasHook),
+      debug: {
+        bootstrap: readDebugMarker("bcp-douyin-bootstrap-debug"),
+        page: readDebugMarker("bcp-douyin-page-debug"),
+        content: readDebugMarker("bcp-douyin-content-debug")
+      },
       resources
     };
   })()`;

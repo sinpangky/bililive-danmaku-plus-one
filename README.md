@@ -9,7 +9,7 @@
 
 [中文](#中文) · [English](#english)
 
-![Version](https://img.shields.io/badge/version-1.0.0-orange)
+![Version](https://img.shields.io/badge/version-1.0.1-orange)
 ![Manifest](https://img.shields.io/badge/Chrome-Manifest%20V3-blue)
 ![License](https://img.shields.io/badge/license-GPL--3.0--or--later-green)
 
@@ -27,11 +27,13 @@ Danmaku Echo（弹幕回声）是一个适用于 Chrome 和 Edge 的 Manifest V3
 | 哔哩哔哩直播 | ✅ | ✅ | ✅ |
 | 抖音直播 | ✅ | ✅（Canvas） | ✅ |
 
-### v1.0.0 版本说明
+### v1.0.1 版本说明
 
-这是弹幕回声的首个开源版本，支持虎牙、哔哩哔哩和抖音直播聊天区、视频弹幕及全屏模式下的一键 `+1`。
+此版本集中修复抖音直播的首次进房、Canvas 弹幕定位和 `+1` 卡片交互问题。
 
-抖音使用独立于虎牙、哔哩哔哩的运行逻辑：扩展只读取官方 Worker 的弹幕数据来计算鼠标命中，不暂停 Worker、不隐藏 Canvas，也不复制画面像素。命中后会在鼠标附近固定一张可点击的交互卡，原生弹幕继续正常移动。
+抖音使用独立于虎牙、哔哩哔哩的运行逻辑：扩展只观察官方 Worker 的弹幕数据，并按官方的设备像素比、弹道分配、移动速度、图片尺寸和前后弹幕间距计算鼠标命中；不暂停 Worker、不隐藏 Canvas，也不复制画面像素。命中后会在鼠标附近固定一张最长保留 6 秒的可点击交互卡，原生弹幕继续正常移动。
+
+页面钩子现在同时使用 `document_start` 和受限后台补注入链路；即使错过最初的 Canvas 实例创建消息，也会在下一条弹幕到达时自动认领现有画布，不再依赖刷新页面。
 
 ### 核心功能
 
@@ -72,6 +74,8 @@ Danmaku Echo（弹幕回声）是一个适用于 Chrome 和 Edge 的 Manifest V3
 
 点击浏览器工具栏中的扩展图标，可以总开关扩展、分别启用平台以及开关 `Alt + 单击` 回退功能。
 
+抖音调试：在直播页按 `Ctrl + Alt + D`，扩展会把启动链路、Canvas 实例、最近一次鼠标命中、候选弹幕和交互卡状态输出到开发者工具控制台。日志前缀为 `[Danmaku Echo]`。
+
 ### 开发与验证
 
 需要 Node.js 18 或更高版本。
@@ -94,9 +98,11 @@ npm run package
 
 ```text
 manifest.json              Manifest V3 清单
+background/service-worker.js  抖音 MAIN 世界页面钩子的受限补注入
 src/content.js             虎牙与哔哩哔哩的识别、悬停和发送适配
 src/content.css            虎牙与哔哩哔哩的按钮、冻结层和提示样式
 src/shared.js              平台判断、文本清洗和设置合并
+src/douyin-bootstrap.js    抖音首次进房诊断与补注入请求
 src/douyin-page-hook.js    抖音 Worker 数据观察、轨迹计算与命中协议
 src/douyin-content.js      抖音固定交互卡、表情映射与官方发送适配
 src/douyin-content.css     抖音交互卡和提示样式
@@ -107,7 +113,8 @@ tests/                     清单校验、单元测试和浏览器测试夹具
 
 ### 隐私与权限
 
-- 仅申请 `storage` 权限，用于保存扩展设置。
+- 申请 `storage` 权限保存扩展设置；申请 `scripting` 权限仅用于在 `live.douyin.com` 首次加载时补注入页面钩子。
+- 抖音的主机权限仅覆盖 `live.douyin.com`，用于上述受限补注入，不会扩展到其他网站。
 - 仅在虎牙直播、哔哩哔哩直播和抖音直播页面注入内容脚本。
 - 不读取 Cookie、密码或登录令牌，不调用私有直播接口。
 - 不收集、上传或出售用户数据。
@@ -148,11 +155,13 @@ Danmaku Echo is a Manifest V3 browser extension for Chrome and Edge. It adds a `
 | Bilibili Live | ✅ | ✅ | ✅ |
 | Douyin Live | ✅ | ✅ (Canvas) | ✅ |
 
-### v1.0.0 release notes
+### v1.0.1 release notes
 
-This is the first open-source release of Danmaku Echo. It supports one-click `+1` actions in side chat, on-video danmaku, and fullscreen mode on Huya Live, Bilibili Live, and Douyin Live.
+This release focuses on Douyin's first-room load, Canvas hit accuracy, and `+1` card interaction.
 
-Douyin now uses a runtime isolated from the Huya and Bilibili adapters. The extension observes official Worker messages only to calculate pointer hits; it never pauses the Worker, hides the Canvas, or copies rendered pixels. A stationary interaction card appears near the pointer while the native danmaku keeps moving normally.
+Douyin uses a runtime isolated from the Huya and Bilibili adapters. It observes official Worker messages and mirrors the native device-pixel-ratio, channel allocation, speed, image sizing, and predecessor-gap rules for pointer hits. It never pauses the Worker, hides the Canvas, or copies rendered pixels. A stationary interaction card remains clickable near the pointer for up to six seconds while the native danmaku keeps moving.
+
+The page hook now has both a `document_start` path and a restricted background reinjection path. If initial Canvas creation was already missed, the next barrage automatically claims the existing Canvas without requiring a page refresh.
 
 ### Features
 
@@ -193,6 +202,8 @@ Clone the repository and load its root directory as an unpacked extension. There
 
 Use the toolbar popup to enable or disable the extension, toggle individual platforms, and control the `Alt + click` fallback.
 
+For Douyin diagnostics, press `Ctrl + Alt + D` in a live room. Startup, Canvas-instance, latest hit-candidate, and interaction-card state is written to DevTools with the `[Danmaku Echo]` prefix.
+
 ### Development and verification
 
 Node.js 18 or newer is required.
@@ -215,9 +226,11 @@ The archive is written to `dist/danmaku-echo-v<version>.zip`.
 
 ```text
 manifest.json              Manifest V3 definition
+background/service-worker.js  Restricted Douyin MAIN-world hook reinjection
 src/content.js             Huya and Bilibili detection, hover, and send adapters
 src/content.css            Huya and Bilibili action, frozen-layer, and toast styles
 src/shared.js              Platform detection, text parsing, and settings
+src/douyin-bootstrap.js    Douyin first-load diagnostics and reinjection request
 src/douyin-page-hook.js    Douyin Worker observation, trajectory, and hit protocol
 src/douyin-content.js      Douyin fixed card, emoji mapping, and send adapter
 src/douyin-content.css     Douyin interaction-card and toast styles
@@ -228,7 +241,8 @@ tests/                     Manifest checks, unit tests, and browser fixtures
 
 ### Privacy and permissions
 
-- Requests only the `storage` permission for extension settings.
+- Requests `storage` for settings and `scripting` only to recover the page hook during the first load of `live.douyin.com`.
+- Its Douyin host permission is limited to `live.douyin.com` and is used only by that recovery injection.
 - Injects content scripts only on Huya Live, Bilibili Live, and Douyin Live.
 - Does not read cookies, passwords, or login tokens and does not call private live APIs.
 - Does not collect, upload, or sell user data.

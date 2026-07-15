@@ -11,8 +11,10 @@
   const CONTENT_SOURCE = "danmaku-echo-douyin-content";
   const PAGE_SOURCE = "danmaku-echo-douyin-page";
   const MAX_LENGTH = 1000;
-  const CARD_LOCK_TIME = 1200;
-  const CARD_HIDE_DELAY = 280;
+  const CARD_LOCK_TIME = 1500;
+  const CARD_STICKY_TIME = 6000;
+  const CARD_HIDE_DELAY = 500;
+  const DEBUG_VERSION = "douyin-content-v3";
   const DOM_DANMAKU_SELECTORS = [
     "[data-e2e='danmaku-item']",
     "[class*='webcast-danmaku___item']",
@@ -91,6 +93,8 @@
     toast: null,
     candidate: null,
     hideTimer: 0,
+    expiryTimer: 0,
+    cardHovered: false,
     lockedUntil: 0,
     pointerX: 0,
     pointerY: 0,
@@ -98,9 +102,141 @@
     nextProbeId: 1,
     pendingProbe: null,
     pageReady: false,
+    pageVersion: "",
+    pageSnapshot: null,
     lastActionAt: 0,
     lastUrl: location.href
   };
+
+  const debugState = {
+    version: DEBUG_VERSION,
+    loadedAt: new Date().toISOString(),
+    loadedAtMs: Date.now(),
+    href: location.href,
+    pageReady: false,
+    pageVersion: "",
+    settingsEnabled: false,
+    counters: {
+      pings: 0,
+      probesSent: 0,
+      probeResults: 0,
+      cardsShown: 0,
+      cardsHidden: 0,
+      cardPointerEnters: 0,
+      sendsAttempted: 0,
+      sendsSucceeded: 0,
+      sendsFailed: 0
+    },
+    lastProbe: null,
+    lastCard: null,
+    lastError: "",
+    events: []
+  };
+  globalThis.__danmakuEchoDouyinContentDebug = debugState;
+  let debugMarkerTimer = 0;
+
+  function conciseDebugValue(value, depth) {
+    if (depth > 3) {
+      return "[depth-limit]";
+    }
+    if (value == null || typeof value === "boolean" || typeof value === "number") {
+      return value;
+    }
+    if (typeof value === "string") {
+      return value.slice(0, 240);
+    }
+    if (Array.isArray(value)) {
+      return value.slice(0, 12).map((item) => conciseDebugValue(item, depth + 1));
+    }
+    if (typeof value === "object") {
+      const result = {};
+      Object.keys(value).slice(0, 20).forEach((key) => {
+        result[key] = conciseDebugValue(value[key], depth + 1);
+      });
+      return result;
+    }
+    return String(value).slice(0, 120);
+  }
+
+  function contentDebugSnapshot() {
+    return {
+      version: debugState.version,
+      loadedAt: debugState.loadedAt,
+      loadedAtMs: debugState.loadedAtMs,
+      href: location.href,
+      pageReady: state.pageReady,
+      pageVersion: state.pageVersion,
+      settingsEnabled: enabled(),
+      counters: Object.assign({}, debugState.counters),
+      lastProbe: debugState.lastProbe,
+      lastCard: debugState.lastCard,
+      lastError: debugState.lastError,
+      card: state.card ? {
+        hidden: state.card.hidden,
+        hovered: state.cardHovered,
+        lockedUntil: state.lockedUntil,
+        candidate: state.candidate ? {
+          trackId: state.candidate.trackId,
+          message: state.candidate.message,
+          kind: state.candidate.kind,
+          rect: state.candidate.rect
+        } : null
+      } : null,
+      events: debugState.events.slice(-80),
+      pageSnapshot: state.pageSnapshot
+    };
+  }
+
+  function syncDebugMarker() {
+    debugMarkerTimer = 0;
+    const root = document.documentElement;
+    if (!root) {
+      return;
+    }
+    let marker = document.getElementById("bcp-douyin-content-debug");
+    if (!marker) {
+      marker = document.createElement("script");
+      marker.id = "bcp-douyin-content-debug";
+      marker.type = "application/json";
+      marker.hidden = true;
+      root.appendChild(marker);
+    }
+    const snapshot = contentDebugSnapshot();
+    marker.dataset.version = DEBUG_VERSION;
+    marker.dataset.pageReady = String(snapshot.pageReady);
+    marker.dataset.cardVisible = String(Boolean(state.card && !state.card.hidden));
+    marker.textContent = JSON.stringify(snapshot);
+  }
+
+  function scheduleDebugMarker() {
+    if (!debugMarkerTimer) {
+      debugMarkerTimer = setTimeout(syncDebugMarker, 80);
+    }
+  }
+
+  function debugEvent(type, details, level) {
+    const entry = {
+      at: Date.now(),
+      sinceLoad: Date.now() - debugState.loadedAtMs,
+      type,
+      details: conciseDebugValue(details || {}, 0)
+    };
+    debugState.events.push(entry);
+    if (debugState.events.length > 240) {
+      debugState.events.splice(0, debugState.events.length - 240);
+    }
+    if (level === "error") {
+      debugState.lastError = String(details && (details.message || details.error) || type).slice(0, 500);
+      console.error("[Danmaku Echo][Douyin content]", type, entry.details);
+    } else if (level === "info") {
+      console.info("[Danmaku Echo][Douyin content]", type, entry.details);
+    } else if (level === "warn") {
+      console.warn("[Danmaku Echo][Douyin content]", type, entry.details);
+    } else {
+      console.debug("[Danmaku Echo][Douyin content]", type, entry.details);
+    }
+    scheduleDebugMarker();
+  }
 
   function storageGet() {
     return new Promise((resolve) => {
@@ -205,9 +341,31 @@
     }
   }
 
-  function hideCard() {
+  function clearExpiry() {
+    if (state.expiryTimer) {
+      clearTimeout(state.expiryTimer);
+      state.expiryTimer = 0;
+    }
+  }
+
+  function armExpiry() {
+    clearExpiry();
+    state.expiryTimer = setTimeout(() => {
+      state.expiryTimer = 0;
+      if (state.cardHovered) {
+        armExpiry();
+        return;
+      }
+      hideCard("sticky-timeout");
+    }, CARD_STICKY_TIME);
+  }
+
+  function hideCard(reason) {
     cancelHide();
+    clearExpiry();
+    const previous = state.candidate;
     state.candidate = null;
+    state.cardHovered = false;
     state.lockedUntil = 0;
     state.pendingProbe = null;
     if (!state.card) {
@@ -216,8 +374,18 @@
     state.card.hidden = true;
     state.card.classList.remove("is-visible");
     state.card.removeAttribute("data-track-id");
+    state.card.removeAttribute("data-kind");
+    state.card.removeAttribute("data-message");
     if (state.preview) {
       state.preview.replaceChildren();
+    }
+    if (previous) {
+      debugState.counters.cardsHidden += 1;
+      debugEvent("card-hidden", {
+        reason: reason || "unspecified",
+        trackId: previous.trackId,
+        message: previous.message
+      });
     }
   }
 
@@ -227,7 +395,7 @@
     }
     state.hideTimer = setTimeout(() => {
       state.hideTimer = 0;
-      hideCard();
+      hideCard("scheduled-hide");
     }, Number.isFinite(delay) ? delay : CARD_HIDE_DELAY);
   }
 
@@ -257,11 +425,32 @@
     button.textContent = "+1";
     button.dataset.bcpDouyinOwned = "true";
     button.addEventListener("click", onPlusOneClick);
-    button.addEventListener("pointerdown", (event) => event.stopPropagation());
+    ["pointerdown", "mousedown"].forEach((type) => {
+      button.addEventListener(type, (event) => {
+        event.stopPropagation();
+        cancelHide();
+      }, true);
+    });
 
     card.append(preview, button);
-    card.addEventListener("pointerenter", cancelHide);
-    card.addEventListener("pointerleave", () => scheduleHide(CARD_HIDE_DELAY));
+    card.addEventListener("pointerenter", () => {
+      state.cardHovered = true;
+      debugState.counters.cardPointerEnters += 1;
+      debugEvent("card-pointer-enter", {
+        trackId: state.candidate && state.candidate.trackId,
+        message: state.candidate && state.candidate.message
+      }, "info");
+      cancelHide();
+      armExpiry();
+    });
+    card.addEventListener("pointermove", () => {
+      state.cardHovered = true;
+      cancelHide();
+    });
+    card.addEventListener("pointerleave", () => {
+      state.cardHovered = false;
+      scheduleHide(CARD_HIDE_DELAY);
+    });
     portal.appendChild(card);
     state.card = card;
     state.preview = preview;
@@ -451,15 +640,20 @@
     const bounds = candidate.canvasRect || { left: 0, top: 0, width: innerWidth, height: innerHeight };
     const boundsRight = Math.min(innerWidth - 8, bounds.left + bounds.width - 8);
     const boundsLeft = Math.max(8, bounds.left + 8);
-    let left = Math.max(boundsLeft, Math.min(anchor.left, boundsRight - width));
-    if (!Number.isFinite(left)) {
-      left = Math.max(8, Math.min(anchor.left, innerWidth - width - 8));
+    const pointerX = Number.isFinite(candidate.pointerX)
+      ? candidate.pointerX
+      : anchor.left + anchor.width / 2;
+    const pointerY = Number.isFinite(candidate.pointerY)
+      ? candidate.pointerY
+      : anchor.top + anchor.height / 2;
+    let left = pointerX + 10;
+    if (left + width > boundsRight) {
+      left = pointerX - width - 10;
     }
-    const below = anchor.top + anchor.height + 7;
-    const above = anchor.top - height - 7;
+    left = Math.max(boundsLeft, Math.min(left, boundsRight - width));
     const boundsBottom = Math.min(innerHeight - 8, bounds.top + bounds.height - 8);
     const boundsTop = Math.max(8, bounds.top + 8);
-    let top = below + height <= boundsBottom ? below : above;
+    let top = pointerY - height / 2;
     top = Math.max(boundsTop, Math.min(top, boundsBottom - height));
     card.style.setProperty("left", `${Math.round(left)}px`);
     card.style.setProperty("top", `${Math.round(top)}px`);
@@ -472,25 +666,32 @@
       return;
     }
     cancelHide();
+    clearExpiry();
     const card = ensureCard();
     state.candidate = candidate;
+    state.cardHovered = false;
     state.lockedUntil = performance.now() + CARD_LOCK_TIME;
     state.button.disabled = false;
     state.button.setAttribute("aria-label", `弹幕加一：${candidate.message}`);
     card.dataset.trackId = String(candidate.trackId || "dom");
+    card.dataset.kind = candidate.kind || "unknown";
+    card.dataset.message = candidate.message.slice(0, 240);
     card.classList.remove("is-visible");
     renderPreview(candidate);
     positionCard(candidate);
-    setTimeout(() => {
-      if (state.candidate !== candidate || !state.card || state.card.hidden) {
-        return;
-      }
-      const cardRect = state.card.getBoundingClientRect();
-      if (!pointInside(cardRect, state.pointerX, state.pointerY, 12)
-          && !pointInside(candidate.rect, state.pointerX, state.pointerY, 10)) {
-        scheduleHide(CARD_HIDE_DELAY);
-      }
-    }, CARD_LOCK_TIME + 10);
+    armExpiry();
+    debugState.counters.cardsShown += 1;
+    debugState.lastCard = {
+      at: Date.now(),
+      trackId: candidate.trackId,
+      instanceId: candidate.instanceId || "",
+      message: candidate.message,
+      kind: candidate.kind,
+      rect: candidate.rect,
+      pointer: [candidate.pointerX, candidate.pointerY],
+      model: candidate.model || null
+    };
+    debugEvent("card-shown", debugState.lastCard, "info");
   }
 
   function saneRect(rect) {
@@ -500,7 +701,7 @@
       && rect.height >= 4 && rect.height <= 300;
   }
 
-  function candidateFromProbe(hit) {
+  function candidateFromProbe(hit, pending) {
     if (!hit || !saneRect(hit.rect)) {
       return null;
     }
@@ -516,6 +717,9 @@
       message: resolveRichMessage(canvasText),
       content: Array.isArray(hit.content) ? hit.content : [],
       style: hit.style && typeof hit.style === "object" ? hit.style : {},
+      model: hit.model && typeof hit.model === "object" ? hit.model : null,
+      pointerX: pending && pending.x,
+      pointerY: pending && pending.y,
       kind: "canvas"
     };
   }
@@ -580,6 +784,14 @@
       y: state.pointerY,
       sentAt: performance.now()
     };
+    debugState.counters.probesSent += 1;
+    debugState.lastProbe = {
+      requestId,
+      sentAt: Date.now(),
+      x: state.pointerX,
+      y: state.pointerY,
+      status: "pending"
+    };
     window.postMessage({
       source: CONTENT_SOURCE,
       type: "probe",
@@ -603,6 +815,9 @@
     state.pointerY = event.clientY;
     if (isOwned(event.target)) {
       cancelHide();
+      if (!state.expiryTimer) {
+        armExpiry();
+      }
       return;
     }
     if (state.candidate && state.card && !state.card.hidden) {
@@ -611,13 +826,13 @@
           || pointInside(cardRect, event.clientX, event.clientY, 12)
           || pointInside(state.candidate.rect, event.clientX, event.clientY, 10)) {
         cancelHide();
-      } else {
-        scheduleHide(CARD_HIDE_DELAY);
       }
       return;
     }
     const domCandidate = findDomCandidate(event);
     if (domCandidate) {
+      domCandidate.pointerX = event.clientX;
+      domCandidate.pointerY = event.clientY;
       showCard(domCandidate);
       return;
     }
@@ -781,8 +996,12 @@
       return false;
     }
     state.lastActionAt = now;
+    debugState.counters.sendsAttempted += 1;
+    debugEvent("send-attempt", { message }, "info");
     const input = findInput();
     if (!input) {
+      debugState.counters.sendsFailed += 1;
+      debugEvent("send-failed", { message, reason: "input-not-found" }, "error");
       showToast("未找到抖音弹幕输入框，请确认已登录并展开聊天区", "error");
       return false;
     }
@@ -807,6 +1026,8 @@
       }
     }
     if (!consumed) {
+      debugState.counters.sendsFailed += 1;
+      debugEvent("send-failed", { message, reason: "input-not-consumed" }, "error");
       showToast("自动发送失败，弹幕仍在输入框，请重试", "error");
       return false;
     }
@@ -815,6 +1036,8 @@
     } catch (_error) {
       // The controlled editor may be replaced during the send cycle.
     }
+    debugState.counters.sendsSucceeded += 1;
+    debugEvent("send-succeeded", { message }, "info");
     showToast("已执行 +1", "success");
     return true;
   }
@@ -828,7 +1051,7 @@
     state.button.disabled = true;
     const success = await repeatMessage(state.candidate.message);
     if (success) {
-      hideCard();
+      hideCard("send-succeeded");
     } else if (state.button) {
       state.button.disabled = false;
     }
@@ -843,15 +1066,21 @@
     event.stopPropagation();
     repeatMessage(state.candidate.message).then((success) => {
       if (success) {
-        hideCard();
+        hideCard("alt-send-succeeded");
       }
     });
   }
 
   function applySettings(saved) {
     state.settings = shared.mergeSettings(saved);
+    debugState.settingsEnabled = enabled();
+    debugEvent("settings-applied", {
+      enabled: state.settings.enabled,
+      douyin: state.settings.platforms.douyin,
+      altClick: state.settings.altClick
+    });
     if (!enabled()) {
-      hideCard();
+      hideCard("disabled-by-settings");
     }
   }
 
@@ -861,6 +1090,24 @@
     }
     if (event.data.type === "ready") {
       state.pageReady = true;
+      state.pageVersion = String(event.data.version || "legacy");
+      debugState.pageReady = true;
+      debugState.pageVersion = state.pageVersion;
+      debugEvent("page-ready", {
+        version: state.pageVersion,
+        instanceCount: Number(event.data.instanceCount) || 0,
+        orphanCount: Number(event.data.orphanCount) || 0
+      }, "info");
+      return;
+    }
+    if (event.data.type === "debug-snapshot") {
+      state.pageSnapshot = event.data.snapshot || null;
+      debugEvent("page-debug-snapshot", {
+        requestId: Number(event.data.requestId) || 0,
+        instanceCount: state.pageSnapshot && state.pageSnapshot.instanceCount,
+        orphanCount: state.pageSnapshot && state.pageSnapshot.orphanCount
+      }, "info");
+      console.info("[Danmaku Echo][Douyin diagnostics]", contentDebugSnapshot());
       return;
     }
     if (event.data.type !== "probe-result" || !state.pendingProbe
@@ -869,39 +1116,76 @@
     }
     const pending = state.pendingProbe;
     state.pendingProbe = null;
+    debugState.counters.probeResults += 1;
+    debugState.lastProbe = {
+      requestId: pending.requestId,
+      sentAt: Date.now() - Math.max(0, performance.now() - pending.sentAt),
+      receivedAt: Date.now(),
+      latency: performance.now() - pending.sentAt,
+      x: pending.x,
+      y: pending.y,
+      status: event.data.hit ? "hit" : "miss",
+      hit: event.data.hit ? {
+        trackId: event.data.hit.trackId,
+        text: event.data.hit.text,
+        rect: event.data.hit.rect,
+        model: event.data.hit.model || null
+      } : null
+    };
     if (state.candidate || performance.now() - pending.sentAt > 250
         || Math.hypot(state.pointerX - pending.x, state.pointerY - pending.y) > 14) {
+      debugState.lastProbe.status = "discarded-stale";
+      scheduleDebugMarker();
       return;
     }
-    const candidate = candidateFromProbe(event.data.hit);
+    const candidate = candidateFromProbe(event.data.hit, pending);
     if (candidate) {
       showCard(candidate);
+    } else {
+      scheduleDebugMarker();
     }
   });
 
   storageGet().then(applySettings);
   ensureCard();
   document.addEventListener("pointermove", onPointerMove, true);
+  document.addEventListener("pointerdown", (event) => {
+    if (state.candidate && !isOwned(event.target)
+        && performance.now() >= state.lockedUntil) {
+      hideCard("outside-pointerdown");
+    }
+  }, true);
   document.addEventListener("click", onAltClick, true);
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
-      hideCard();
+      hideCard("escape");
+    }
+    if (event.ctrlKey && event.altKey && String(event.key).toLowerCase() === "d") {
+      event.preventDefault();
+      const requestId = state.nextProbeId++;
+      debugEvent("diagnostics-requested", { requestId }, "info");
+      window.postMessage({
+        source: CONTENT_SOURCE,
+        type: "debug-request",
+        requestId
+      }, "*");
+      showToast("诊断信息已输出到控制台", "info");
     }
   }, true);
   window.addEventListener("blur", () => scheduleHide(120));
-  window.addEventListener("scroll", hideCard, true);
-  window.addEventListener("resize", hideCard, { passive: true });
+  window.addEventListener("scroll", () => hideCard("scroll"), true);
+  window.addEventListener("resize", () => hideCard("resize"), { passive: true });
   document.addEventListener("fullscreenchange", () => {
-    hideCard();
+    hideCard("fullscreen-change");
     ensurePortal();
   }, true);
   document.addEventListener("webkitfullscreenchange", () => {
-    hideCard();
+    hideCard("webkit-fullscreen-change");
     ensurePortal();
   }, true);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
-      hideCard();
+      hideCard("document-hidden");
     }
   });
 
@@ -913,11 +1197,16 @@
     });
   }
 
-  const ping = () => window.postMessage({
-    source: CONTENT_SOURCE,
-    type: "ping",
-    requestId: state.nextProbeId++
-  }, "*");
+  const ping = () => {
+    const requestId = state.nextProbeId++;
+    debugState.counters.pings += 1;
+    debugEvent("page-ping", { requestId, href: location.href });
+    window.postMessage({
+      source: CONTENT_SOURCE,
+      type: "ping",
+      requestId
+    }, "*");
+  };
   ping();
   [1000, 3000, 7000].forEach((delay) => setTimeout(() => {
     if (!state.pageReady) {
@@ -928,9 +1217,17 @@
   setInterval(() => {
     if (state.lastUrl !== location.href) {
       state.lastUrl = location.href;
-      hideCard();
+      debugEvent("spa-url-changed", { href: location.href }, "info");
+      hideCard("spa-url-change");
       state.pageReady = false;
+      debugState.pageReady = false;
       ping();
     }
   }, 500);
+  debugEvent("content-loaded", {
+    href: location.href,
+    readyState: document.readyState,
+    version: DEBUG_VERSION
+  }, "info");
+  syncDebugMarker();
 })();
