@@ -2,7 +2,7 @@
   "use strict";
 
   const shared = globalThis.BulletPlusOneShared;
-  if (!shared || shared.detectPlatform(location.hostname) !== "douyin"
+  if (!shared || shared.detectPlatform(location.hostname, location.pathname) !== "douyin"
       || globalThis.__danmakuEchoDouyinLoaded) {
     return;
   }
@@ -11,10 +11,10 @@
   const CONTENT_SOURCE = "danmaku-echo-douyin-content";
   const PAGE_SOURCE = "danmaku-echo-douyin-page";
   const MAX_LENGTH = 1000;
-  const CARD_LOCK_TIME = 1500;
-  const CARD_STICKY_TIME = 6000;
-  const CARD_HIDE_DELAY = 500;
-  const DEBUG_VERSION = "douyin-content-v3";
+  const CARD_LOCK_TIME = 2500;
+  const CARD_STICKY_TIME = 8000;
+  const CARD_HIDE_DELAY = 650;
+  const DEBUG_VERSION = "douyin-content-v4";
   const DOM_DANMAKU_SELECTORS = [
     "[data-e2e='danmaku-item']",
     "[class*='webcast-danmaku___item']",
@@ -95,6 +95,9 @@
     hideTimer: 0,
     expiryTimer: 0,
     cardHovered: false,
+    selectionId: 0,
+    selectionPhase: "idle",
+    selectedAt: 0,
     lockedUntil: 0,
     pointerX: 0,
     pointerY: 0,
@@ -174,6 +177,9 @@
       card: state.card ? {
         hidden: state.card.hidden,
         hovered: state.cardHovered,
+        selectionId: state.selectionId,
+        selectionPhase: state.selectionPhase,
+        selectedAt: state.selectedAt,
         lockedUntil: state.lockedUntil,
         candidate: state.candidate ? {
           trackId: state.candidate.trackId,
@@ -350,8 +356,12 @@
 
   function armExpiry() {
     clearExpiry();
+    const selectionId = state.selectionId;
     state.expiryTimer = setTimeout(() => {
       state.expiryTimer = 0;
+      if (selectionId !== state.selectionId || !state.candidate) {
+        return;
+      }
       if (state.cardHovered) {
         armExpiry();
         return;
@@ -366,6 +376,8 @@
     const previous = state.candidate;
     state.candidate = null;
     state.cardHovered = false;
+    state.selectionPhase = "idle";
+    state.selectedAt = 0;
     state.lockedUntil = 0;
     state.pendingProbe = null;
     if (!state.card) {
@@ -376,6 +388,9 @@
     state.card.removeAttribute("data-track-id");
     state.card.removeAttribute("data-kind");
     state.card.removeAttribute("data-message");
+    state.card.removeAttribute("data-selection-id");
+    state.card.removeAttribute("data-selection-phase");
+    state.card.removeAttribute("data-side");
     if (state.preview) {
       state.preview.replaceChildren();
     }
@@ -389,13 +404,17 @@
     }
   }
 
-  function scheduleHide(delay) {
+  function scheduleHide(reason, delay) {
     if (state.hideTimer) {
       return;
     }
+    const selectionId = state.selectionId;
     state.hideTimer = setTimeout(() => {
       state.hideTimer = 0;
-      hideCard("scheduled-hide");
+      if (selectionId !== state.selectionId || state.cardHovered) {
+        return;
+      }
+      hideCard(reason || "scheduled-hide");
     }, Number.isFinite(delay) ? delay : CARD_HIDE_DELAY);
   }
 
@@ -435,6 +454,8 @@
     card.append(preview, button);
     card.addEventListener("pointerenter", () => {
       state.cardHovered = true;
+      state.selectionPhase = "engaged";
+      card.dataset.selectionPhase = state.selectionPhase;
       debugState.counters.cardPointerEnters += 1;
       debugEvent("card-pointer-enter", {
         trackId: state.candidate && state.candidate.trackId,
@@ -445,11 +466,15 @@
     });
     card.addEventListener("pointermove", () => {
       state.cardHovered = true;
+      state.selectionPhase = "engaged";
+      card.dataset.selectionPhase = state.selectionPhase;
       cancelHide();
     });
     card.addEventListener("pointerleave", () => {
       state.cardHovered = false;
-      scheduleHide(CARD_HIDE_DELAY);
+      state.selectionPhase = "grace";
+      card.dataset.selectionPhase = state.selectionPhase;
+      scheduleHide("card-pointerleave", CARD_HIDE_DELAY);
     });
     portal.appendChild(card);
     state.card = card;
@@ -646,9 +671,11 @@
     const pointerY = Number.isFinite(candidate.pointerY)
       ? candidate.pointerY
       : anchor.top + anchor.height / 2;
-    let left = pointerX + 10;
+    let side = "right";
+    let left = pointerX + 8;
     if (left + width > boundsRight) {
-      left = pointerX - width - 10;
+      side = "left";
+      left = pointerX - width - 8;
     }
     left = Math.max(boundsLeft, Math.min(left, boundsRight - width));
     const boundsBottom = Math.min(innerHeight - 8, bounds.top + bounds.height - 8);
@@ -657,6 +684,7 @@
     top = Math.max(boundsTop, Math.min(top, boundsBottom - height));
     card.style.setProperty("left", `${Math.round(left)}px`);
     card.style.setProperty("top", `${Math.round(top)}px`);
+    card.dataset.side = side;
     card.style.removeProperty("visibility");
     requestAnimationFrame(() => card.classList.add("is-visible"));
   }
@@ -668,14 +696,19 @@
     cancelHide();
     clearExpiry();
     const card = ensureCard();
+    state.selectionId += 1;
     state.candidate = candidate;
     state.cardHovered = false;
+    state.selectionPhase = "armed";
+    state.selectedAt = Date.now();
     state.lockedUntil = performance.now() + CARD_LOCK_TIME;
     state.button.disabled = false;
     state.button.setAttribute("aria-label", `弹幕加一：${candidate.message}`);
     card.dataset.trackId = String(candidate.trackId || "dom");
     card.dataset.kind = candidate.kind || "unknown";
     card.dataset.message = candidate.message.slice(0, 240);
+    card.dataset.selectionId = String(state.selectionId);
+    card.dataset.selectionPhase = state.selectionPhase;
     card.classList.remove("is-visible");
     renderPreview(candidate);
     positionCard(candidate);
@@ -683,6 +716,8 @@
     debugState.counters.cardsShown += 1;
     debugState.lastCard = {
       at: Date.now(),
+      selectionId: state.selectionId,
+      selectionPhase: state.selectionPhase,
       trackId: candidate.trackId,
       instanceId: candidate.instanceId || "",
       message: candidate.message,
@@ -1172,8 +1207,10 @@
       showToast("诊断信息已输出到控制台", "info");
     }
   }, true);
-  window.addEventListener("blur", () => scheduleHide(120));
-  window.addEventListener("scroll", () => hideCard("scroll"), true);
+  window.addEventListener("blur", () => scheduleHide("window-blur", 120));
+  // Douyin auto-scrolls its virtual chat list whenever messages arrive. A captured
+  // scroll listener would clear a valid Canvas selection even while the pointer is
+  // already over the card, so scrolling is deliberately not a dismissal signal.
   window.addEventListener("resize", () => hideCard("resize"), { passive: true });
   document.addEventListener("fullscreenchange", () => {
     hideCard("fullscreen-change");

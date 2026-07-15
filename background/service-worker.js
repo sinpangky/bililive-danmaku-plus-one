@@ -1,6 +1,6 @@
 "use strict";
 
-const DOUYIN_LIVE_PATTERN = /^https:\/\/live\.douyin\.com\//i;
+const DOUYIN_LIVE_PATTERN = /^https:\/\/(?:live\.douyin\.com\/|www\.douyin\.com\/follow\/live(?:\/|[?#]|$))/i;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || message.type !== "danmaku-echo.ensure-douyin-page-hook") {

@@ -366,6 +366,9 @@ const douyinHtml = String.raw`<!doctype html>
         <div class="CanvasDanmakuPlugin"><canvas width="800" height="450"></canvas></div>
       </div>
     </section>
+    <div id="douyin-chat-scroller" style="height:20px;overflow:auto">
+      <div style="height:80px">聊天区自动滚动夹具</div>
+    </div>
     <textarea placeholder="说点什么" aria-label="弹幕输入框"></textarea>
     <button class="sendButton" type="button">发送</button>
     <script>
@@ -373,6 +376,7 @@ const douyinHtml = String.raw`<!doctype html>
       const spaMode = parameters.get("spa") === "1";
       const edgeMode = parameters.get("edge") === "1";
       const lateHookMode = parameters.get("latehook") === "1";
+      const barrageDuration = lateHookMode ? 15_000 : 4_000;
       const canvasHost = document.querySelector(".CanvasDanmakuPlugin");
       let canvas = canvasHost.querySelector("canvas");
       let transferResult = "not-called";
@@ -412,7 +416,7 @@ const douyinHtml = String.raw`<!doctype html>
             devicePixelRatio: 1,
             fontSize: 20,
             channelHeight: 40,
-            duration: 4_000,
+            duration: barrageDuration,
             gap: 20
           },
           offscrrenCanvas: transferResult,
@@ -444,25 +448,29 @@ const douyinHtml = String.raw`<!doctype html>
           }]
         }
       });
-      setTimeout(() => channel.port1.postMessage({
-        method: "addBarrage",
-        _uniqueId: "fixture-worker-instance",
-        params: {
-          id: "fixture-other-barrage",
-          startTime: Date.now(),
-          reserveDuration: 5_000,
-          padding: [4, 8, 4, 8],
-          content: [{
-            type: "text",
-            text: "其他弹幕继续移动",
-            fontSize: 24,
-            fontWeight: 700,
-            fontFamily: "sans-serif",
-            color: "#ffffff",
-            strokeColor: "#000000"
-          }]
-        }
-      }), 160);
+      let secondBarragePostedAt = 0;
+      setTimeout(() => {
+        secondBarragePostedAt = performance.now();
+        channel.port1.postMessage({
+          method: "addBarrage",
+          _uniqueId: "fixture-worker-instance",
+          params: {
+            id: "fixture-other-barrage",
+            startTime: Date.now(),
+            reserveDuration: 5_000,
+            padding: [4, 8, 4, 8],
+            content: [{
+              type: "text",
+              text: "其他弹幕继续移动",
+              fontSize: 24,
+              fontWeight: 700,
+              fontFamily: "sans-serif",
+              color: "#ffffff",
+              strokeColor: "#000000"
+            }]
+          }
+        });
+      }, 160);
       let barragePostedAt = performance.now();
       if (lateHookMode) {
         setTimeout(() => {
@@ -512,13 +520,16 @@ const douyinHtml = String.raw`<!doctype html>
         const rect = canvas.getBoundingClientRect();
         const elapsed = Math.max(0, performance.now() - barragePostedAt - 80);
         const estimatedWidth = 188;
-        const left = rect.right - (rect.width + estimatedWidth) * elapsed / 4_000;
-        canvas.dispatchEvent(new PointerEvent("pointermove", {
-          bubbles: true,
-          clientX: left + estimatedWidth / 2,
-          clientY: rect.top + 18,
-          pointerType: "mouse"
-        }));
+        const left = rect.right - (rect.width + estimatedWidth) * elapsed / barrageDuration;
+        const selectedPointerX = Math.min(left + estimatedWidth / 2, innerWidth - 24);
+        if (!actionScheduled) {
+          canvas.dispatchEvent(new PointerEvent("pointermove", {
+            bubbles: true,
+            clientX: selectedPointerX,
+            clientY: rect.top + 18,
+            pointerType: "mouse"
+          }));
+        }
 
         const card = document.querySelector(
           "[data-bcp-douyin-interaction-card='true']:not([hidden])"
@@ -527,6 +538,8 @@ const douyinHtml = String.raw`<!doctype html>
         if (card && !actionScheduled) {
           actionScheduled = true;
           const cardRect = card.getBoundingClientRect();
+          const selectedTrackId = card.dataset.trackId;
+          const selectedMessage = card.dataset.message;
           document.body.dataset.douyinWorkerStopWasNotSent = String(
             !workerControls.some((message) => message && message.method === "stop")
           );
@@ -543,12 +556,24 @@ const douyinHtml = String.raw`<!doctype html>
           document.body.dataset.douyinLegacyFreezeNodeCount = String(
             document.querySelectorAll(".bcp-one-frozen,[data-bcp-douyin-worker-overlay]").length
           );
-          canvas.dispatchEvent(new PointerEvent("pointermove", {
-            bubbles: true,
-            clientX: rect.right - 12,
-            clientY: rect.bottom - 12,
+          card.dispatchEvent(new PointerEvent("pointerenter", {
+            bubbles: false,
+            clientX: cardRect.left + cardRect.width / 2,
+            clientY: cardRect.top + cardRect.height / 2,
             pointerType: "mouse"
           }));
+          document.querySelector("#douyin-chat-scroller").dispatchEvent(new Event("scroll"));
+          setTimeout(() => {
+            const otherWidth = 200;
+            const otherElapsed = Math.max(0, performance.now() - secondBarragePostedAt - 80);
+            const otherLeft = rect.right - (rect.width + otherWidth) * otherElapsed / barrageDuration;
+            canvas.dispatchEvent(new PointerEvent("pointermove", {
+              bubbles: true,
+              clientX: otherLeft + otherWidth / 2,
+              clientY: rect.top + 58,
+              pointerType: "mouse"
+            }));
+          }, 80);
           setTimeout(() => {
             const currentRect = card.getBoundingClientRect();
             document.body.dataset.douyinCardDrift = String(Math.max(
@@ -556,11 +581,21 @@ const douyinHtml = String.raw`<!doctype html>
               Math.abs(currentRect.top - cardRect.top)
             ));
             document.body.dataset.douyinCardStayedClickable = String(!card.hidden);
+            document.body.dataset.douyinCardSurvivedChatScroll = String(!card.hidden);
+            document.body.dataset.douyinCardKeptSelection = String(
+              card.dataset.trackId === selectedTrackId
+                && card.dataset.message === selectedMessage
+            );
             const button = card.querySelector(".bcp-douyin-button");
+            const buttonRect = button.getBoundingClientRect();
+            const buttonDistance = card.dataset.side === "left"
+              ? selectedPointerX - buttonRect.right
+              : buttonRect.left - selectedPointerX;
+            document.body.dataset.douyinButtonDistance = String(Math.max(0, buttonDistance));
             button.dispatchEvent(new PointerEvent("pointermove", {
               bubbles: true,
-              clientX: currentRect.right - 16,
-              clientY: currentRect.top + currentRect.height / 2,
+              clientX: buttonRect.left + buttonRect.width / 2,
+              clientY: buttonRect.top + buttonRect.height / 2,
               pointerType: "mouse"
             }));
             document.body.dataset.douyinCardAcceptedPointer = String(
@@ -587,7 +622,9 @@ const server = http.createServer((request, response) => {
     response.end(bilibiliActivityHtml);
   } else if (hostname === "live.bilibili.com" || requestedPlatform === "bilibili") {
     response.end(bilibiliHtml);
-  } else if (hostname === "live.douyin.com" || requestedPlatform === "douyin") {
+  } else if (hostname === "live.douyin.com"
+      || (hostname === "www.douyin.com" && requestUrl.pathname.startsWith("/follow/live"))
+      || requestedPlatform === "douyin") {
     response.end(douyinHtml);
   } else {
     response.end(html);

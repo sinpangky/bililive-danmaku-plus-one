@@ -9,7 +9,7 @@
 
 [中文](#中文) · [English](#english)
 
-![Version](https://img.shields.io/badge/version-1.0.1-orange)
+![Version](https://img.shields.io/badge/version-1.0.2-orange)
 ![Manifest](https://img.shields.io/badge/Chrome-Manifest%20V3-blue)
 ![License](https://img.shields.io/badge/license-GPL--3.0--or--later-green)
 
@@ -27,11 +27,15 @@ Danmaku Echo（弹幕回声）是一个适用于 Chrome 和 Edge 的 Manifest V3
 | 哔哩哔哩直播 | ✅ | ✅ | ✅ |
 | 抖音直播 | ✅ | ✅（Canvas） | ✅ |
 
-### v1.0.1 版本说明
+### v1.0.2 版本说明
 
-此版本集中修复抖音直播的首次进房、Canvas 弹幕定位和 `+1` 卡片交互问题。
+此版本修复抖音直播右侧聊天列表自动滚动时误关 `+1` 卡片、过路弹幕抢占当前选择，以及鼠标移向按钮时容易点错弹幕的问题。
 
-抖音使用独立于虎牙、哔哩哔哩的运行逻辑：扩展只观察官方 Worker 的弹幕数据，并按官方的设备像素比、弹道分配、移动速度、图片尺寸和前后弹幕间距计算鼠标命中；不暂停 Worker、不隐藏 Canvas，也不复制画面像素。命中后会在鼠标附近固定一张最长保留 6 秒的可点击交互卡，原生弹幕继续正常移动。
+首次进入直播间现在同时覆盖直播独立站 `live.douyin.com/*` 和抖音首页内的 `www.douyin.com/follow/live/*`。此前从关注页进入后完全没有注入脚本的入口缺口已经补齐。
+
+抖音使用独立于虎牙、哔哩哔哩的运行逻辑：扩展只观察官方 Worker 的弹幕数据，并按官方的设备像素比、弹道分配、移动速度、图片尺寸和前后弹幕间距计算鼠标命中；不暂停 Worker、不隐藏 Canvas，也不复制画面像素。命中后会在鼠标附近固定一张最长保留 8 秒的可点击交互卡，原生弹幕继续正常移动。
+
+交互卡现在使用独立的选择编号和 `armed → engaged → grace` 状态锁。抖音聊天区的虚拟列表滚动不会再清除当前选择；按钮总是排在最靠近鼠标的一侧，并通过透明操作走廊连接原弹幕位置与卡片，减少移动途中失焦。
 
 页面钩子现在同时使用 `document_start` 和受限后台补注入链路；即使错过最初的 Canvas 实例创建消息，也会在下一条弹幕到达时自动认领现有画布，不再依赖刷新页面。
 
@@ -113,8 +117,8 @@ tests/                     清单校验、单元测试和浏览器测试夹具
 
 ### 隐私与权限
 
-- 申请 `storage` 权限保存扩展设置；申请 `scripting` 权限仅用于在 `live.douyin.com` 首次加载时补注入页面钩子。
-- 抖音的主机权限仅覆盖 `live.douyin.com`，用于上述受限补注入，不会扩展到其他网站。
+- 申请 `storage` 权限保存扩展设置；申请 `scripting` 权限仅用于在抖音直播入口首次加载时补注入页面钩子。
+- 抖音的主机权限仅覆盖 `live.douyin.com/*` 与 `www.douyin.com/follow/live/*`，用于上述受限补注入，不会覆盖抖音的其他普通页面或其他网站。
 - 仅在虎牙直播、哔哩哔哩直播和抖音直播页面注入内容脚本。
 - 不读取 Cookie、密码或登录令牌，不调用私有直播接口。
 - 不收集、上传或出售用户数据。
@@ -155,11 +159,15 @@ Danmaku Echo is a Manifest V3 browser extension for Chrome and Edge. It adds a `
 | Bilibili Live | ✅ | ✅ | ✅ |
 | Douyin Live | ✅ | ✅ (Canvas) | ✅ |
 
-### v1.0.1 release notes
+### v1.0.2 release notes
 
-This release focuses on Douyin's first-room load, Canvas hit accuracy, and `+1` card interaction.
+This release fixes Douyin `+1` cards being dismissed by the side chat's automatic scrolling, passing danmaku stealing the active selection, and accidental clicks while moving toward the action.
 
-Douyin uses a runtime isolated from the Huya and Bilibili adapters. It observes official Worker messages and mirrors the native device-pixel-ratio, channel allocation, speed, image sizing, and predecessor-gap rules for pointer hits. It never pauses the Worker, hides the Canvas, or copies rendered pixels. A stationary interaction card remains clickable near the pointer for up to six seconds while the native danmaku keeps moving.
+First-room loading now covers both the standalone `live.douyin.com/*` site and the `www.douyin.com/follow/live/*` route used when entering from Douyin's main site. The latter previously received no extension scripts at all.
+
+Douyin uses a runtime isolated from the Huya and Bilibili adapters. It observes official Worker messages and mirrors the native device-pixel-ratio, channel allocation, speed, image sizing, and predecessor-gap rules for pointer hits. It never pauses the Worker, hides the Canvas, or copies rendered pixels. A stationary interaction card remains clickable near the pointer for up to eight seconds while the native danmaku keeps moving.
+
+The card now has its own selection ID and an `armed → engaged → grace` interaction lock. Virtual side-chat scrolling no longer clears the active selection, the `+1` button is always placed on the pointer-facing edge, and an invisible interaction corridor bridges the pointer-to-card gap.
 
 The page hook now has both a `document_start` path and a restricted background reinjection path. If initial Canvas creation was already missed, the next barrage automatically claims the existing Canvas without requiring a page refresh.
 
@@ -241,8 +249,8 @@ tests/                     Manifest checks, unit tests, and browser fixtures
 
 ### Privacy and permissions
 
-- Requests `storage` for settings and `scripting` only to recover the page hook during the first load of `live.douyin.com`.
-- Its Douyin host permission is limited to `live.douyin.com` and is used only by that recovery injection.
+- Requests `storage` for settings and `scripting` only to recover the page hook during the first load of a Douyin live entry point.
+- Its Douyin host permission is limited to `live.douyin.com/*` and `www.douyin.com/follow/live/*`; it does not cover ordinary Douyin pages or unrelated sites.
 - Injects content scripts only on Huya Live, Bilibili Live, and Douyin Live.
 - Does not read cookies, passwords, or login tokens and does not call private live APIs.
 - Does not collect, upload, or sell user data.

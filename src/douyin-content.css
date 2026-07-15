@@ -37,6 +37,26 @@
   opacity: 1;
 }
 
+.bcp-douyin-card::before {
+  bottom: -8px;
+  content: "";
+  position: absolute;
+  top: -8px;
+  width: 16px;
+}
+
+.bcp-douyin-card[data-side="left"]::before {
+  left: 100%;
+}
+
+.bcp-douyin-card[data-side="right"] {
+  flex-direction: row-reverse;
+}
+
+.bcp-douyin-card[data-side="right"]::before {
+  right: 100%;
+}
+
 .bcp-douyin-card[hidden] {
   display: none !important;
 }

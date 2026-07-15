@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "弹幕回声 Danmaku Echo",
   "description": "为虎牙、哔哩哔哩和抖音直播的聊天区与视频画面添加弹幕 +1 快捷复读。",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "icons": {
     "16": "assets/icons/icon-16.png",
     "32": "assets/icons/icon-32.png",
@@ -14,7 +14,8 @@
     "scripting"
   ],
   "host_permissions": [
-    "*://live.douyin.com/*"
+    "*://live.douyin.com/*",
+    "*://www.douyin.com/follow/live/*"
   ],
   "background": {
     "service_worker": "background/service-worker.js"
@@ -30,7 +31,8 @@
   "content_scripts": [
     {
       "matches": [
-        "*://live.douyin.com/*"
+        "*://live.douyin.com/*",
+        "*://www.douyin.com/follow/live/*"
       ],
       "js": [
         "src/douyin-page-hook.js"
@@ -40,7 +42,8 @@
     },
     {
       "matches": [
-        "*://live.douyin.com/*"
+        "*://live.douyin.com/*",
+        "*://www.douyin.com/follow/live/*"
       ],
       "js": [
         "src/douyin-bootstrap.js"
@@ -49,7 +52,8 @@
     },
     {
       "matches": [
-        "*://live.douyin.com/*"
+        "*://live.douyin.com/*",
+        "*://www.douyin.com/follow/live/*"
       ],
       "js": [
         "src/shared.js",

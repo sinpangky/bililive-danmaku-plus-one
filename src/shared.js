@@ -19,8 +19,9 @@
     })
   });
 
-  function detectPlatform(hostname) {
+  function detectPlatform(hostname, pathname) {
     const host = String(hostname || "").toLowerCase().replace(/:\d+$/, "");
+    const path = String(pathname || "");
 
     if (/(^|\.)huya\.com$/.test(host)) {
       return "huya";
@@ -31,6 +32,10 @@
     }
 
     if (host === "live.douyin.com" || host.endsWith(".live.douyin.com")) {
+      return "douyin";
+    }
+
+    if (host === "www.douyin.com" && /^\/follow\/live(?:\/|$)/.test(path)) {
       return "douyin";
     }
 

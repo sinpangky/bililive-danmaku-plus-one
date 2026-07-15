@@ -8,6 +8,8 @@ test("detects all supported live platforms", () => {
   assert.equal(shared.detectPlatform("www.huya.com"), "huya");
   assert.equal(shared.detectPlatform("live.bilibili.com"), "bilibili");
   assert.equal(shared.detectPlatform("live.douyin.com"), "douyin");
+  assert.equal(shared.detectPlatform("www.douyin.com", "/follow/live/751561170106"), "douyin");
+  assert.equal(shared.detectPlatform("www.douyin.com", "/video/751561170106"), null);
   assert.equal(shared.detectPlatform("example.com"), null);
 });
 

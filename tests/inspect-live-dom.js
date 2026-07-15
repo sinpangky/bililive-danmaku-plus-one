@@ -122,7 +122,7 @@ async function inspect() {
     });
     await send("Runtime.evaluate", { expression: sharedSource });
     await send("Runtime.evaluate", { expression: contentSource });
-    await delay(2_000);
+    await delay(lateDouyinHook ? 3_200 : 2_000);
   }
 
   let douyinProbe = null;
