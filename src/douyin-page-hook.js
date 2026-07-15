@@ -354,7 +354,7 @@
     } catch (_error) {
       setTimeout(() => cleanupWorkerTrack(track), duration);
     }
-    if (!instance.active || instance.pluginPaused) {
+    if (!instance.active) {
       try {
         track.animation && track.animation.pause();
       } catch (_error) {
@@ -366,7 +366,7 @@
 
   function processWorkerQueue(instance) {
     instance.queueTimer = 0;
-    if (!instance.active || instance.pluginPaused || !instance.queue.length) {
+    if (!instance.active || !instance.queue.length) {
       return;
     }
     const now = performance.now();
@@ -422,47 +422,7 @@
     }
   }
 
-  function sendWorkerControl(instance, method) {
-    if (!instance || typeof instance.originalPostMessage !== "function") {
-      return;
-    }
-    try {
-      Reflect.apply(instance.originalPostMessage, instance.sender, [{
-        method,
-        params: {},
-        _uniqueId: instance.id
-      }]);
-    } catch (_error) {
-      // The site's worker may already have been destroyed.
-    }
-  }
-
-  function pauseWorkerInstance(instance) {
-    if (!instance || instance.pluginPaused) {
-      return;
-    }
-    instance.pluginPaused = true;
-    instance.resumeAfterPluginPause = instance.active;
-    setWorkerAnimationsPaused(instance, true);
-    if (instance.resumeAfterPluginPause) {
-      sendWorkerControl(instance, "stop");
-    }
-  }
-
-  function resumeWorkerInstance(instance) {
-    if (!instance || !instance.pluginPaused) {
-      return;
-    }
-    instance.pluginPaused = false;
-    if (instance.resumeAfterPluginPause) {
-      sendWorkerControl(instance, "start");
-      setWorkerAnimationsPaused(instance, false);
-      processWorkerQueue(instance);
-    }
-    instance.resumeAfterPluginPause = false;
-  }
-
-  function observeWorkerMessage(sender, message, originalPostMessage) {
+  function observeWorkerMessage(message) {
     if (!message || typeof message !== "object" || !message.method) {
       return;
     }
@@ -480,8 +440,6 @@
       }
       const instance = {
         id,
-        sender,
-        originalPostMessage,
         canvas,
         config: Object.assign({
           fontSize: 20,
@@ -495,9 +453,7 @@
         queue: [],
         queueTimer: 0,
         channelAvailableAt: [],
-        active: true,
-        pluginPaused: false,
-        resumeAfterPluginPause: false
+        active: true
       };
       workerInstances.set(id, instance);
       const barrages = Array.isArray(params.barrages) ? params.barrages : [];
@@ -523,10 +479,8 @@
       setWorkerAnimationsPaused(instance, true);
     } else if (message.method === "start") {
       instance.active = true;
-      if (!instance.pluginPaused) {
-        setWorkerAnimationsPaused(instance, false);
-        processWorkerQueue(instance);
-      }
+      setWorkerAnimationsPaused(instance, false);
+      processWorkerQueue(instance);
     }
   }
 
@@ -537,7 +491,7 @@
     }
     function bulletPlusOneWorkerPostMessage(message) {
       try {
-        observeWorkerMessage(this, message, original);
+        observeWorkerMessage(message);
       } catch (_error) {
         // Never interfere with the site's worker messages.
       }
@@ -1020,22 +974,14 @@
       .split(",")
       .map((value) => Number(value))
       .filter(Number.isFinite);
-    const instanceId = String(event.data.instanceId || "");
-    const workerInstance = instanceId ? workerInstances.get(instanceId) : null;
-    if (!trackIds.length && !workerInstance) {
+    if (!trackIds.length) {
       return;
     }
     if (event.data.type === "freeze-douyin-canvas") {
       const expiresAt = performance.now() + 15_000;
       trackIds.forEach((trackId) => frozenTracks.set(trackId, expiresAt));
-      if (workerInstance) {
-        pauseWorkerInstance(workerInstance);
-      }
     } else if (event.data.type === "unfreeze-douyin-canvas") {
       trackIds.forEach((trackId) => frozenTracks.delete(trackId));
-      if (workerInstance) {
-        resumeWorkerInstance(workerInstance);
-      }
     }
   });
 

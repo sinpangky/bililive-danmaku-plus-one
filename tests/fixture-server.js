@@ -468,11 +468,11 @@ const douyinHtml = String.raw`<!doctype html>
         if (visibleButton) {
           const animation = hitbox.getAnimations()[0];
           document.body.dataset.douyinCanvasCaptured = "true";
-          document.body.dataset.douyinWorkerTrackPaused = String(
-            Boolean(animation && animation.playState === "paused")
+          document.body.dataset.douyinWorkerTrackStayedRunning = String(
+            Boolean(animation && animation.playState === "running")
           );
-          document.body.dataset.douyinWorkerStopReceived = String(
-            workerControls.some((message) => message && message.method === "stop")
+          document.body.dataset.douyinWorkerStopWasNotSent = String(
+            !workerControls.some((message) => message && message.method === "stop")
           );
           document.body.dataset.douyinFrozenCloneAbsent = String(!frozen);
           visibleButton.click();

@@ -968,14 +968,6 @@
     const isDouyinCanvas = candidate.dataset.bcpDouyinCanvas === "true";
     const isDouyinWorker = candidate.dataset.bcpDouyinWorker === "true";
     if (isDouyinWorker) {
-      window.postMessage({
-        source: "bullet-plus-one-content",
-        type: "freeze-douyin-canvas",
-        trackId: candidate.dataset.bcpDouyinCanvasId,
-        trackIds: candidate.dataset.bcpDouyinCanvasTrackIds,
-        instanceId: candidate.dataset.bcpDouyinCanvasInstanceId,
-        text: candidate.dataset.bcpDouyinCanvasText || ""
-      }, "*");
       return;
     }
     const snapshot = isDouyinCanvas ? createDouyinCanvasSnapshot(candidate, rect) : null;
@@ -1098,6 +1090,9 @@
     const frozenClone = state.frozenClone;
     const isDouyinCanvas = candidate && candidate.dataset.bcpDouyinCanvas === "true";
     const releaseDouyinTracks = () => {
+      if (candidate && candidate.dataset.bcpDouyinWorker === "true") {
+        return;
+      }
       window.postMessage({
         source: "bullet-plus-one-content",
         type: "unfreeze-douyin-canvas",
@@ -1211,6 +1206,9 @@
     const track = () => {
       state.positionFrame = 0;
       if (state.candidateKind !== "overlay" || !state.candidate || !state.candidate.isConnected) {
+        if (state.candidateKind === "overlay") {
+          clearSelection();
+        }
         return;
       }
 
@@ -1242,6 +1240,9 @@
     candidate.classList.add("bcp-one-target");
     if (state.candidateKind === "overlay") {
       freezeOverlayCandidate(candidate);
+      if (candidate.dataset.bcpDouyinWorker === "true") {
+        startPositionTracking();
+      }
     }
 
     const button = ensureButton();

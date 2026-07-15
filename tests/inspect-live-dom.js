@@ -111,7 +111,9 @@ async function inspect() {
         host.className = "CanvasDanmakuPlugin";
         Object.assign(host.style, {
           position: "fixed",
-          left: "40px",
+          // Keep the synthetic barrage and its +1 button away from the viewport edge
+          // so the follow assertion is not masked by the button's edge clamping.
+          left: "-200px",
           top: "60px",
           width: "640px",
           height: "360px",
@@ -195,9 +197,9 @@ async function inspect() {
         let inputValue = "";
         let inputFocusedAfterSend = null;
         let sentValue = "";
-        let workerTrackPaused = false;
-        let workerStopReceived = false;
-        let workerStartReceived = false;
+        let workerTrackStayedRunning = false;
+        let workerStopWasNotSent = false;
+        let buttonFollowError = null;
         if (hitbox) {
           const rect = hitbox.getBoundingClientRect();
           hitboxRect = [rect.left, rect.top, rect.width, rect.height];
@@ -215,8 +217,8 @@ async function inspect() {
           const button = document.querySelector(".bcp-one-button");
           const frozen = document.querySelector(".bcp-one-frozen");
           const workerAnimation = hitbox.getAnimations()[0];
-          workerTrackPaused = Boolean(workerAnimation && workerAnimation.playState === "paused");
-          workerStopReceived = workerControls.some((message) => message && message.method === "stop");
+          workerTrackStayedRunning = Boolean(workerAnimation && workerAnimation.playState === "running");
+          workerStopWasNotSent = !workerControls.some((message) => message && message.method === "stop");
           hoverLatency = button && !button.hidden ? performance.now() - hoverStartedAt : null;
           frozenStartLeft = frozen ? frozen.getBoundingClientRect().left : null;
           if (frozen instanceof HTMLCanvasElement) {
@@ -234,6 +236,14 @@ async function inspect() {
           }
           buttonVisible = Boolean(button && !button.hidden && button.getBoundingClientRect().width > 0);
           frozenTag = frozen ? frozen.tagName : "";
+          if (buttonVisible) {
+            const hitboxStart = hitbox.getBoundingClientRect().left;
+            const buttonStart = button.getBoundingClientRect().left;
+            await new Promise((resolve) => setTimeout(resolve, 120));
+            const hitboxDelta = hitbox.getBoundingClientRect().left - hitboxStart;
+            const buttonDelta = button.getBoundingClientRect().left - buttonStart;
+            buttonFollowError = Math.abs(hitboxDelta - buttonDelta);
+          }
 
           const controls = document.createElement("div");
           Object.assign(controls.style, {
@@ -263,7 +273,6 @@ async function inspect() {
             const resuming = document.querySelector(".bcp-one-resuming");
             resumedLeft = resuming ? resuming.getBoundingClientRect().left : null;
             await new Promise((resolve) => setTimeout(resolve, 220));
-            workerStartReceived = workerControls.some((message) => message && message.method === "start");
           }
           inputValue = input.value;
           inputFocusedAfterSend = document.activeElement === input;
@@ -292,9 +301,9 @@ async function inspect() {
           inputValue,
           inputFocusedAfterSend,
           sentValue,
-          workerTrackPaused,
-          workerStopReceived,
-          workerStartReceived
+          workerTrackStayedRunning,
+          workerStopWasNotSent,
+          buttonFollowError
         };
         host.remove();
         chatMessage.remove();
