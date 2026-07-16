@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "弹幕回声 Danmaku Echo",
   "description": "为虎牙、哔哩哔哩和抖音直播的聊天区与视频画面添加弹幕 +1 快捷复读。",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "icons": {
     "16": "assets/icons/icon-16.png",
     "32": "assets/icons/icon-32.png",

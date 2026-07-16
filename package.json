@@ -1,6 +1,6 @@
 {
   "name": "danmaku-echo",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "description": "One-click danmaku echoing for Huya Live, Bilibili Live, and Douyin Live",
   "license": "GPL-3.0-or-later",

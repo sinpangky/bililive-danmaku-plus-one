@@ -496,6 +496,7 @@ async function inspect() {
       const nodes = Array.from(document.querySelectorAll(".bcp-douyin-dom-barrage"))
         .map((node) => {
           const action = node.querySelector(".bcp-douyin-dom-action");
+          const content = node.querySelector(".bcp-douyin-dom-content");
           return {
             message: node.dataset.message || (action && action.dataset.message)
               || String(node.textContent || "").replace(/\+1\s*$/, "").trim(),
@@ -504,7 +505,9 @@ async function inspect() {
             hovered: node.dataset.hovered || "",
             sending: node.dataset.sending || "",
             rect: rectValue(node),
+            contentRect: rectValue(content),
             actionRect: rectValue(action),
+            actionAfterContent: Boolean(content && action && content.nextElementSibling === action),
             actionVisibility: action ? getComputedStyle(action).visibility : "missing",
             actionPointerEvents: action ? getComputedStyle(action).pointerEvents : "missing"
           };
@@ -621,8 +624,24 @@ async function inspect() {
         await dispatchMouse("mousePressed", clickX, clickY);
         await dispatchMouse("mouseReleased", clickX, clickY);
       }
-      await delay(800);
-      const afterClick = await readTakeoverState();
+      // Poll through the success edge so an immediate one-frame spring cannot
+      // hide inside a coarse post-click delay.
+      let releaseStart = null;
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        await delay(20);
+        const sample = await readTakeoverState();
+        releaseStart = sample;
+        if (sample.sent === clickedMessage && sample.target
+            && sample.target.hovered !== "true") {
+          break;
+        }
+      }
+      const resumeSamples = [releaseStart];
+      for (let sample = 0; sample < 6; sample += 1) {
+        await delay(60);
+        resumeSamples.push(await readTakeoverState());
+      }
+      const afterClick = resumeSamples[resumeSamples.length - 1];
 
       await evaluateValue(String.raw`(() => {
         window.postMessage({
@@ -635,6 +654,34 @@ async function inspect() {
       })()`);
       await delay(250);
       const afterDisable = await readTakeoverState();
+
+      const targetResumePositions = resumeSamples
+        .map((sample) => sample.target && sample.target.rect && sample.target.rect.left)
+        .filter(Number.isFinite);
+      const otherResumePositions = resumeSamples
+        .map((sample) => sample.other && sample.other.rect && sample.other.rect.left)
+        .filter(Number.isFinite);
+      const targetResumeSteps = targetResumePositions.slice(1)
+        .map((left, index) => targetResumePositions[index] - left);
+      const targetResumeTravel = targetResumePositions.length > 1
+        ? targetResumePositions[0] - targetResumePositions[targetResumePositions.length - 1]
+        : null;
+      const otherResumeTravel = otherResumePositions.length > 1
+        ? otherResumePositions[0] - otherResumePositions[otherResumePositions.length - 1]
+        : null;
+      const resumeSpeedRatio = targetResumeTravel > 0 && otherResumeTravel > 0
+        ? targetResumeTravel / otherResumeTravel
+        : null;
+      const resumeMaxStep = targetResumeSteps.length ? Math.max(...targetResumeSteps) : null;
+      const releaseTargetTravel = hoverEnd.target && releaseStart && releaseStart.target
+        ? hoverEnd.target.rect.left - releaseStart.target.rect.left
+        : null;
+      const releaseOtherTravel = hoverEnd.other && releaseStart && releaseStart.other
+        ? hoverEnd.other.rect.left - releaseStart.other.rect.left
+        : null;
+      const noReleaseSpring = releaseTargetTravel != null && releaseOtherTravel != null
+        && releaseTargetTravel >= -0.5
+        && releaseTargetTravel <= Math.max(3, releaseOtherTravel * 1.35 + 3);
 
       douyinDomRegression = {
         ready: initial.canvasVisibility === "hidden" && !initial.layerHidden,
@@ -657,9 +704,27 @@ async function inspect() {
           hoverEnd.target && hoverEnd.target.actionVisibility !== "hidden"
             && hoverEnd.target.actionPointerEvents !== "none"
         ),
+        actionBehindMessage: Boolean(
+          hoverEnd.target && hoverEnd.target.contentRect && hoverEnd.target.actionRect
+            && hoverEnd.target.actionAfterContent
+            && hoverEnd.target.actionRect.left >= hoverEnd.target.contentRect.right - 1
+        ),
         clickedMessage,
         sentMessage: afterClick.sent,
         clickSentMatchingMessage: Boolean(clickedMessage && afterClick.sent === clickedMessage),
+        targetResumeTravel,
+        otherResumeTravel,
+        resumeSpeedRatio,
+        resumeMaxStep,
+        releaseTargetTravel,
+        releaseOtherTravel,
+        noReleaseSpring,
+        resumedFromHeldPositionAtNormalSpeed: Boolean(
+          noReleaseSpring && targetResumeTravel != null && targetResumeTravel >= 8
+            && targetResumeSteps.every((step) => step >= -0.5)
+            && resumeMaxStep != null && resumeMaxStep <= 16
+            && resumeSpeedRatio != null && resumeSpeedRatio >= 0.75 && resumeSpeedRatio <= 1.25
+        ),
         workerStopWasNotSent: afterClick.workerStopWasNotSent === "true",
         canvasRestoredAfterDisable: afterDisable.canvasVisibility !== "hidden"
           && afterDisable.canvasDisplay !== "none",
@@ -670,6 +735,7 @@ async function inspect() {
         beforeHover: initial,
         hoverStart,
         hoverEnd,
+        resumeSamples,
         afterClick,
         afterDisable
       };
@@ -828,7 +894,10 @@ async function inspect() {
         "otherContinued",
         "sizeStable",
         "actionVisible",
+        "actionBehindMessage",
         "clickSentMatchingMessage",
+        "noReleaseSpring",
+        "resumedFromHeldPositionAtNormalSpeed",
         "workerStopWasNotSent",
         "canvasRestoredAfterDisable",
         "layerInactiveAfterDisable"

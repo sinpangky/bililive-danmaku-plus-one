@@ -558,6 +558,11 @@
   }
 
   function trackIsExpired(track, rect) {
+    const state = track.renderer;
+    if (state && Number.isFinite(state.visualLeft)
+        && (state.hovered || Math.abs(numberOr(state.resumeOffset, 0)) > 0.1)) {
+      return state.visualLeft + Math.max(1, numberOr(state.visualWidth, track.description.width)) <= 0;
+    }
     return trackRightPosition(track, rect) <= 0;
   }
 
@@ -944,15 +949,19 @@
       clearTimeout(state.hoverTimer);
       state.hoverTimer = 0;
     }
+    if (state.hovered && Number.isFinite(state.visualLeft) && Number.isFinite(state.targetLeft)) {
+      // Preserve the distance accumulated while the ghost trajectory kept
+      // moving. A constant offset means this DOM node now travels at exactly
+      // the same speed as before the hold instead of springing back to ghost.
+      state.resumeOffset = state.visualLeft - state.targetLeft;
+    }
     state.hovered = false;
     delete state.node.dataset.hovered;
-    if (state.ghostExpired) {
-      removeRendererTrack(track);
-      track.instance.tracks.delete(track.id);
-      track.instance.frameState.previousIds.delete(track.id);
-      return;
+    if (Math.abs(numberOr(state.resumeOffset, 0)) > 0.1) {
+      state.node.dataset.resuming = "true";
+    } else {
+      delete state.node.dataset.resuming;
     }
-    state.catching = true;
   }
 
   function holdRendererTrack(track) {
@@ -961,8 +970,8 @@
       return;
     }
     state.hovered = true;
-    state.catching = false;
     state.node.dataset.hovered = "true";
+    delete state.node.dataset.resuming;
     if (state.hoverTimer) {
       clearTimeout(state.hoverTimer);
     }
@@ -991,6 +1000,7 @@
     state.button.dataset.result = ok ? "success" : "failure";
     if (ok) {
       state.node.dataset.sendOk = "true";
+      releaseRendererTrack(request.track);
     } else {
       delete state.node.dataset.sendOk;
     }
@@ -1102,17 +1112,16 @@
     button.style.maxWidth = `${DOM_ACTION_WIDTH}px`;
     button.style.boxSizing = "border-box";
 
-    node.append(button, content);
+    node.append(content, button);
     const state = {
       node,
       content,
       button,
       hovered: false,
-      catching: false,
-      ghostExpired: false,
       sending: false,
       visualLeft: null,
       targetLeft: null,
+      resumeOffset: 0,
       visualWidth: 0,
       visualHeight: 0,
       hoverTimer: 0
@@ -1132,32 +1141,18 @@
     return state;
   }
 
-  function syncRendererTrack(track, barrageRect, canvasRect, deltaTime) {
+  function syncRendererTrack(track, barrageRect, canvasRect) {
     const state = track.renderer;
     if (!state) {
       return;
     }
-    // Keep the message itself on the modeled trajectory while reserving the
-    // action on its leading edge. The hidden action cannot capture the pointer,
-    // yet it is already inside the viewport whenever readable text is visible.
-    const targetLeft = barrageRect.left - canvasRect.left - DOM_ACTION_WIDTH;
+    const targetLeft = barrageRect.left - canvasRect.left;
     const targetTop = barrageRect.top - canvasRect.top;
     state.targetLeft = targetLeft;
     if (!Number.isFinite(state.visualLeft)) {
       state.visualLeft = targetLeft;
     } else if (!state.hovered) {
-      if (state.catching) {
-        const gap = targetLeft - state.visualLeft;
-        const maxStep = Math.max(8, Math.min(80, Math.max(1, deltaTime) * 0.9));
-        if (Math.abs(gap) <= maxStep) {
-          state.visualLeft = targetLeft;
-          state.catching = false;
-        } else {
-          state.visualLeft += Math.sign(gap) * maxStep;
-        }
-      } else {
-        state.visualLeft = targetLeft;
-      }
+      state.visualLeft = targetLeft + numberOr(state.resumeOffset, 0);
     }
     if (!state.hovered) {
       const width = Math.max(DOM_ACTION_WIDTH + 1, barrageRect.width);
@@ -1174,7 +1169,7 @@
     state.node.style.transform = `translate3d(${state.visualLeft}px, ${targetTop}px, 0)`;
   }
 
-  function updateRendererFrame(instance, canvasRect, deltaTime) {
+  function updateRendererFrame(instance, canvasRect) {
     if (document.fullscreenElement === instance.canvas) {
       if (instance.rendererLayer || instance.rendererTakeover) {
         shutdownInstanceRenderer(instance, "canvas-is-fullscreen-element");
@@ -1196,7 +1191,7 @@
     }
     const layer = ensureRendererLayer(instance, canvasRect);
     for (const track of instance.tracks.values()) {
-      if (!track.bookedChannel || (track.renderer && track.renderer.ghostExpired)) {
+      if (!track.bookedChannel) {
         continue;
       }
       const barrageRect = trackRect(track, 0, canvasRect);
@@ -1207,7 +1202,7 @@
       if (!state.node.isConnected) {
         throw new Error("renderer barrage detached before takeover");
       }
-      syncRendererTrack(track, barrageRect, canvasRect, deltaTime);
+      syncRendererTrack(track, barrageRect, canvasRect);
     }
     if (instance.rendererNodes.size) {
       takeOverRendererCanvas(instance);
@@ -1236,11 +1231,6 @@
     }));
     expired.forEach((id) => {
       const track = instance.tracks.get(id);
-      if (track && track.renderer && track.renderer.hovered) {
-        track.renderer.ghostExpired = true;
-        track.renderer.node.dataset.ghostExpired = "true";
-        return;
-      }
       if (track) {
         removeRendererTrack(track);
       }
@@ -1278,7 +1268,7 @@
     instance.lastFrameAt = now;
     removeExpiredTracks(instance, rect);
     if (channelsEmpty(instance)) {
-      updateRendererFrame(instance, rect, deltaTime);
+      updateRendererFrame(instance, rect);
       return;
     }
 
@@ -1344,7 +1334,7 @@
         rightPositions.set(barrageId, trackRightPosition(track, rect));
       });
     });
-    updateRendererFrame(instance, rect, deltaTime);
+    updateRendererFrame(instance, rect);
     instance.animationFrame = requestAnimationFrame(() => modelFrame(instance));
   }
 

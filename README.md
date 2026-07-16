@@ -9,7 +9,7 @@
 
 [中文](#中文) · [English](#english)
 
-![Version](https://img.shields.io/badge/version-1.1.0-orange)
+![Version](https://img.shields.io/badge/version-1.1.1-orange)
 ![Manifest](https://img.shields.io/badge/Chrome-Manifest%20V3-blue)
 ![License](https://img.shields.io/badge/license-GPL--3.0--or--later-green)
 
@@ -27,11 +27,11 @@ Danmaku Echo（弹幕回声）是一个适用于 Chrome 和 Edge 的 Manifest V3
 | 哔哩哔哩直播 | ✅ | ✅ | ✅ |
 | 抖音直播 | ✅ | ✅（Canvas） | ✅ |
 
-### v1.1.0 版本说明
+### v1.1.1 版本说明
 
 此版本为抖音视频弹幕启用独立的安全 DOM 接管。扩展旁路读取官方 Worker 已解码的 `addBarrage` 数据，保留原消息投递和原生 Worker，然后按同一弹道模型渲染可交互的真实 DOM 弹幕；不拦截 WebSocket、不解析私有协议，也不复制 Canvas 像素。
 
-每条 DOM 弹幕拥有独立状态。鼠标进入时只冻结当前条目的可视位置，内部轨迹继续前进；移出后平滑追赶实时位置。`+1` 操作区从创建首帧起固定预留 50px，因此悬停不会拉伸弹幕，也不会把操作误绑定到相邻条目。
+每条 DOM 弹幕拥有独立状态。鼠标进入时只冻结当前条目的可视位置；`+1` 发送成功或鼠标移出后，会从悬停位置按原速度继续移动，不再快速追赶后台轨迹，因此不会产生弹射感。`+1` 按钮固定预留在弹幕文字后方，悬停不会拉伸弹幕，也不会把操作误绑定到相邻条目。
 
 抖音页面钩子、设置通道和样式现在都从 `document_start` 启动，覆盖 `live.douyin.com/*` 与 `www.douyin.com/follow/live/*`。正常首载可直接接管；若钩子较晚才认领到现有 Canvas，则会等待官方 `clear` 后的新弹幕或安全过期窗口，避免隐藏尚未同步的原生内容。
 
@@ -41,7 +41,7 @@ Danmaku Echo（弹幕回声）是一个适用于 Chrome 和 Edge 的 Manifest V3
 
 - 鼠标悬停弹幕时显示 `+1` 按钮，点击后自动发送相同内容。
 - 虎牙与哔哩哔哩的视频弹幕悬停后暂停，移出操作缓冲区后从原位置继续移动。
-- 抖音视频弹幕由安全 DOM 层连续渲染，单条悬停暂停且 `+1` 始终与当前条目绑定。
+- 抖音视频弹幕由安全 DOM 层连续渲染，单条悬停暂停、从原位原速续行，且 `+1` 始终位于并绑定当前条目后方。
 - 避免相邻或重叠的后续弹幕抢占当前选择。
 - 过滤清晰度、设置菜单等播放器控件，只识别真实弹幕。
 - 支持文字、Emoji 和最长 1000 个 Unicode 字符的弹幕识别；实际发送长度仍受平台规则限制。
@@ -157,11 +157,11 @@ Danmaku Echo is a Manifest V3 browser extension for Chrome and Edge. It adds a `
 | Bilibili Live | ✅ | ✅ | ✅ |
 | Douyin Live | ✅ | ✅ (Canvas) | ✅ |
 
-### v1.1.0 release notes
+### v1.1.1 release notes
 
 This release introduces a dedicated safe DOM takeover for Douyin's on-video danmaku. The extension observes already-decoded `addBarrage` instructions sent to the official Worker, preserves their original delivery and the native Worker, and renders interactive DOM danmaku from the same lane model. It does not intercept WebSockets, decode private protocols, or copy Canvas pixels.
 
-Every DOM barrage has independent interaction state. Hover freezes only that node's visible position while its internal trajectory continues; leaving smoothly catches it up to the live position. A fixed 50px action area is reserved from the first frame, so hover never stretches the barrage or rebinds `+1` to a neighbor.
+Every DOM barrage has independent interaction state. Hover freezes only that node's visible position. After a successful `+1` or pointer leave, it resumes from the held position at its original speed instead of rapidly catching up to the background trajectory, eliminating the slingshot effect. The fixed `+1` area now sits after the message text without stretching the barrage or rebinding to a neighbor.
 
 The Douyin page hook, settings channel, and styles now start at `document_start` on both `live.douyin.com/*` and `www.douyin.com/follow/live/*`. Normal first loads can take over immediately. If a late hook recovers an existing Canvas, takeover waits for an official `clear` plus new barrages or a safe expiry window so unsynchronized native content is never hidden.
 
@@ -171,7 +171,7 @@ The native Canvas is hidden with `visibility: hidden` only after the first DOM n
 
 - Shows a `+1` action when a danmaku is hovered and sends the same content automatically.
 - Pauses Huya and Bilibili on-video danmaku on hover, then resumes it from the held position after the pointer leaves.
-- Continuously renders Douyin on-video danmaku in a safe DOM layer with per-item hover pause and correctly bound `+1` actions.
+- Continuously renders Douyin danmaku in a safe DOM layer with per-item hover pause, same-speed resume from the held position, and a correctly bound trailing `+1` action.
 - Keeps adjacent or overlapping danmaku from stealing the current selection.
 - Rejects player controls such as quality and settings menus.
 - Recognizes text, emoji, and messages up to 1,000 Unicode characters; the platform's own sending limit still applies.
