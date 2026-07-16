@@ -9,7 +9,7 @@
 
 [中文](#中文) · [English](#english)
 
-![Version](https://img.shields.io/badge/version-1.0.2-orange)
+![Version](https://img.shields.io/badge/version-1.1.0-orange)
 ![Manifest](https://img.shields.io/badge/Chrome-Manifest%20V3-blue)
 ![License](https://img.shields.io/badge/license-GPL--3.0--or--later-green)
 
@@ -27,27 +27,25 @@ Danmaku Echo（弹幕回声）是一个适用于 Chrome 和 Edge 的 Manifest V3
 | 哔哩哔哩直播 | ✅ | ✅ | ✅ |
 | 抖音直播 | ✅ | ✅（Canvas） | ✅ |
 
-### v1.0.2 版本说明
+### v1.1.0 版本说明
 
-此版本修复抖音直播右侧聊天列表自动滚动时误关 `+1` 卡片、过路弹幕抢占当前选择，以及鼠标移向按钮时容易点错弹幕的问题。
+此版本为抖音视频弹幕启用独立的安全 DOM 接管。扩展旁路读取官方 Worker 已解码的 `addBarrage` 数据，保留原消息投递和原生 Worker，然后按同一弹道模型渲染可交互的真实 DOM 弹幕；不拦截 WebSocket、不解析私有协议，也不复制 Canvas 像素。
 
-首次进入直播间现在同时覆盖直播独立站 `live.douyin.com/*` 和抖音首页内的 `www.douyin.com/follow/live/*`。此前从关注页进入后完全没有注入脚本的入口缺口已经补齐。
+每条 DOM 弹幕拥有独立状态。鼠标进入时只冻结当前条目的可视位置，内部轨迹继续前进；移出后平滑追赶实时位置。`+1` 操作区从创建首帧起固定预留 50px，因此悬停不会拉伸弹幕，也不会把操作误绑定到相邻条目。
 
-抖音使用独立于虎牙、哔哩哔哩的运行逻辑：扩展只观察官方 Worker 的弹幕数据，并按官方的设备像素比、弹道分配、移动速度、图片尺寸和前后弹幕间距计算鼠标命中；不暂停 Worker、不隐藏 Canvas，也不复制画面像素。命中后会在鼠标附近固定一张最长保留 8 秒的可点击交互卡，原生弹幕继续正常移动。
+抖音页面钩子、设置通道和样式现在都从 `document_start` 启动，覆盖 `live.douyin.com/*` 与 `www.douyin.com/follow/live/*`。正常首载可直接接管；若钩子较晚才认领到现有 Canvas，则会等待官方 `clear` 后的新弹幕或安全过期窗口，避免隐藏尚未同步的原生内容。
 
-交互卡现在使用独立的选择编号和 `armed → engaged → grace` 状态锁。抖音聊天区的虚拟列表滚动不会再清除当前选择；按钮总是排在最靠近鼠标的一侧，并通过透明操作走廊连接原弹幕位置与卡片，减少移动途中失焦。
-
-页面钩子现在同时使用 `document_start` 和受限后台补注入链路；即使错过最初的 Canvas 实例创建消息，也会在下一条弹幕到达时自动认领现有画布，不再依赖刷新页面。
+只有当首批 DOM 节点已经连接时，扩展才使用 `visibility: hidden` 隐藏原生 Canvas；Worker 继续在后台运行。设置关闭、心跳超时、渲染异常、Canvas 移除、切房、停止或销毁实例时会立即恢复 Canvas。抖音右侧聊天区仍使用独立的 DOM 消息适配与官方发送流程。
 
 ### 核心功能
 
 - 鼠标悬停弹幕时显示 `+1` 按钮，点击后自动发送相同内容。
 - 虎牙与哔哩哔哩的视频弹幕悬停后暂停，移出操作缓冲区后从原位置继续移动。
-- 抖音 Canvas 弹幕保持原生运动；命中后生成位置固定的交互卡，便于移动鼠标并点击 `+1`。
+- 抖音视频弹幕由安全 DOM 层连续渲染，单条悬停暂停且 `+1` 始终与当前条目绑定。
 - 避免相邻或重叠的后续弹幕抢占当前选择。
 - 过滤清晰度、设置菜单等播放器控件，只识别真实弹幕。
 - 支持文字、Emoji 和最长 1000 个 Unicode 字符的弹幕识别；实际发送长度仍受平台规则限制。
-- 抖音交互卡会根据官方弹幕数据还原文字、描边、颜色与表情预览，并将表情映射回官方发送文本。
+- 抖音 DOM 弹幕会根据官方数据还原文字、描边、颜色与表情，并将表情映射回官方发送文本。
 - 支持抖音首次进入直播间、SPA 切房和 Worker/OffscreenCanvas 弹幕，无需二次刷新页面。
 - 自动适配原生全屏，并在发送后释放官方输入框焦点。
 - 提供 `Alt + 单击` 通用回退操作，应对直播站点类名调整。
@@ -78,7 +76,7 @@ Danmaku Echo（弹幕回声）是一个适用于 Chrome 和 Edge 的 Manifest V3
 
 点击浏览器工具栏中的扩展图标，可以总开关扩展、分别启用平台以及开关 `Alt + 单击` 回退功能。
 
-抖音调试：在直播页按 `Ctrl + Alt + D`，扩展会把启动链路、Canvas 实例、最近一次鼠标命中、候选弹幕和交互卡状态输出到开发者工具控制台。日志前缀为 `[Danmaku Echo]`。
+抖音调试：在直播页按 `Ctrl + Alt + D`，扩展会把启动链路、Canvas 实例、DOM 接管状态、活动节点数、回退原因和最近事件输出到开发者工具控制台。日志前缀为 `[Danmaku Echo]`。
 
 ### 开发与验证
 
@@ -107,9 +105,9 @@ src/content.js             虎牙与哔哩哔哩的识别、悬停和发送适�
 src/content.css            虎牙与哔哩哔哩的按钮、冻结层和提示样式
 src/shared.js              平台判断、文本清洗和设置合并
 src/douyin-bootstrap.js    抖音首次进房诊断与补注入请求
-src/douyin-page-hook.js    抖音 Worker 数据观察、轨迹计算与命中协议
-src/douyin-content.js      抖音固定交互卡、表情映射与官方发送适配
-src/douyin-content.css     抖音交互卡和提示样式
+src/douyin-page-hook.js    抖音 Worker 数据观察、轨迹计算与安全 DOM 渲染
+src/douyin-content.js      抖音设置握手、表情映射与官方发送适配
+src/douyin-content.css     抖音 DOM 弹幕、右侧聊天操作卡和提示样式
 popup/                     扩展设置弹窗
 scripts/package.ps1        可复现的发布包生成脚本
 tests/                     清单校验、单元测试和浏览器测试夹具
@@ -159,27 +157,25 @@ Danmaku Echo is a Manifest V3 browser extension for Chrome and Edge. It adds a `
 | Bilibili Live | ✅ | ✅ | ✅ |
 | Douyin Live | ✅ | ✅ (Canvas) | ✅ |
 
-### v1.0.2 release notes
+### v1.1.0 release notes
 
-This release fixes Douyin `+1` cards being dismissed by the side chat's automatic scrolling, passing danmaku stealing the active selection, and accidental clicks while moving toward the action.
+This release introduces a dedicated safe DOM takeover for Douyin's on-video danmaku. The extension observes already-decoded `addBarrage` instructions sent to the official Worker, preserves their original delivery and the native Worker, and renders interactive DOM danmaku from the same lane model. It does not intercept WebSockets, decode private protocols, or copy Canvas pixels.
 
-First-room loading now covers both the standalone `live.douyin.com/*` site and the `www.douyin.com/follow/live/*` route used when entering from Douyin's main site. The latter previously received no extension scripts at all.
+Every DOM barrage has independent interaction state. Hover freezes only that node's visible position while its internal trajectory continues; leaving smoothly catches it up to the live position. A fixed 50px action area is reserved from the first frame, so hover never stretches the barrage or rebinds `+1` to a neighbor.
 
-Douyin uses a runtime isolated from the Huya and Bilibili adapters. It observes official Worker messages and mirrors the native device-pixel-ratio, channel allocation, speed, image sizing, and predecessor-gap rules for pointer hits. It never pauses the Worker, hides the Canvas, or copies rendered pixels. A stationary interaction card remains clickable near the pointer for up to eight seconds while the native danmaku keeps moving.
+The Douyin page hook, settings channel, and styles now start at `document_start` on both `live.douyin.com/*` and `www.douyin.com/follow/live/*`. Normal first loads can take over immediately. If a late hook recovers an existing Canvas, takeover waits for an official `clear` plus new barrages or a safe expiry window so unsynchronized native content is never hidden.
 
-The card now has its own selection ID and an `armed → engaged → grace` interaction lock. Virtual side-chat scrolling no longer clears the active selection, the `+1` button is always placed on the pointer-facing edge, and an invisible interaction corridor bridges the pointer-to-card gap.
-
-The page hook now has both a `document_start` path and a restricted background reinjection path. If initial Canvas creation was already missed, the next barrage automatically claims the existing Canvas without requiring a page refresh.
+The native Canvas is hidden with `visibility: hidden` only after the first DOM nodes are connected, while the Worker keeps running in the background. Disabling settings, a heartbeat timeout, renderer failure, Canvas removal, room navigation, stop, or destroy restores the Canvas immediately. Douyin's side chat keeps its separate DOM-message adapter and official send path.
 
 ### Features
 
 - Shows a `+1` action when a danmaku is hovered and sends the same content automatically.
 - Pauses Huya and Bilibili on-video danmaku on hover, then resumes it from the held position after the pointer leaves.
-- Keeps Douyin's native Canvas danmaku moving and presents a stationary interaction card that remains easy to click.
+- Continuously renders Douyin on-video danmaku in a safe DOM layer with per-item hover pause and correctly bound `+1` actions.
 - Keeps adjacent or overlapping danmaku from stealing the current selection.
 - Rejects player controls such as quality and settings menus.
 - Recognizes text, emoji, and messages up to 1,000 Unicode characters; the platform's own sending limit still applies.
-- Reconstructs Douyin text, outlines, colors, and emoji previews from official danmaku data and maps emoji back to official send tokens.
+- Reconstructs Douyin text, outlines, colors, and emoji from official danmaku data and maps emoji back to official send tokens.
 - Supports first room entry, SPA room changes, and Worker/OffscreenCanvas danmaku on Douyin without a second refresh.
 - Supports native fullscreen and releases official editor focus after sending.
 - Includes an `Alt + click` fallback for future site markup changes.
@@ -210,7 +206,7 @@ Clone the repository and load its root directory as an unpacked extension. There
 
 Use the toolbar popup to enable or disable the extension, toggle individual platforms, and control the `Alt + click` fallback.
 
-For Douyin diagnostics, press `Ctrl + Alt + D` in a live room. Startup, Canvas-instance, latest hit-candidate, and interaction-card state is written to DevTools with the `[Danmaku Echo]` prefix.
+For Douyin diagnostics, press `Ctrl + Alt + D` in a live room. Startup, Canvas instances, DOM-takeover state, active-node counts, fallback reasons, and recent events are written to DevTools with the `[Danmaku Echo]` prefix.
 
 ### Development and verification
 
@@ -239,9 +235,9 @@ src/content.js             Huya and Bilibili detection, hover, and send adapters
 src/content.css            Huya and Bilibili action, frozen-layer, and toast styles
 src/shared.js              Platform detection, text parsing, and settings
 src/douyin-bootstrap.js    Douyin first-load diagnostics and reinjection request
-src/douyin-page-hook.js    Douyin Worker observation, trajectory, and hit protocol
-src/douyin-content.js      Douyin fixed card, emoji mapping, and send adapter
-src/douyin-content.css     Douyin interaction-card and toast styles
+src/douyin-page-hook.js    Douyin Worker observation, trajectory, and safe DOM renderer
+src/douyin-content.js      Douyin settings handshake, emoji mapping, and send adapter
+src/douyin-content.css     Douyin DOM barrage, side-chat card, and toast styles
 popup/                     Extension settings popup
 scripts/package.ps1        Reproducible release packaging
 tests/                     Manifest checks, unit tests, and browser fixtures

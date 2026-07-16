@@ -10,6 +10,136 @@
   z-index: 2147483647;
 }
 
+/*
+ * Douyin's native barrage layer is a canvas.  The replacement layer keeps the
+ * same fixed viewport geometry, while only individual barrage nodes take part
+ * in hit testing.  Width, height and translate3d are supplied by the page hook.
+ */
+.bcp-douyin-dom-layer {
+  all: initial;
+  contain: strict;
+  display: block;
+  isolation: isolate;
+  overflow: hidden;
+  pointer-events: none !important;
+  position: fixed;
+  z-index: 2147483645;
+}
+
+.bcp-douyin-dom-layer[hidden] {
+  display: none !important;
+}
+
+.bcp-douyin-dom-barrage {
+  --bcp-douyin-action-space: 50px;
+  align-items: center;
+  backface-visibility: hidden;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  box-sizing: border-box;
+  contain: layout style paint;
+  cursor: default;
+  display: inline-flex;
+  left: 0;
+  margin: 0;
+  max-width: none;
+  min-width: 0;
+  padding: 0;
+  pointer-events: none !important;
+  position: absolute;
+  top: 0;
+  transform-origin: left top;
+  user-select: none;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+.bcp-douyin-dom-barrage[data-hovered='true'],
+.bcp-douyin-dom-barrage:hover,
+.bcp-douyin-dom-barrage:focus-within {
+  background: rgb(12 12 14 / 76%);
+  box-shadow: 0 2px 9px rgb(0 0 0 / 24%);
+  z-index: 2;
+}
+
+.bcp-douyin-dom-content {
+  align-items: center;
+  align-self: stretch;
+  box-sizing: border-box;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font: inherit;
+  height: 100%;
+  min-width: 0;
+  overflow: visible;
+  pointer-events: auto;
+  white-space: nowrap;
+}
+
+/*
+ * This column exists from the first rendered frame.  Hovering therefore never
+ * changes the barrage's measured width or lane allocation.
+ */
+.bcp-douyin-dom-action {
+  align-items: center;
+  appearance: none;
+  background: rgb(255 91 52 / 96%);
+  border: 1px solid rgb(255 255 255 / 38%);
+  border-radius: 999px;
+  box-shadow: 0 2px 7px rgb(0 0 0 / 24%);
+  box-sizing: border-box;
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 var(--bcp-douyin-action-space);
+  font: 700 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  height: 30px;
+  justify-content: center;
+  margin: 0;
+  opacity: 0;
+  outline: 0;
+  padding: 0;
+  pointer-events: none;
+  touch-action: manipulation;
+  transition: background-color 90ms ease, border-color 90ms ease,
+    color 90ms ease, opacity 90ms ease;
+  visibility: hidden;
+  width: var(--bcp-douyin-action-space);
+}
+
+.bcp-douyin-dom-barrage[data-hovered='true'] .bcp-douyin-dom-action,
+.bcp-douyin-dom-barrage:hover .bcp-douyin-dom-action,
+.bcp-douyin-dom-barrage:focus-within .bcp-douyin-dom-action,
+.bcp-douyin-dom-barrage[data-sending='true'] .bcp-douyin-dom-action,
+.bcp-douyin-dom-barrage[data-send-ok='true'] .bcp-douyin-dom-action {
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+}
+
+.bcp-douyin-dom-action:hover,
+.bcp-douyin-dom-action:focus-visible {
+  background: rgb(255 115 68 / 100%);
+  border-color: rgb(255 255 255 / 72%);
+}
+
+.bcp-douyin-dom-action:focus-visible {
+  outline: 3px solid rgb(255 175 100 / 62%);
+  outline-offset: 2px;
+}
+
+.bcp-douyin-dom-barrage[data-sending='true'] .bcp-douyin-dom-action {
+  color: rgb(255 255 255 / 72%);
+  cursor: wait;
+}
+
+.bcp-douyin-dom-barrage[data-send-ok='true'] .bcp-douyin-dom-action {
+  background: rgb(35 181 104 / 96%);
+  border-color: rgb(205 255 228 / 72%);
+  cursor: default;
+}
+
 .bcp-douyin-card {
   align-items: center;
   background: rgb(24 24 28 / 96%);
@@ -165,4 +295,12 @@
 
 .bcp-douyin-toast--error {
   border-color: rgb(255 92 92 / 55%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bcp-douyin-dom-action,
+  .bcp-douyin-card,
+  .bcp-douyin-toast {
+    transition: none;
+  }
 }

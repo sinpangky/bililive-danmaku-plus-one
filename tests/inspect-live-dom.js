@@ -92,6 +92,27 @@ async function inspect() {
     return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
   }
 
+  async function evaluateValue(expression) {
+    const result = await send("Runtime.evaluate", {
+      expression,
+      returnByValue: true,
+      awaitPromise: true
+    });
+    return result.result.value;
+  }
+
+  function dispatchMouse(type, x, y, extra = {}) {
+    return send("Input.dispatchMouseEvent", Object.assign({
+      type,
+      x: Math.round(x),
+      y: Math.round(y),
+      button: type === "mouseMoved" ? "none" : "left",
+      buttons: type === "mousePressed" ? 1 : 0,
+      clickCount: type === "mouseMoved" ? 0 : 1,
+      pointerType: "mouse"
+    }, extra));
+  }
+
   await send("Runtime.enable");
   await delay(waitMilliseconds);
 
@@ -125,8 +146,11 @@ async function inspect() {
     await delay(lateDouyinHook ? 3_200 : 2_000);
   }
 
+  const hasDouyinFixture = (shouldProbeDouyin || normalizedInjectPlatform === "douyin")
+    ? await evaluateValue("Boolean(window.__douyinDomFixture)")
+    : false;
   let douyinProbe = null;
-  if (shouldProbeDouyin) {
+  if (shouldProbeDouyin && !hasDouyinFixture && normalizedInjectPlatform !== "douyin") {
     const probeResult = await send("Runtime.evaluate", {
       expression: String.raw`(async () => {
         const host = document.createElement("div");
@@ -452,6 +476,220 @@ async function inspect() {
     douyinProbe = probeResult.result.value;
   }
 
+  let douyinDomRegression = null;
+  if (normalizedInjectPlatform === "douyin" || hasDouyinFixture) {
+    const readTakeoverState = () => evaluateValue(String.raw`(() => {
+      const canvas = document.querySelector(".CanvasDanmakuPlugin canvas, #DanmakuLayout canvas");
+      const layer = document.querySelector(".bcp-douyin-dom-layer");
+      const rectValue = (element) => {
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        return {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height
+        };
+      };
+      const nodes = Array.from(document.querySelectorAll(".bcp-douyin-dom-barrage"))
+        .map((node) => {
+          const action = node.querySelector(".bcp-douyin-dom-action");
+          return {
+            message: node.dataset.message || (action && action.dataset.message)
+              || String(node.textContent || "").replace(/\+1\s*$/, "").trim(),
+            trackId: node.dataset.trackId || (action && action.dataset.trackId) || "",
+            instanceId: node.dataset.instanceId || (action && action.dataset.instanceId) || "",
+            hovered: node.dataset.hovered || "",
+            sending: node.dataset.sending || "",
+            rect: rectValue(node),
+            actionRect: rectValue(action),
+            actionVisibility: action ? getComputedStyle(action).visibility : "missing",
+            actionPointerEvents: action ? getComputedStyle(action).pointerEvents : "missing"
+          };
+        });
+      const canvasRect = rectValue(canvas);
+      const canvasStyle = canvas ? getComputedStyle(canvas) : null;
+      let pageDebug = null;
+      try {
+        const marker = document.getElementById("bcp-douyin-page-debug");
+        pageDebug = marker ? JSON.parse(marker.textContent || "null") : null;
+      } catch (_error) {
+        pageDebug = null;
+      }
+      const fixtureState = window.__douyinDomFixture || null;
+      return {
+        fixture: Boolean(fixtureState),
+        delayedMountMode: Boolean(fixtureState && fixtureState.delayedMountMode),
+        unsupportedMode: Boolean(fixtureState && fixtureState.unsupportedMode),
+        rendererBlocked: Boolean(pageDebug && Array.isArray(pageDebug.instances)
+          && pageDebug.instances.some((item) => item.renderer && item.renderer.blocked)),
+        viewport: {
+          width: document.documentElement.clientWidth || innerWidth,
+          height: document.documentElement.clientHeight || innerHeight
+        },
+        canvasRect,
+        canvasVisibility: canvasStyle ? canvasStyle.visibility : "missing",
+        canvasDisplay: canvasStyle ? canvasStyle.display : "missing",
+        layerPresent: Boolean(layer),
+        layerHidden: Boolean(layer && (layer.hidden || getComputedStyle(layer).display === "none")),
+        nodes,
+        target: nodes.find((item) => item.message.includes("抖音画面弹幕")) || null,
+        other: nodes.find((item) => item.message.includes("其他弹幕继续移动")) || null,
+        sent: document.body.dataset.douyinSent || "",
+        workerStopWasNotSent: document.body.dataset.douyinWorkerStopWasNotSent || "",
+        lateCanvasVisibleBeforeClean:
+          document.body.dataset.douyinLateCanvasVisibleBeforeClean || "",
+        lateLayerInactiveBeforeClean:
+          document.body.dataset.douyinLateLayerInactiveBeforeClean || "",
+        lateCleanBoundarySent: document.body.dataset.douyinLateCleanBoundarySent || ""
+      };
+    })()`);
+
+    let initial = null;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      initial = await readTakeoverState();
+      if (initial && initial.fixture && initial.unsupportedMode
+          && initial.rendererBlocked && initial.canvasVisibility !== "hidden") {
+        break;
+      }
+      const actionInsideCanvas = initial && initial.target && initial.target.actionRect
+        && initial.canvasRect
+        && initial.target.actionRect.right <= initial.canvasRect.right - 2
+        && initial.target.actionRect.left >= initial.canvasRect.left + 2
+        && initial.target.actionRect.right <= initial.viewport.width - 2;
+      if (initial && initial.fixture && initial.canvasVisibility === "hidden"
+          && !initial.layerHidden && initial.target && initial.other && actionInsideCanvas) {
+        break;
+      }
+      await delay(50);
+    }
+
+    if (initial && initial.fixture && initial.unsupportedMode) {
+      douyinDomRegression = {
+        ready: initial.rendererBlocked && initial.canvasVisibility !== "hidden",
+        unsupportedFallback: initial.rendererBlocked
+          && initial.canvasVisibility !== "hidden"
+          && initial.canvasDisplay !== "none",
+        workerStopWasNotSent: initial.workerStopWasNotSent === "true",
+        initial
+      };
+    } else if (!initial || !initial.target || !initial.other) {
+      douyinDomRegression = {
+        ready: false,
+        reason: "dom-barrages-not-ready",
+        initial
+      };
+    } else {
+      await dispatchMouse("mouseMoved", 1, 449);
+      await dispatchMouse(
+        "mouseMoved",
+        initial.target.rect.left + initial.target.rect.width / 2,
+        initial.target.rect.top + initial.target.rect.height / 2
+      );
+      await delay(80);
+      const hoverStart = await readTakeoverState();
+      await delay(320);
+      const hoverEnd = await readTakeoverState();
+
+      const distance = (first, second) => first && second
+        ? Math.max(Math.abs(second.left - first.left), Math.abs(second.top - first.top))
+        : null;
+      const targetDrift = distance(hoverStart.target && hoverStart.target.rect,
+        hoverEnd.target && hoverEnd.target.rect);
+      const otherTravel = distance(hoverStart.other && hoverStart.other.rect,
+        hoverEnd.other && hoverEnd.other.rect);
+      const sizeDelta = hoverEnd.target && initial.target
+        ? Math.max(
+          Math.abs(hoverEnd.target.rect.width - initial.target.rect.width),
+          Math.abs(hoverEnd.target.rect.height - initial.target.rect.height)
+        )
+        : null;
+
+      const action = hoverEnd.target && hoverEnd.target.actionRect;
+      const clickedMessage = hoverEnd.target ? hoverEnd.target.message : "";
+      if (action) {
+        const visibleLeft = Math.max(0, action.left);
+        const visibleRight = Math.min(hoverEnd.viewport.width - 1, action.right);
+        const visibleTop = Math.max(0, action.top);
+        const visibleBottom = Math.min(hoverEnd.viewport.height - 1, action.bottom);
+        const clickX = visibleLeft + Math.max(1, visibleRight - visibleLeft) / 2;
+        const clickY = visibleTop + Math.max(1, visibleBottom - visibleTop) / 2;
+        await dispatchMouse("mouseMoved", clickX, clickY);
+        await delay(60);
+        await dispatchMouse("mousePressed", clickX, clickY);
+        await dispatchMouse("mouseReleased", clickX, clickY);
+      }
+      await delay(800);
+      const afterClick = await readTakeoverState();
+
+      await evaluateValue(String.raw`(() => {
+        window.postMessage({
+          source: "danmaku-echo-douyin-content",
+          type: "renderer-settings",
+          enabled: false,
+          reason: "fixture-disable-regression"
+        }, "*");
+        return true;
+      })()`);
+      await delay(250);
+      const afterDisable = await readTakeoverState();
+
+      douyinDomRegression = {
+        ready: initial.canvasVisibility === "hidden" && !initial.layerHidden,
+        layerPresent: initial.layerPresent,
+        barrageCount: initial.nodes.length,
+        canvasHiddenAfterReady: initial.canvasVisibility === "hidden",
+        canvasDisplayPreserved: initial.canvasDisplay !== "none",
+        hoveredMessage: hoverEnd.target ? hoverEnd.target.message : "",
+        hoveredOnlyTarget: Boolean(
+          hoverEnd.target && hoverEnd.target.hovered === "true"
+            && hoverEnd.other && hoverEnd.other.hovered !== "true"
+        ),
+        targetDrift,
+        targetPaused: targetDrift != null && targetDrift <= 1.5,
+        otherTravel,
+        otherContinued: otherTravel != null && otherTravel >= 2,
+        sizeDelta,
+        sizeStable: sizeDelta != null && sizeDelta <= 0.5,
+        actionVisible: Boolean(
+          hoverEnd.target && hoverEnd.target.actionVisibility !== "hidden"
+            && hoverEnd.target.actionPointerEvents !== "none"
+        ),
+        clickedMessage,
+        sentMessage: afterClick.sent,
+        clickSentMatchingMessage: Boolean(clickedMessage && afterClick.sent === clickedMessage),
+        workerStopWasNotSent: afterClick.workerStopWasNotSent === "true",
+        canvasRestoredAfterDisable: afterDisable.canvasVisibility !== "hidden"
+          && afterDisable.canvasDisplay !== "none",
+        layerInactiveAfterDisable: !afterDisable.layerPresent || afterDisable.layerHidden,
+        lateCanvasVisibleBeforeClean: initial.lateCanvasVisibleBeforeClean,
+        lateLayerInactiveBeforeClean: initial.lateLayerInactiveBeforeClean,
+        lateCleanBoundarySent: initial.lateCleanBoundarySent,
+        beforeHover: initial,
+        hoverStart,
+        hoverEnd,
+        afterClick,
+        afterDisable
+      };
+
+      await evaluateValue(`(() => {
+        const result = ${JSON.stringify(douyinDomRegression)};
+        document.body.dataset.douyinHoveredMessage = result.hoveredMessage || "";
+        document.body.dataset.douyinSingleHoverPaused = String(result.targetPaused);
+        document.body.dataset.douyinOtherBarrageContinued = String(result.otherContinued);
+        document.body.dataset.douyinHoverSizeStable = String(result.sizeStable);
+        document.body.dataset.douyinClickedMessage = result.clickedMessage || "";
+        document.body.dataset.douyinClickSentMatchingMessage = String(result.clickSentMatchingMessage);
+        document.body.dataset.douyinCanvasRestoredAfterDisable = String(
+          result.canvasRestoredAfterDisable
+        );
+        return true;
+      })()`);
+    }
+  }
+
   const expression = String.raw`(() => {
     const all = Array.from(document.querySelectorAll("*"));
     const describe = (element) => {
@@ -505,7 +743,7 @@ async function inspect() {
       return item;
     });
     const captured = Array.from(document.querySelectorAll(
-      "[data-bcp-douyin-interaction-card='true'],[data-bcp-douyin-canvas='true']"
+      ".bcp-douyin-dom-layer,.bcp-douyin-dom-barrage,.bcp-douyin-dom-action"
     ))
       .slice(0, 100).map(describe);
     const resources = performance.getEntriesByType("resource")
@@ -551,7 +789,7 @@ async function inspect() {
       canvasLike,
       captured,
       extensionButtonCount: document.querySelectorAll(
-        ".bcp-one-button,.bcp-douyin-button"
+        ".bcp-one-button,.bcp-douyin-button,.bcp-douyin-dom-action"
       ).length,
       activeElement: document.activeElement ? {
         tag: document.activeElement.tagName,
@@ -576,11 +814,51 @@ async function inspect() {
   socket.close();
   const value = result.result.value;
   value.douyinProbe = douyinProbe;
+  value.douyinDomRegression = douyinDomRegression;
+  if (hasDouyinFixture && douyinDomRegression) {
+    const failures = [];
+    if (douyinDomRegression.unsupportedFallback !== undefined) {
+      if (!douyinDomRegression.ready) failures.push("unsupported-ready");
+      if (!douyinDomRegression.unsupportedFallback) failures.push("unsupported-fallback");
+      if (!douyinDomRegression.workerStopWasNotSent) failures.push("worker-not-stopped");
+    } else {
+      [
+        "ready",
+        "targetPaused",
+        "otherContinued",
+        "sizeStable",
+        "actionVisible",
+        "clickSentMatchingMessage",
+        "workerStopWasNotSent",
+        "canvasRestoredAfterDisable",
+        "layerInactiveAfterDisable"
+      ].forEach((key) => {
+        if (douyinDomRegression[key] !== true) failures.push(key);
+      });
+      if (lateDouyinHook) {
+        [
+          "lateCanvasVisibleBeforeClean",
+          "lateLayerInactiveBeforeClean",
+          "lateCleanBoundarySent"
+        ].forEach((key) => {
+          if (douyinDomRegression[key] !== "true") failures.push(key);
+        });
+      }
+    }
+    douyinDomRegression.assertionFailures = failures;
+  }
   return value;
 }
 
 inspect()
-  .then((result) => process.stdout.write(`${JSON.stringify(result, null, 2)}\n`))
+  .then((result) => {
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    if (result.douyinDomRegression
+        && result.douyinDomRegression.assertionFailures
+        && result.douyinDomRegression.assertionFailures.length) {
+      process.exitCode = 1;
+    }
+  })
   .finally(() => {
     browser.kill();
   });

@@ -353,11 +353,12 @@ const bilibiliActivityHtml = String.raw`<!doctype html>
 const douyinHtml = String.raw`<!doctype html>
 <html lang="zh-CN">
   <head>
-    <meta charset="utf-8"><title>抖音 Canvas 弹幕 +1 测试夹具</title>
+    <meta charset="utf-8"><title>抖音 DOM 弹幕接管测试夹具</title>
     <style>
+      html, body { margin: 0; }
       #douyin-player { position: relative; width: 800px; height: 450px; background: #111; }
       #DanmakuLayout { position: absolute; inset: 0; pointer-events: none; }
-      .CanvasDanmakuPlugin, canvas { width: 800px; height: 450px; }
+      .CanvasDanmakuPlugin, canvas { display: block; width: 800px; height: 450px; }
     </style>
   </head>
   <body>
@@ -376,7 +377,9 @@ const douyinHtml = String.raw`<!doctype html>
       const spaMode = parameters.get("spa") === "1";
       const edgeMode = parameters.get("edge") === "1";
       const lateHookMode = parameters.get("latehook") === "1";
-      const barrageDuration = lateHookMode ? 15_000 : 4_000;
+      const delayedMountMode = parameters.get("delayedmount") === "1";
+      const unsupportedMode = parameters.get("unsupported") === "1";
+      const barrageDuration = lateHookMode ? 15_000 : 10_000;
       const canvasHost = document.querySelector(".CanvasDanmakuPlugin");
       let canvas = canvasHost.querySelector("canvas");
       let transferResult = "not-called";
@@ -396,214 +399,168 @@ const douyinHtml = String.raw`<!doctype html>
         }
         document.body.dataset.douyinDetachedTransferBlocked = String(transferResult === null);
         canvasHost.appendChild(canvas);
-      }
-      if (!spaMode && typeof canvas.transferControlToOffscreen === "function") {
+      } else if (typeof canvas.transferControlToOffscreen === "function") {
         transferResult = canvas.transferControlToOffscreen();
       }
       document.body.dataset.douyinTransferStayedNative = String(transferResult !== null);
+      if (delayedMountMode) {
+        canvas.remove();
+        document.body.dataset.douyinCanvasInitiallyDetached = "true";
+      }
 
       const channel = new MessageChannel();
       const workerControls = [];
       channel.port2.addEventListener("message", (event) => workerControls.push(event.data));
       channel.port2.start();
-      channel.port1.postMessage({
-        method: "createInstance",
-        _uniqueId: "fixture-worker-instance",
-        params: {
-          config: {
-            width: 800,
-            height: 450,
-            devicePixelRatio: 1,
-            fontSize: 20,
-            channelHeight: 40,
-            duration: barrageDuration,
-            gap: 20
-          },
-          offscrrenCanvas: transferResult,
-          barrages: []
+
+      const post = (method, params, transfer) => {
+        const message = {
+          method,
+          _uniqueId: "fixture-worker-instance",
+          params: params || {}
+        };
+        if (transfer && transferResult && typeof transferResult === "object") {
+          channel.port1.postMessage(message, { transfer: [transferResult] });
+        } else {
+          channel.port1.postMessage(message);
         }
-      }, { transfer: [transferResult] });
-      channel.port1.postMessage({
-        method: "addBarrage",
-        _uniqueId: "fixture-worker-instance",
-        params: {
-          id: "fixture-barrage",
+      };
+      const barrage = (id, text, withImage) => ({
+        id,
+        startTime: Date.now(),
+        reserveDuration: 5_000,
+        padding: [4, 8, 4, 8],
+        content: [{
+          type: "text",
+          text,
+          fontSize: 24,
+          fontWeight: 700,
+          fontFamily: "sans-serif",
+          color: "#ffffff",
+          strokeColor: "#000000"
+        }].concat(withImage ? [{
+          type: "image",
+          src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%23ffd84d'/%3E%3C/svg%3E",
+          width: 24,
+          height: 24,
+          margin: [0, 0, 0, 4]
+        }] : [])
+      });
+      const postPair = (prefix) => {
+        post("addBarrage", barrage(prefix + "-selected", "抖音画面弹幕", true));
+        setTimeout(() => {
+          post("addBarrage", barrage(prefix + "-other", "其他弹幕继续移动", false));
+        }, 120);
+      };
+
+      post("createInstance", {
+        config: {
+          width: 800,
+          height: 450,
+          devicePixelRatio: 1,
+          fontSize: 20,
+          channelHeight: 40,
+          duration: barrageDuration,
+          gap: 20
+        },
+        offscrrenCanvas: transferResult,
+        barrages: []
+      }, true);
+      if (unsupportedMode) {
+        post("addBarrage", {
+          id: "fixture-unsupported-image-only",
           startTime: Date.now(),
           reserveDuration: 5_000,
-          padding: [4, 8, 4, 8],
           content: [{
-            type: "text",
-            text: "抖音画面弹幕",
-            fontSize: 24,
-            fontWeight: 700,
-            fontFamily: "sans-serif",
-            color: "#ffffff",
-            strokeColor: "#000000"
-          }, {
             type: "image",
-            src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%23ffd84d'/%3E%3C/svg%3E",
-            width: 24,
-            height: 24,
-            margin: [0, 0, 0, 4]
+            src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Crect width='20' height='20' fill='%23fff'/%3E%3C/svg%3E",
+            width: 20,
+            height: 20
           }]
-        }
-      });
-      let secondBarragePostedAt = 0;
-      setTimeout(() => {
-        secondBarragePostedAt = performance.now();
-        channel.port1.postMessage({
-          method: "addBarrage",
-          _uniqueId: "fixture-worker-instance",
-          params: {
-            id: "fixture-other-barrage",
-            startTime: Date.now(),
-            reserveDuration: 5_000,
-            padding: [4, 8, 4, 8],
-            content: [{
-              type: "text",
-              text: "其他弹幕继续移动",
-              fontSize: 24,
-              fontWeight: 700,
-              fontFamily: "sans-serif",
-              color: "#ffffff",
-              strokeColor: "#000000"
-            }]
-          }
         });
-      }, 160);
-      let barragePostedAt = performance.now();
-      if (lateHookMode) {
-        setTimeout(() => {
-          barragePostedAt = performance.now();
-          channel.port1.postMessage({
-            method: "addBarrage",
-            _uniqueId: "fixture-worker-instance",
-            params: {
-              id: "fixture-late-barrage",
-              startTime: Date.now(),
-              reserveDuration: 5_000,
-              padding: [4, 8, 4, 8],
-              content: [{
-                type: "text",
-                text: "抖音画面弹幕",
-                fontSize: 24,
-                fontWeight: 700,
-                fontFamily: "sans-serif",
-                color: "#ffffff",
-                strokeColor: "#000000"
-              }, {
-                type: "image",
-                src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%23ffd84d'/%3E%3C/svg%3E",
-                width: 24,
-                height: 24,
-                margin: [0, 0, 0, 4]
-              }]
-            }
-          });
-        }, 1_000);
       }
+      postPair("fixture-initial");
+      if (delayedMountMode) {
+        setTimeout(() => {
+          canvasHost.appendChild(canvas);
+          document.body.dataset.douyinCanvasMountedAfterCreate = "true";
+        }, 900);
+      }
+
+      if (lateHookMode) {
+        // The hook is injected at about 500 ms by inspect-live-dom.js.  This
+        // first later message recovers the instance, but must not hide Canvas.
+        setTimeout(() => post(
+          "addBarrage",
+          barrage("fixture-recovery-only", "恢复实例暂不接管", false)
+        ), 900);
+        setTimeout(() => {
+          const layer = document.querySelector(".bcp-douyin-dom-layer");
+          document.body.dataset.douyinLateCanvasVisibleBeforeClean = String(
+            getComputedStyle(canvas).visibility !== "hidden"
+          );
+          document.body.dataset.douyinLateLayerInactiveBeforeClean = String(
+            !layer || layer.hidden || getComputedStyle(layer).display === "none"
+          );
+        }, 1_350);
+        // A clear establishes a clean synchronization boundary.  Barrages seen
+        // after it are safe for the independent DOM renderer to take over.
+        setTimeout(() => {
+          post("clear", {});
+          document.body.dataset.douyinLateCleanBoundarySent = "true";
+          setTimeout(() => postPair("fixture-clean"), 40);
+        }, 1_600);
+      }
+
       const input = document.querySelector("textarea");
       const send = document.querySelector(".sendButton");
-      let actionScheduled = false;
-
-      send.addEventListener("click", () => {
+      send.addEventListener("click", (event) => {
         document.body.dataset.douyinSent = input.value;
+        document.body.dataset.douyinNativeSendTrusted = String(event.isTrusted);
         input.value = "";
-        clearInterval(timer);
       });
 
-      const timer = setInterval(() => {
-        document.body.dataset.douyinHookLoaded = String(Boolean(window.__bulletPlusOneDouyinCanvasHook));
-        document.body.dataset.douyinLegacyHitboxCount = String(
-          document.querySelectorAll("[data-bcp-douyin-canvas='true']").length
-        );
-        const rect = canvas.getBoundingClientRect();
-        const elapsed = Math.max(0, performance.now() - barragePostedAt - 80);
-        const estimatedWidth = 188;
-        const left = rect.right - (rect.width + estimatedWidth) * elapsed / barrageDuration;
-        const selectedPointerX = Math.min(left + estimatedWidth / 2, innerWidth - 24);
-        if (!actionScheduled) {
-          canvas.dispatchEvent(new PointerEvent("pointermove", {
-            bubbles: true,
-            clientX: selectedPointerX,
-            clientY: rect.top + 18,
-            pointerType: "mouse"
-          }));
-        }
+      window.__douyinDomFixture = {
+        canvas,
+        channel,
+        workerControls,
+        post,
+        postPair,
+        delayedMountMode,
+        unsupportedMode
+      };
 
-        const card = document.querySelector(
-          "[data-bcp-douyin-interaction-card='true']:not([hidden])"
+      setInterval(() => {
+        const layer = document.querySelector(".bcp-douyin-dom-layer");
+        const rendered = Array.from(document.querySelectorAll(".bcp-douyin-dom-barrage"));
+        const canvasStyle = getComputedStyle(canvas);
+        document.body.dataset.douyinHookLoaded = String(
+          Boolean(window.__bulletPlusOneDouyinCanvasHook)
         );
-        document.body.dataset.douyinCardFound = String(Boolean(card));
-        if (card && !actionScheduled) {
-          actionScheduled = true;
-          const cardRect = card.getBoundingClientRect();
-          const selectedTrackId = card.dataset.trackId;
-          const selectedMessage = card.dataset.message;
-          document.body.dataset.douyinWorkerStopWasNotSent = String(
-            !workerControls.some((message) => message && message.method === "stop")
-          );
-          document.body.dataset.douyinNativeCanvasUntouched = String(
-            getComputedStyle(canvas).visibility !== "hidden"
-              && getComputedStyle(canvas).display !== "none"
-          );
-          document.body.dataset.douyinPreviewText = card.querySelector(
-            ".bcp-douyin-preview"
-          ).textContent;
-          document.body.dataset.douyinPreviewImageCount = String(
-            card.querySelectorAll(".bcp-douyin-preview img").length
-          );
-          document.body.dataset.douyinLegacyFreezeNodeCount = String(
-            document.querySelectorAll(".bcp-one-frozen,[data-bcp-douyin-worker-overlay]").length
-          );
-          card.dispatchEvent(new PointerEvent("pointerenter", {
-            bubbles: false,
-            clientX: cardRect.left + cardRect.width / 2,
-            clientY: cardRect.top + cardRect.height / 2,
-            pointerType: "mouse"
-          }));
-          document.querySelector("#douyin-chat-scroller").dispatchEvent(new Event("scroll"));
-          setTimeout(() => {
-            const otherWidth = 200;
-            const otherElapsed = Math.max(0, performance.now() - secondBarragePostedAt - 80);
-            const otherLeft = rect.right - (rect.width + otherWidth) * otherElapsed / barrageDuration;
-            canvas.dispatchEvent(new PointerEvent("pointermove", {
-              bubbles: true,
-              clientX: otherLeft + otherWidth / 2,
-              clientY: rect.top + 58,
-              pointerType: "mouse"
-            }));
-          }, 80);
-          setTimeout(() => {
-            const currentRect = card.getBoundingClientRect();
-            document.body.dataset.douyinCardDrift = String(Math.max(
-              Math.abs(currentRect.left - cardRect.left),
-              Math.abs(currentRect.top - cardRect.top)
-            ));
-            document.body.dataset.douyinCardStayedClickable = String(!card.hidden);
-            document.body.dataset.douyinCardSurvivedChatScroll = String(!card.hidden);
-            document.body.dataset.douyinCardKeptSelection = String(
-              card.dataset.trackId === selectedTrackId
-                && card.dataset.message === selectedMessage
-            );
-            const button = card.querySelector(".bcp-douyin-button");
-            const buttonRect = button.getBoundingClientRect();
-            const buttonDistance = card.dataset.side === "left"
-              ? selectedPointerX - buttonRect.right
-              : buttonRect.left - selectedPointerX;
-            document.body.dataset.douyinButtonDistance = String(Math.max(0, buttonDistance));
-            button.dispatchEvent(new PointerEvent("pointermove", {
-              bubbles: true,
-              clientX: buttonRect.left + buttonRect.width / 2,
-              clientY: buttonRect.top + buttonRect.height / 2,
-              pointerType: "mouse"
-            }));
-            document.body.dataset.douyinCardAcceptedPointer = String(
-              !card.hidden && getComputedStyle(button).pointerEvents !== "none"
-            );
-            button.click();
-          }, 900);
-        }
+        document.body.dataset.douyinDomLayerCount = String(
+          document.querySelectorAll(".bcp-douyin-dom-layer").length
+        );
+        document.body.dataset.douyinDomBarrageCount = String(rendered.length);
+        document.body.dataset.douyinDomMessages = JSON.stringify(
+          rendered.map((node) => node.dataset.message || node.textContent.trim())
+        );
+        document.body.dataset.douyinCanvasHidden = String(
+          canvasStyle.visibility === "hidden"
+        );
+        document.body.dataset.douyinCanvasDisplayPreserved = String(
+          canvasStyle.display !== "none"
+        );
+        document.body.dataset.douyinTakeoverActive = String(Boolean(
+          layer && !layer.hidden && canvasStyle.visibility === "hidden" && rendered.length
+        ));
+        document.body.dataset.douyinWorkerStopWasNotSent = String(
+          !workerControls.some((message) => message && message.method === "stop")
+        );
+        document.body.dataset.douyinLegacyInteractionCount = String(
+          document.querySelectorAll(
+            "[data-bcp-douyin-interaction-card='true'],[data-bcp-douyin-worker-overlay],.bcp-one-frozen"
+          ).length
+        );
       }, 50);
     </script>
   </body>
@@ -635,4 +592,4 @@ server.listen(port, "127.0.0.1", () => {
   console.log(`READY http://127.0.0.1:${port}`);
 });
 
-setTimeout(() => server.close(), 60_000).unref();
+setTimeout(() => server.close(), 120_000).unref();

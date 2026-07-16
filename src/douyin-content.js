@@ -14,7 +14,9 @@
   const CARD_LOCK_TIME = 2500;
   const CARD_STICKY_TIME = 8000;
   const CARD_HIDE_DELAY = 650;
-  const DEBUG_VERSION = "douyin-content-v4";
+  const DEBUG_VERSION = "douyin-content-v5-dom-takeover";
+  const RENDERER_HEARTBEAT_INTERVAL = 5000;
+  const TRUSTED_ACTION_WINDOW = 1500;
   const DOM_DANMAKU_SELECTORS = [
     "[data-e2e='danmaku-item']",
     "[class*='webcast-danmaku___item']",
@@ -107,6 +109,8 @@
     pageReady: false,
     pageVersion: "",
     pageSnapshot: null,
+    trustedAction: null,
+    activationRequests: new Set(),
     lastActionAt: 0,
     lastUrl: location.href
   };
@@ -126,6 +130,8 @@
       cardsShown: 0,
       cardsHidden: 0,
       cardPointerEnters: 0,
+      rendererActivations: 0,
+      rendererActivationsRejected: 0,
       sendsAttempted: 0,
       sendsSucceeded: 0,
       sendsFailed: 0
@@ -848,6 +854,14 @@
     }
     state.pointerX = event.clientX;
     state.pointerY = event.clientY;
+    const path = typeof event.composedPath === "function" ? event.composedPath() : [event.target];
+    if (path.some((item) => item instanceof Element
+        && item.matches(".bcp-douyin-dom-layer, .bcp-douyin-dom-barrage"))) {
+      if (state.candidate && state.candidate.kind === "chat") {
+        hideCard("entered-dom-renderer");
+      }
+      return;
+    }
     if (isOwned(event.target)) {
       cancelHide();
       if (!state.expiryTimer) {
@@ -861,17 +875,17 @@
           || pointInside(cardRect, event.clientX, event.clientY, 12)
           || pointInside(state.candidate.rect, event.clientX, event.clientY, 10)) {
         cancelHide();
+      } else {
+        scheduleHide("left-chat-card", CARD_HIDE_DELAY);
       }
       return;
     }
     const domCandidate = findDomCandidate(event);
-    if (domCandidate) {
+    if (domCandidate && domCandidate.kind === "chat") {
       domCandidate.pointerX = event.clientX;
       domCandidate.pointerY = event.clientY;
       showCard(domCandidate);
-      return;
     }
-    scheduleProbe();
   }
 
   function inputText(input) {
@@ -1094,16 +1108,137 @@
 
   function onAltClick(event) {
     if (!enabled() || !state.settings.altClick || !event.altKey
-        || isOwned(event.target) || !state.candidate) {
+        || !event.isTrusted || actionFromEvent(event)) {
+      return;
+    }
+    const path = typeof event.composedPath === "function" ? event.composedPath() : [event.target];
+    const barrage = path.find((item) => item instanceof Element
+      && item.matches(".bcp-douyin-dom-barrage"));
+    let message = barrage
+      ? shared.parseMessageText(barrage.dataset.message || "", MAX_LENGTH)
+      : "";
+    if (!message && state.candidate && state.candidate.kind === "chat"
+        && pointInside(state.candidate.rect, event.clientX, event.clientY, 6)) {
+      message = state.candidate.message;
+    }
+    if (!shared.isPlausibleMessage(message, MAX_LENGTH)) {
       return;
     }
     event.preventDefault();
     event.stopPropagation();
-    repeatMessage(state.candidate.message).then((success) => {
-      if (success) {
-        hideCard("alt-send-succeeded");
-      }
+    repeatMessage(resolveRichMessage(message));
+  }
+
+  function postRendererSettings(reason, overrideEnabled) {
+    const rendererEnabled = typeof overrideEnabled === "boolean" ? overrideEnabled : enabled();
+    window.postMessage({
+      source: CONTENT_SOURCE,
+      type: "renderer-settings",
+      enabled: rendererEnabled,
+      reason: String(reason || "sync").slice(0, 80),
+      version: DEBUG_VERSION,
+      sentAt: Date.now()
+    }, "*");
+    debugEvent("renderer-settings-sent", {
+      enabled: rendererEnabled,
+      reason: reason || "sync"
     });
+  }
+
+  function postRendererResult(data, ok, reason) {
+    window.postMessage({
+      source: CONTENT_SOURCE,
+      type: "renderer-result",
+      requestId: data.requestId,
+      instanceId: String(data.instanceId || ""),
+      trackId: String(data.trackId || ""),
+      ok: Boolean(ok),
+      reason: String(reason || (ok ? "sent" : "failed")).slice(0, 120)
+    }, "*");
+  }
+
+  function actionFromEvent(event) {
+    const path = typeof event.composedPath === "function" ? event.composedPath() : [event.target];
+    return path.find((item) => item instanceof Element
+      && item.matches(".bcp-douyin-dom-action")) || null;
+  }
+
+  function rememberTrustedRendererAction(event) {
+    const action = actionFromEvent(event);
+    if (!action || !event.isTrusted) {
+      return;
+    }
+    state.trustedAction = {
+      at: performance.now(),
+      instanceId: String(action.dataset.instanceId || ""),
+      trackId: String(action.dataset.trackId || ""),
+      message: shared.parseMessageText(action.dataset.message || "", MAX_LENGTH)
+    };
+    debugEvent("renderer-action-trusted", {
+      instanceId: state.trustedAction.instanceId,
+      trackId: state.trustedAction.trackId,
+      message: state.trustedAction.message
+    });
+  }
+
+  function matchesTrustedAction(data, message) {
+    const trusted = state.trustedAction;
+    state.trustedAction = null;
+    return Boolean(trusted
+      && performance.now() - trusted.at <= TRUSTED_ACTION_WINDOW
+      && trusted.instanceId === String(data.instanceId || "")
+      && trusted.trackId === String(data.trackId || "")
+      && trusted.message === message);
+  }
+
+  async function handleRendererActivation(data) {
+    const requestId = String(data.requestId == null ? "" : data.requestId);
+    const message = shared.parseMessageText(data.text, MAX_LENGTH);
+    if (!requestId || state.activationRequests.has(requestId)
+        || !enabled() || !shared.isPlausibleMessage(message, MAX_LENGTH)) {
+      debugState.counters.rendererActivationsRejected += 1;
+      debugEvent("renderer-activation-rejected", {
+        requestId,
+        instanceId: data.instanceId,
+        trackId: data.trackId,
+        reason: "invalid-or-duplicate"
+      }, "warn");
+      postRendererResult(data, false, "invalid-or-duplicate");
+      return;
+    }
+    if (!matchesTrustedAction(data, message)) {
+      debugState.counters.rendererActivationsRejected += 1;
+      debugEvent("renderer-activation-rejected", {
+        requestId,
+        instanceId: data.instanceId,
+        trackId: data.trackId,
+        reason: "missing-trusted-click"
+      }, "warn");
+      postRendererResult(data, false, "missing-trusted-click");
+      return;
+    }
+
+    state.activationRequests.add(requestId);
+    debugState.counters.rendererActivations += 1;
+    const richMessage = resolveRichMessage(message);
+    debugEvent("renderer-activation", {
+      requestId,
+      instanceId: data.instanceId,
+      trackId: data.trackId,
+      message: richMessage
+    }, "info");
+    try {
+      const success = await repeatMessage(richMessage);
+      postRendererResult(data, success, success ? "sent" : "send-failed");
+    } catch (error) {
+      debugEvent("renderer-activation-error", {
+        requestId,
+        error: String(error && error.message || error)
+      }, "error");
+      postRendererResult(data, false, "send-error");
+    } finally {
+      setTimeout(() => state.activationRequests.delete(requestId), 10_000);
+    }
   }
 
   function applySettings(saved) {
@@ -1117,10 +1252,15 @@
     if (!enabled()) {
       hideCard("disabled-by-settings");
     }
+    postRendererSettings("settings-applied");
   }
 
   window.addEventListener("message", (event) => {
     if (event.source !== window || !event.data || event.data.source !== PAGE_SOURCE) {
+      return;
+    }
+    if (event.data.type === "renderer-activate") {
+      handleRendererActivation(event.data);
       return;
     }
     if (event.data.type === "ready") {
@@ -1133,6 +1273,7 @@
         instanceCount: Number(event.data.instanceCount) || 0,
         orphanCount: Number(event.data.orphanCount) || 0
       }, "info");
+      postRendererSettings("page-ready");
       return;
     }
     if (event.data.type === "debug-snapshot") {
@@ -1182,7 +1323,6 @@
   });
 
   storageGet().then(applySettings);
-  ensureCard();
   document.addEventListener("pointermove", onPointerMove, true);
   document.addEventListener("pointerdown", (event) => {
     if (state.candidate && !isOwned(event.target)
@@ -1190,6 +1330,7 @@
       hideCard("outside-pointerdown");
     }
   }, true);
+  document.addEventListener("click", rememberTrustedRendererAction, true);
   document.addEventListener("click", onAltClick, true);
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
@@ -1223,7 +1364,12 @@
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       hideCard("document-hidden");
+    } else {
+      postRendererSettings("document-visible");
     }
+  });
+  window.addEventListener("pagehide", () => {
+    postRendererSettings("pagehide", false);
   });
 
   if (globalThis.chrome && chrome.storage && chrome.storage.onChanged) {
@@ -1250,6 +1396,7 @@
       ping();
     }
   }, delay));
+  setInterval(() => postRendererSettings("heartbeat"), RENDERER_HEARTBEAT_INTERVAL);
 
   setInterval(() => {
     if (state.lastUrl !== location.href) {
@@ -1259,6 +1406,7 @@
       state.pageReady = false;
       debugState.pageReady = false;
       ping();
+      postRendererSettings("spa-url-change");
     }
   }, 500);
   debugEvent("content-loaded", {

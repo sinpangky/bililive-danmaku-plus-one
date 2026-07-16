@@ -8,7 +8,14 @@
 
   const CONTENT_SOURCE = "danmaku-echo-douyin-content";
   const PAGE_SOURCE = "danmaku-echo-douyin-page";
-  const DEBUG_VERSION = "douyin-tracker-v3";
+  const DEBUG_VERSION = "douyin-dom-renderer-v4";
+  const DOM_ACTION_WIDTH = 50;
+  const DOM_NODE_LIMIT = 160;
+  const RENDERER_HEARTBEAT_TIMEOUT = 15_000;
+  const RENDERER_RESULT_TIMEOUT = 8_000;
+  const FROZEN_TRACK_TIMEOUT = 20_000;
+  const CANVAS_MOUNT_GRACE = 8_000;
+  const CANVAS_MOUNT_RETRY = 100;
   const instances = new Map();
   const offscreenSources = new WeakMap();
   const canvasIds = new WeakMap();
@@ -17,6 +24,11 @@
   let nextTrackId = 1;
   let measurementContext = null;
   let debugMarkerTimer = 0;
+  let nextActivationRequestId = 1;
+  let rendererEnabled = false;
+  let rendererHeartbeatAt = 0;
+  let rendererLocationHref = location.href;
+  const activationRequests = new Map();
 
   const debugState = {
     version: DEBUG_VERSION,
@@ -31,6 +43,11 @@
       instancesRecovered: 0,
       barragesObserved: 0,
       barragesStarted: 0,
+      rendererTakeovers: 0,
+      rendererRestores: 0,
+      rendererNodesCreated: 0,
+      rendererActivations: 0,
+      rendererResults: 0,
       probes: 0,
       probeHits: 0,
       probeMisses: 0
@@ -86,7 +103,15 @@
       },
       pendingCount: instance.pending ? instance.pending.length : 0,
       trackCount: instance.tracks.size,
-      channelCount: instance.channels ? instance.channels.length : 0
+      channelCount: instance.channels ? instance.channels.length : 0,
+      renderer: {
+        safe: Boolean(instance.rendererSafeSync)
+          || Date.now() >= numberOr(instance.rendererSafeAfter, Infinity),
+        blocked: Boolean(instance.rendererBlocked),
+        takeover: Boolean(instance.rendererTakeover),
+        nodeCount: instance.rendererNodes ? instance.rendererNodes.size : 0,
+        layerConnected: Boolean(instance.rendererLayer && instance.rendererLayer.isConnected)
+      }
     };
   }
 
@@ -102,6 +127,11 @@
       lastError: debugState.lastError,
       instanceCount: instances.size,
       orphanCount: orphanMessages.size,
+      renderer: {
+        enabled: rendererEnabled,
+        heartbeatAge: rendererHeartbeatAt ? Date.now() - rendererHeartbeatAt : null,
+        activationRequestCount: activationRequests.size
+      },
       instances: Array.from(instances.values()).map(instanceDebugSummary),
       events: debugState.events.slice(-80)
     };
@@ -601,6 +631,589 @@
     };
   }
 
+  function rendererInstanceSafe(instance) {
+    return Boolean(instance.rendererSafeSync)
+      || Date.now() >= numberOr(instance.rendererSafeAfter, Infinity);
+  }
+
+  function rendererMount(instance) {
+    const fullscreen = document.fullscreenElement;
+    if (fullscreen instanceof Element && fullscreen !== instance.canvas
+        && fullscreen.contains(instance.canvas)) {
+      return fullscreen;
+    }
+    return document.documentElement || document.body;
+  }
+
+  function rendererPaint(value, background) {
+    if (typeof value === "string") {
+      return value.slice(0, 200);
+    }
+    if (!value || typeof value !== "object" || !Array.isArray(value.gradientPieces)) {
+      return "";
+    }
+    const pieces = value.gradientPieces
+      .filter((piece) => Array.isArray(piece) && piece.length >= 2)
+      .slice(0, 12);
+    if (!pieces.length) {
+      return "";
+    }
+    if (!background) {
+      return String(pieces[0][1]).slice(0, 100);
+    }
+    const stops = pieces.map((piece) => {
+      const offset = Math.max(0, Math.min(1, numberOr(piece[0], 0))) * 100;
+      return `${String(piece[1]).slice(0, 100)} ${offset}%`;
+    });
+    return `${value.type === "radial" ? "radial-gradient(circle" : "linear-gradient(90deg"}, ${stops.join(", ")})`;
+  }
+
+  function rendererBox(value) {
+    const edges = boxEdges(value);
+    return [edges.top, edges.right, edges.bottom, edges.left]
+      .map((edge) => `${Math.max(-100, Math.min(200, numberOr(edge, 0)))}px`)
+      .join(" ");
+  }
+
+  function applyRendererContentStyle(element, item) {
+    if (!element || !item || typeof item !== "object") {
+      return;
+    }
+    if (Number.isFinite(Number(item.fontSize))) {
+      element.style.fontSize = `${Math.max(8, Math.min(96, Number(item.fontSize)))}px`;
+    }
+    if (item.fontWeight != null) {
+      element.style.fontWeight = String(item.fontWeight).slice(0, 100);
+    }
+    if (item.fontFamily != null) {
+      element.style.fontFamily = String(item.fontFamily).slice(0, 100);
+    }
+    const color = rendererPaint(item.color, false);
+    if (color) {
+      element.style.color = color;
+    }
+    const background = rendererPaint(item.backgroundColor, true);
+    if (background) {
+      if (/gradient\(/i.test(background)) {
+        element.style.backgroundImage = background;
+      } else {
+        element.style.backgroundColor = background;
+      }
+    }
+    const stroke = rendererPaint(item.strokeColor, false);
+    const strokeWidth = Math.max(0, Math.min(8, numberOr(item.strokeWidth, 0)));
+    if (stroke && strokeWidth) {
+      element.style.webkitTextStroke = `${strokeWidth}px ${stroke}`;
+      element.style.paintOrder = "stroke fill";
+    }
+    const borderColor = rendererPaint(item.borderColor, false);
+    const borderWidth = Math.max(0, Math.min(12, numberOr(item.borderWidth, 0)));
+    if (borderColor && borderWidth) {
+      element.style.border = `${borderWidth}px solid ${borderColor}`;
+    }
+    if (item.margin != null) {
+      element.style.margin = rendererBox(item.margin);
+    }
+    if (item.padding != null) {
+      element.style.padding = rendererBox(item.padding);
+    }
+    if (Number.isFinite(Number(item.borderRadius))) {
+      element.style.borderRadius = `${Math.max(0, Math.min(100, Number(item.borderRadius)))}px`;
+    }
+    if (Number.isFinite(Number(item.opacity))) {
+      element.style.opacity = String(Math.max(0, Math.min(1, Number(item.opacity))));
+    }
+  }
+
+  function createRendererContent(item, depth) {
+    if (!item || typeof item !== "object" || depth > 6) {
+      return null;
+    }
+    let element;
+    if (item.type === "image" && typeof item.src === "string") {
+      element = document.createElement("img");
+      element.src = item.src;
+      element.alt = "";
+      element.draggable = false;
+      element.style.display = "inline-block";
+      element.style.objectFit = "contain";
+      const fallbackSize = Math.max(8, Math.min(96, numberOr(item.fontSize, 20)));
+      const width = numberOr(item.width, numberOr(item.height, fallbackSize));
+      const height = numberOr(item.height, numberOr(item.width, fallbackSize));
+      element.style.width = `${Math.max(1, Math.min(500, width))}px`;
+      element.style.height = `${Math.max(1, Math.min(200, height))}px`;
+    } else {
+      element = document.createElement("span");
+      if (item.type === "text") {
+        element.textContent = String(item.text == null ? "" : item.text).slice(0, 1000);
+        element.style.display = "inline-block";
+      } else {
+        element.style.display = item.isInline ? "inline-flex" : "flex";
+        element.style.alignItems = "center";
+        const children = Array.isArray(item.content) ? item.content : [];
+        children.forEach((child) => {
+          const childElement = createRendererContent(child, depth + 1);
+          if (childElement) {
+            element.appendChild(childElement);
+          }
+        });
+      }
+    }
+    element.style.boxSizing = "border-box";
+    element.style.flexShrink = "0";
+    applyRendererContentStyle(element, item);
+    return element;
+  }
+
+  function setRendererMetadata(element, track) {
+    const message = track.description.text;
+    const messageId = String(track.options.id == null ? track.id : track.options.id);
+    element.dataset.track = String(track.id);
+    element.dataset.trackId = String(track.id);
+    element.dataset.instance = String(track.instance.id);
+    element.dataset.instanceId = String(track.instance.id);
+    element.dataset.message = message;
+    element.dataset.messageId = messageId;
+  }
+
+  function ensureRendererLayer(instance, canvasRect) {
+    let layer = instance.rendererLayer;
+    if (!layer) {
+      layer = document.createElement("div");
+      layer.className = "bcp-douyin-dom-layer";
+      layer.dataset.instance = String(instance.id);
+      layer.dataset.instanceId = String(instance.id);
+      layer.dataset.canvas = String(instance.canvasId);
+      layer.dataset.canvasId = String(instance.canvasId);
+      layer.dataset.bcpDouyinOwned = "true";
+      layer.style.position = "fixed";
+      layer.style.margin = "0";
+      layer.style.padding = "0";
+      layer.style.overflow = "hidden";
+      layer.style.pointerEvents = "none";
+      layer.style.contain = "layout style paint";
+      layer.style.isolation = "isolate";
+      layer.style.zIndex = "2147483000";
+      layer.style.visibility = "hidden";
+      layer.hidden = true;
+      instance.rendererLayer = layer;
+      instance.rendererGeometryKey = "";
+      instance.rendererBorderRadius = null;
+    }
+    const mount = rendererMount(instance);
+    if (!(mount instanceof Element)) {
+      throw new Error("renderer mount is unavailable");
+    }
+    if (layer.parentElement !== mount) {
+      mount.appendChild(layer);
+      instance.rendererGeometryKey = "";
+    }
+    if (instance.rendererBorderRadius == null) {
+      try {
+        instance.rendererBorderRadius = getComputedStyle(instance.canvas).borderRadius || "";
+      } catch (_error) {
+        instance.rendererBorderRadius = "";
+      }
+      layer.style.borderRadius = instance.rendererBorderRadius;
+    }
+    const geometryKey = [canvasRect.left, canvasRect.top, canvasRect.width, canvasRect.height]
+      .map((value) => Math.round(numberOr(value, 0) * 100) / 100)
+      .join("|");
+    if (geometryKey !== instance.rendererGeometryKey) {
+      layer.style.left = `${canvasRect.left}px`;
+      layer.style.top = `${canvasRect.top}px`;
+      layer.style.width = `${canvasRect.width}px`;
+      layer.style.height = `${canvasRect.height}px`;
+      instance.rendererGeometryKey = geometryKey;
+    }
+    return layer;
+  }
+
+  function restoreRendererCanvas(instance, reason) {
+    const canvas = instance.canvas;
+    if (instance.rendererOwnsCanvasVisibility && canvas instanceof HTMLCanvasElement) {
+      canvas.style.visibility = instance.rendererCanvasVisibility || "";
+      delete canvas.dataset.bcpDouyinDomTakeover;
+      instance.rendererOwnsCanvasVisibility = false;
+      debugState.counters.rendererRestores += 1;
+      debugEvent("renderer-canvas-restored", { instanceId: instance.id, reason });
+    }
+    instance.rendererTakeover = false;
+    if (instance.rendererLayer) {
+      instance.rendererLayer.style.visibility = "hidden";
+      instance.rendererLayer.hidden = true;
+    }
+  }
+
+  function takeOverRendererCanvas(instance) {
+    if (instance.rendererTakeover) {
+      return;
+    }
+    const canvas = instance.canvas;
+    const layer = instance.rendererLayer;
+    if (!(canvas instanceof HTMLCanvasElement) || !canvas.isConnected
+        || !layer || !layer.isConnected || !instance.rendererNodes.size) {
+      return;
+    }
+    instance.rendererCanvasVisibility = canvas.style.visibility;
+    instance.rendererOwnsCanvasVisibility = true;
+    layer.hidden = false;
+    layer.style.visibility = "visible";
+    canvas.style.visibility = "hidden";
+    canvas.dataset.bcpDouyinDomTakeover = "true";
+    instance.rendererTakeover = true;
+    debugState.counters.rendererTakeovers += 1;
+    debugEvent("renderer-takeover", {
+      instanceId: instance.id,
+      canvasId: instance.canvasId,
+      nodeCount: instance.rendererNodes.size
+    }, "info");
+  }
+
+  function removeRendererTrack(track) {
+    const state = track && track.renderer;
+    if (!state) {
+      return;
+    }
+    if (state.hoverTimer) {
+      clearTimeout(state.hoverTimer);
+    }
+    if (state.node && state.node.isConnected) {
+      state.node.remove();
+    }
+    if (track.instance.rendererNodes) {
+      track.instance.rendererNodes.delete(track.id);
+    }
+    track.renderer = null;
+  }
+
+  function clearActivationRequests(instance) {
+    for (const [requestId, request] of activationRequests) {
+      if (request.track.instance !== instance) {
+        continue;
+      }
+      clearTimeout(request.timer);
+      activationRequests.delete(requestId);
+    }
+  }
+
+  function shutdownInstanceRenderer(instance, reason) {
+    clearActivationRequests(instance);
+    Array.from(instance.tracks.values()).forEach(removeRendererTrack);
+    if (instance.rendererNodes) {
+      instance.rendererNodes.clear();
+    }
+    restoreRendererCanvas(instance, reason);
+    if (instance.rendererLayer) {
+      instance.rendererLayer.remove();
+      instance.rendererLayer = null;
+    }
+    instance.rendererGeometryKey = "";
+    instance.rendererBorderRadius = null;
+  }
+
+  function failInstanceRenderer(instance, reason, error) {
+    instance.rendererBlocked = true;
+    shutdownInstanceRenderer(instance, reason);
+    debugEvent("renderer-failed", {
+      instanceId: instance.id,
+      reason,
+      message: error ? String(error && error.message || error) : ""
+    }, "error");
+  }
+
+  function blockInstanceRenderer(instance, reason) {
+    if (instance.rendererBlocked) {
+      return;
+    }
+    instance.rendererBlocked = true;
+    shutdownInstanceRenderer(instance, reason);
+    debugEvent("renderer-blocked", {
+      instanceId: instance.id,
+      reason,
+      generation: instance.rendererGeneration
+    }, "warn");
+  }
+
+  function releaseRendererTrack(track) {
+    const state = track.renderer;
+    if (!state) {
+      return;
+    }
+    if (state.hoverTimer) {
+      clearTimeout(state.hoverTimer);
+      state.hoverTimer = 0;
+    }
+    state.hovered = false;
+    delete state.node.dataset.hovered;
+    if (state.ghostExpired) {
+      removeRendererTrack(track);
+      track.instance.tracks.delete(track.id);
+      track.instance.frameState.previousIds.delete(track.id);
+      return;
+    }
+    state.catching = true;
+  }
+
+  function holdRendererTrack(track) {
+    const state = track.renderer;
+    if (!state) {
+      return;
+    }
+    state.hovered = true;
+    state.catching = false;
+    state.node.dataset.hovered = "true";
+    if (state.hoverTimer) {
+      clearTimeout(state.hoverTimer);
+    }
+    state.hoverTimer = setTimeout(() => {
+      if (track.renderer === state && state.hovered) {
+        releaseRendererTrack(track);
+      }
+    }, FROZEN_TRACK_TIMEOUT);
+  }
+
+  function settleRendererActivation(requestId, ok, reason) {
+    const request = activationRequests.get(requestId);
+    if (!request) {
+      return;
+    }
+    activationRequests.delete(requestId);
+    clearTimeout(request.timer);
+    const state = request.track.renderer;
+    if (!state || state.button !== request.button) {
+      return;
+    }
+    state.sending = false;
+    delete state.node.dataset.sending;
+    state.button.disabled = false;
+    state.button.textContent = ok ? "✓" : "!";
+    state.button.dataset.result = ok ? "success" : "failure";
+    if (ok) {
+      state.node.dataset.sendOk = "true";
+    } else {
+      delete state.node.dataset.sendOk;
+    }
+    state.button.title = ok ? "已发送 +1" : `发送失败${reason ? `：${reason}` : ""}`;
+    debugState.counters.rendererResults += 1;
+    setTimeout(() => {
+      if (request.track.renderer === state) {
+        state.button.textContent = "+1";
+        state.button.title = "发送相同弹幕（+1）";
+        delete state.button.dataset.result;
+        delete state.node.dataset.sendOk;
+      }
+    }, ok ? 900 : 1200);
+  }
+
+  function activateRendererTrack(track, event) {
+    const state = track.renderer;
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    if (!state || state.sending || !rendererEnabled) {
+      return;
+    }
+    const button = state.button;
+    if (button.dataset.track !== String(track.id)
+        || button.dataset.instance !== String(track.instance.id)
+        || button.dataset.message !== track.description.text) {
+      failInstanceRenderer(track.instance, "activation-metadata-mismatch");
+      return;
+    }
+    const requestId = nextActivationRequestId;
+    nextActivationRequestId += 1;
+    state.sending = true;
+    state.node.dataset.sending = "true";
+    button.disabled = true;
+    button.textContent = "…";
+    const timer = setTimeout(() => {
+      settleRendererActivation(requestId, false, "timeout");
+    }, RENDERER_RESULT_TIMEOUT);
+    activationRequests.set(requestId, { track, button, timer });
+    debugState.counters.rendererActivations += 1;
+    window.postMessage({
+      source: PAGE_SOURCE,
+      type: "renderer-activate",
+      requestId,
+      trackId: track.id,
+      instanceId: track.instance.id,
+      messageId: String(track.options.id == null ? track.id : track.options.id),
+      text: track.description.text
+    }, "*");
+  }
+
+  function createRendererTrack(track, layer) {
+    const instance = track.instance;
+    if (instance.rendererNodes.size >= DOM_NODE_LIMIT) {
+      throw new Error(`renderer node limit exceeded (${DOM_NODE_LIMIT})`);
+    }
+    const node = document.createElement("div");
+    node.className = "bcp-douyin-dom-barrage";
+    node.dataset.bcpDouyinOwned = "true";
+    setRendererMetadata(node, track);
+    node.style.position = "absolute";
+    node.style.left = "0";
+    node.style.top = "0";
+    node.style.display = "flex";
+    node.style.alignItems = "center";
+    node.style.boxSizing = "border-box";
+    node.style.whiteSpace = "nowrap";
+    node.style.pointerEvents = "none";
+    node.style.userSelect = "none";
+    node.style.webkitUserSelect = "none";
+    node.style.willChange = "transform";
+    node.style.contain = "layout style paint";
+
+    const content = document.createElement("span");
+    content.className = "bcp-douyin-dom-content";
+    content.style.display = "flex";
+    content.style.alignItems = "center";
+    content.style.flex = "1 1 auto";
+    content.style.minWidth = "0";
+    content.style.height = "100%";
+    content.style.overflow = "visible";
+    content.style.pointerEvents = "auto";
+    const fragment = document.createDocumentFragment();
+    track.content.forEach((item) => {
+      const child = createRendererContent(item, 0);
+      if (child) {
+        fragment.appendChild(child);
+      }
+    });
+    if (!fragment.childNodes.length) {
+      content.textContent = track.description.text;
+    } else {
+      content.appendChild(fragment);
+    }
+    const firstText = track.description.firstText || {};
+    applyRendererContentStyle(content, firstText);
+
+    const button = document.createElement("button");
+    button.className = "bcp-douyin-dom-action";
+    button.type = "button";
+    button.textContent = "+1";
+    button.title = "发送相同弹幕（+1）";
+    button.setAttribute("aria-label", `发送相同弹幕：${track.description.text}`);
+    setRendererMetadata(button, track);
+    button.style.flex = `0 0 ${DOM_ACTION_WIDTH}px`;
+    button.style.width = `${DOM_ACTION_WIDTH}px`;
+    button.style.maxWidth = `${DOM_ACTION_WIDTH}px`;
+    button.style.boxSizing = "border-box";
+
+    node.append(button, content);
+    const state = {
+      node,
+      content,
+      button,
+      hovered: false,
+      catching: false,
+      ghostExpired: false,
+      sending: false,
+      visualLeft: null,
+      targetLeft: null,
+      visualWidth: 0,
+      visualHeight: 0,
+      hoverTimer: 0
+    };
+    track.renderer = state;
+    instance.rendererNodes.set(track.id, node);
+    node.addEventListener("pointerenter", () => holdRendererTrack(track));
+    node.addEventListener("pointerleave", () => releaseRendererTrack(track));
+    node.addEventListener("click", (event) => event.stopPropagation());
+    button.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    button.addEventListener("click", (event) => activateRendererTrack(track, event));
+    layer.appendChild(node);
+    debugState.counters.rendererNodesCreated += 1;
+    return state;
+  }
+
+  function syncRendererTrack(track, barrageRect, canvasRect, deltaTime) {
+    const state = track.renderer;
+    if (!state) {
+      return;
+    }
+    // Keep the message itself on the modeled trajectory while reserving the
+    // action on its leading edge. The hidden action cannot capture the pointer,
+    // yet it is already inside the viewport whenever readable text is visible.
+    const targetLeft = barrageRect.left - canvasRect.left - DOM_ACTION_WIDTH;
+    const targetTop = barrageRect.top - canvasRect.top;
+    state.targetLeft = targetLeft;
+    if (!Number.isFinite(state.visualLeft)) {
+      state.visualLeft = targetLeft;
+    } else if (!state.hovered) {
+      if (state.catching) {
+        const gap = targetLeft - state.visualLeft;
+        const maxStep = Math.max(8, Math.min(80, Math.max(1, deltaTime) * 0.9));
+        if (Math.abs(gap) <= maxStep) {
+          state.visualLeft = targetLeft;
+          state.catching = false;
+        } else {
+          state.visualLeft += Math.sign(gap) * maxStep;
+        }
+      } else {
+        state.visualLeft = targetLeft;
+      }
+    }
+    if (!state.hovered) {
+      const width = Math.max(DOM_ACTION_WIDTH + 1, barrageRect.width);
+      const height = Math.max(24, barrageRect.height);
+      if (Math.abs(width - state.visualWidth) > 0.1) {
+        state.node.style.width = `${width}px`;
+        state.visualWidth = width;
+      }
+      if (Math.abs(height - state.visualHeight) > 0.1) {
+        state.node.style.height = `${height}px`;
+        state.visualHeight = height;
+      }
+    }
+    state.node.style.transform = `translate3d(${state.visualLeft}px, ${targetTop}px, 0)`;
+  }
+
+  function updateRendererFrame(instance, canvasRect, deltaTime) {
+    if (document.fullscreenElement === instance.canvas) {
+      if (instance.rendererLayer || instance.rendererTakeover) {
+        shutdownInstanceRenderer(instance, "canvas-is-fullscreen-element");
+      }
+      return;
+    }
+    if (!rendererEnabled || !instance.active || instance.rendererBlocked
+        || !rendererInstanceSafe(instance)) {
+      if (instance.rendererLayer || instance.rendererTakeover) {
+        shutdownInstanceRenderer(instance, !rendererEnabled ? "disabled" : "unsafe-instance");
+      }
+      return;
+    }
+    if (instance.rendererPreparing > 0) {
+      if (instance.rendererTakeover) {
+        restoreRendererCanvas(instance, "barrage-preparing");
+      }
+      return;
+    }
+    const layer = ensureRendererLayer(instance, canvasRect);
+    for (const track of instance.tracks.values()) {
+      if (!track.bookedChannel || (track.renderer && track.renderer.ghostExpired)) {
+        continue;
+      }
+      const barrageRect = trackRect(track, 0, canvasRect);
+      if (!barrageRect) {
+        continue;
+      }
+      const state = track.renderer || createRendererTrack(track, layer);
+      if (!state.node.isConnected) {
+        throw new Error("renderer barrage detached before takeover");
+      }
+      syncRendererTrack(track, barrageRect, canvasRect, deltaTime);
+    }
+    if (instance.rendererNodes.size) {
+      takeOverRendererCanvas(instance);
+    }
+  }
+
   function stopAnimation(instance) {
     if (instance.animationFrame) {
       cancelAnimationFrame(instance.animationFrame);
@@ -621,10 +1234,33 @@
       }
       return true;
     }));
-    expired.forEach((id) => instance.tracks.delete(id));
+    expired.forEach((id) => {
+      const track = instance.tracks.get(id);
+      if (track && track.renderer && track.renderer.hovered) {
+        track.renderer.ghostExpired = true;
+        track.renderer.node.dataset.ghostExpired = "true";
+        return;
+      }
+      if (track) {
+        removeRendererTrack(track);
+      }
+      instance.tracks.delete(id);
+      if (instance.frameState) {
+        instance.frameState.previousIds.delete(id);
+      }
+    });
   }
 
   function modelFrame(instance) {
+    try {
+      advanceModelFrame(instance);
+    } catch (error) {
+      instance.animationFrame = 0;
+      failInstanceRenderer(instance, "animation-frame-error", error);
+    }
+  }
+
+  function advanceModelFrame(instance) {
     instance.animationFrame = 0;
     if (!instance.active || !(instance.canvas instanceof HTMLCanvasElement)
         || !instance.canvas.isConnected) {
@@ -638,16 +1274,23 @@
     ensureChannels(instance, channelInfo(instance, rect).maxCanUse);
     const now = Date.now();
     const rawDelta = instance.lastFrameAt ? now - instance.lastFrameAt : 16;
-    const deltaTime = rawDelta < 1000 ? Math.max(0, rawDelta) : 16;
+    const deltaTime = Math.max(0, Math.min(rawDelta, 300_000));
     instance.lastFrameAt = now;
     removeExpiredTracks(instance, rect);
     if (channelsEmpty(instance)) {
+      updateRendererFrame(instance, rect, deltaTime);
       return;
     }
 
-    const speeds = new Map();
-    const rightPositions = new Map();
-    const previousIds = new Map();
+    const frameState = instance.frameState;
+    const speeds = frameState.speeds;
+    const rightPositions = frameState.rightPositions;
+    const previousIds = frameState.previousIds;
+    const moved = frameState.moved;
+    speeds.clear();
+    rightPositions.clear();
+    moved.clear();
+    previousIds.forEach((items) => { items.length = 0; });
     instance.channels.forEach((channel) => {
       let channelSpeed = Infinity;
       channel.forEach((track, index) => {
@@ -657,15 +1300,16 @@
         speeds.set(barrageId, channelSpeed);
         rightPositions.set(barrageId, trackRightPosition(track, rect));
         if (!previousIds.has(track.id)) {
-          previousIds.set(track.id, new Set());
+          previousIds.set(track.id, []);
         }
         if (index > 0) {
-          previousIds.get(track.id).add(String(channel[index - 1].options.id || channel[index - 1].id));
+          previousIds.get(track.id).push(
+            String(channel[index - 1].options.id || channel[index - 1].id)
+          );
         }
       });
     });
 
-    const moved = new Set();
     instance.channels.forEach((channel, channelIndex) => {
       channel.forEach((track) => {
         if (moved.has(track.id) || !track.bookedChannel
@@ -674,14 +1318,23 @@
         }
         moved.add(track.id);
         const barrageId = String(track.options.id || track.id);
-        const predecessors = Array.from(previousIds.get(track.id) || []);
+        const predecessors = previousIds.get(track.id) || [];
         const gap = Math.max(0, numberOr(instance.config.gap, 100)) * modelDpr(instance);
-        const preRightEdge = predecessors.length
-          ? Math.max(...predecessors.map((id) => numberOr(rightPositions.get(id), -Infinity))) + gap
-          : -Infinity;
+        let preRightEdge = -Infinity;
+        predecessors.forEach((id) => {
+          preRightEdge = Math.max(preRightEdge, numberOr(rightPositions.get(id), -Infinity));
+        });
+        if (Number.isFinite(preRightEdge)) {
+          preRightEdge += gap;
+        }
         const pixels = canvasPixelSize(instance, rect);
         const dpr = modelDpr(instance);
         const speed = numberOr(speeds.get(barrageId), trackSpeed(track, rect));
+        if (deltaTime > 1000) {
+          track.deltaXWithoutDpr += deltaTime * speed;
+          rightPositions.set(barrageId, trackRightPosition(track, rect));
+          return;
+        }
         const nextLeft = pixels.width - (track.deltaXWithoutDpr + deltaTime * speed) * dpr;
         if (!Number.isFinite(preRightEdge) || nextLeft >= preRightEdge) {
           track.deltaXWithoutDpr += deltaTime * speed;
@@ -691,6 +1344,7 @@
         rightPositions.set(barrageId, trackRightPosition(track, rect));
       });
     });
+    updateRendererFrame(instance, rect, deltaTime);
     instance.animationFrame = requestAnimationFrame(() => modelFrame(instance));
   }
 
@@ -703,10 +1357,17 @@
 
   function assignPendingTracks(instance) {
     instance.pushTimer = 0;
-    if (!(instance.canvas instanceof HTMLCanvasElement) || !instance.canvas.isConnected) {
-      scheduleRecovery();
+    if (!(instance.canvas instanceof HTMLCanvasElement)) {
       return;
     }
+    if (!instance.canvas.isConnected) {
+      if (!instance.canvasEverConnected && instances.get(instance.id) === instance && instance.active
+          && Date.now() < instance.mountGraceUntil) {
+        instance.pushTimer = setTimeout(() => assignPendingTracks(instance), CANVAS_MOUNT_RETRY);
+      }
+      return;
+    }
+    instance.canvasEverConnected = true;
     const rect = instance.canvas.getBoundingClientRect();
     if (rect.width < 20 || rect.height < 20) {
       instance.pushTimer = setTimeout(() => assignPendingTracks(instance), 300);
@@ -772,7 +1433,9 @@
       if (trackNeedsReserve(track, info.maxDisplay)) {
         remaining.push(track);
       } else {
+        removeRendererTrack(track);
         instance.tracks.delete(track.id);
+        instance.frameState.previousIds.delete(track.id);
         debugEvent("barrage-dropped", {
           instanceId: instance.id,
           trackId: track.id,
@@ -791,65 +1454,28 @@
     scheduleDebugMarker();
   }
 
-  function collectImageSources(item, result) {
-    if (!item || typeof item !== "object") {
+  function prepareBarrage(instance, options, observedAt, rendererGeneration) {
+    if (!instances.has(instance.id) || instances.get(instance.id) !== instance
+        || instance.rendererGeneration !== rendererGeneration) {
       return;
     }
-    if (item.type === "image" && typeof item.src === "string" && item.src) {
-      result.add(item.src);
-    }
-    if (Array.isArray(item.content)) {
-      item.content.forEach((child) => collectImageSources(child, result));
-    }
-  }
-
-  function loadImageRatio(src) {
-    return new Promise((resolve) => {
-      if (typeof Image !== "function") {
-        resolve(null);
-        return;
-      }
-      const image = new Image();
-      let settled = false;
-      const finish = (ratio) => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        resolve(Number.isFinite(ratio) && ratio > 0 ? ratio : null);
-      };
-      const timer = setTimeout(() => finish(null), 800);
-      image.onload = () => {
-        clearTimeout(timer);
-        finish(image.naturalWidth / Math.max(1, image.naturalHeight));
-      };
-      image.onerror = () => {
-        clearTimeout(timer);
-        finish(null);
-      };
-      image.src = src;
-    });
-  }
-
-  async function prepareBarrage(instance, options) {
-    const sources = new Set();
-    collectImageSources(options, sources);
-    const imageRatios = new Map();
-    await Promise.all(Array.from(sources).map(async (src) => {
-      imageRatios.set(src, await loadImageRatio(src));
-    }));
-    if (!instances.has(instance.id) || instances.get(instance.id) !== instance) {
-      return;
-    }
-    const description = describeBarrage(options, instance.config, imageRatios);
+    // Never wait for remote image metadata before deciding whether Canvas can
+    // be hidden. Douyin usually provides image dimensions; missing dimensions
+    // use the same deterministic square fallback in both measurement and DOM.
+    const description = describeBarrage(options, instance.config, null);
     if (!plausibleText(description.text)) {
       debugEvent("barrage-ignored", { instanceId: instance.id, reason: "implausible-text" });
-      return;
+      blockInstanceRenderer(instance, "unsupported-barrage-content");
+      return false;
     }
+    description.contentWidth = description.width;
+    description.width += DOM_ACTION_WIDTH;
+    description.height = Math.max(24, description.height);
     const maxCount = Math.max(1, numberOr(instance.config.maxCount, 200));
     if (instance.pending.length >= maxCount) {
       debugEvent("barrage-ignored", { instanceId: instance.id, reason: "pending-limit" });
-      return;
+      blockInstanceRenderer(instance, "pending-limit");
+      return false;
     }
     const track = {
       id: nextTrackId,
@@ -859,9 +1485,21 @@
       content: serializeBarrage(options),
       deltaXWithoutDpr: 0,
       bookedChannel: null,
-      observedAt: Date.now(),
+      observedAt,
       startedAt: 0
     };
+    const canvasRect = instance.canvas instanceof HTMLCanvasElement
+      ? instance.canvas.getBoundingClientRect()
+      : null;
+    if (canvasRect && canvasRect.width >= 20 && canvasRect.height >= 20) {
+      const optionStart = numberOr(options.startTime, 0);
+      const now = Date.now();
+      const credibleStart = optionStart > now - 60_000 && optionStart < now + 5_000
+        ? optionStart
+        : observedAt;
+      const preparationDelay = Math.max(0, Math.min(trackDuration(track), now - credibleStart));
+      track.deltaXWithoutDpr = preparationDelay * trackSpeed(track, canvasRect);
+    }
     nextTrackId += 1;
     instance.tracks.set(track.id, track);
     const wasEmpty = instance.pending.length === 0;
@@ -875,30 +1513,62 @@
     } else if (!instance.pushTimer) {
       instance.pushTimer = setTimeout(() => assignPendingTracks(instance), 300);
     }
+    return true;
   }
 
   function queueBarrage(instance, options) {
     if (!options || typeof options !== "object") {
       return;
     }
+    if (instance.rendererCleanClearObserved) {
+      instance.rendererSafeSync = true;
+      instance.rendererCleanClearObserved = false;
+      instance.rendererBlocked = false;
+      debugEvent("renderer-clean-sync", { instanceId: instance.id });
+    }
     debugState.counters.barragesObserved += 1;
-    prepareBarrage(instance, options).catch((error) => {
+    const observedAt = Date.now();
+    const rendererGeneration = instance.rendererGeneration;
+    instance.rendererPreparing += 1;
+    try {
+      prepareBarrage(instance, options, observedAt, rendererGeneration);
+    } catch (error) {
+      if (instances.get(instance.id) === instance
+          && instance.rendererGeneration === rendererGeneration) {
+        failInstanceRenderer(instance, "prepare-barrage-error", error);
+      }
       debugEvent("prepare-barrage-error", {
         instanceId: instance.id,
         message: String(error && error.message || error)
       }, "error");
-    });
+    } finally {
+      if (instances.get(instance.id) !== instance
+          || instance.rendererGeneration !== rendererGeneration) {
+        return;
+      }
+      instance.rendererPreparing = Math.max(0, instance.rendererPreparing - 1);
+      if (instance.active && !channelsEmpty(instance)) {
+        startAnimation(instance);
+      }
+    }
   }
 
-  function clearInstance(instance) {
+  function clearInstance(instance, reason) {
     if (instance.pushTimer) {
       clearTimeout(instance.pushTimer);
       instance.pushTimer = 0;
     }
+    shutdownInstanceRenderer(instance, reason || "instance-cleared");
+    instance.rendererGeneration += 1;
+    instance.rendererPreparing = 0;
     stopAnimation(instance);
     instance.pending.length = 0;
     instance.tracks.clear();
     instance.channels = [];
+    instance.frameState.speeds.clear();
+    instance.frameState.rightPositions.clear();
+    instance.frameState.previousIds.clear();
+    instance.frameState.moved.clear();
     instance.lastFrameAt = 0;
   }
 
@@ -927,21 +1597,44 @@
   function createTrackedInstance(id, canvas, config, recovered) {
     const previous = instances.get(id);
     if (previous) {
-      clearInstance(previous);
+      clearInstance(previous, "instance-replaced");
     }
+    const mergedConfig = Object.assign(defaultConfigForCanvas(canvas), config || {});
     const instance = {
       id,
       canvas,
       canvasId: canvasId(canvas),
-      config: Object.assign(defaultConfigForCanvas(canvas), config || {}),
+      config: mergedConfig,
       tracks: new Map(),
       pending: [],
       channels: [],
+      frameState: {
+        speeds: new Map(),
+        rightPositions: new Map(),
+        previousIds: new Map(),
+        moved: new Set()
+      },
       pushTimer: 0,
       animationFrame: 0,
       lastFrameAt: 0,
       active: true,
-      recovered: Boolean(recovered)
+      recovered: Boolean(recovered),
+      createdAt: Date.now(),
+      mountGraceUntil: Date.now() + CANVAS_MOUNT_GRACE,
+      canvasEverConnected: Boolean(canvas.isConnected),
+      rendererLayer: null,
+      rendererNodes: new Map(),
+      rendererTakeover: false,
+      rendererOwnsCanvasVisibility: false,
+      rendererCanvasVisibility: "",
+      rendererPreparing: 0,
+      rendererGeneration: 1,
+      rendererSafeSync: !recovered,
+      rendererSafeAfter: recovered
+        ? Date.now() + Math.max(1000, numberOr(mergedConfig.duration, 15_000)) + 1000
+        : Infinity,
+      rendererCleanClearObserved: false,
+      rendererBlocked: false
     };
     instances.set(id, instance);
     if (recovered) {
@@ -1042,13 +1735,17 @@
     const params = message.params && typeof message.params === "object" ? message.params : {};
     if (message.method === "createInstance") {
       const offscreen = params.offscrrenCanvas || params.offscreenCanvas;
-      const canvas = offscreenSources.get(offscreen) || findUnclaimedCanvas();
+      const mappedCanvas = offscreenSources.get(offscreen);
+      const canvas = mappedCanvas || findUnclaimedCanvas();
       const config = params.config && typeof params.config === "object" ? params.config : {};
       if (!(canvas instanceof HTMLCanvasElement) || !id || !looksLikeDanmakuConfig(config, canvas)) {
         rememberOrphan(id, "createInstance", params);
         return;
       }
-      const instance = createTrackedInstance(id, canvas, config, false);
+      // Missing transfer metadata means the hook arrived after OffscreenCanvas
+      // ownership changed or matched heuristically. Treat it as recovered so a
+      // guessed Canvas can never be hidden before a clean sync boundary.
+      const instance = createTrackedInstance(id, canvas, config, !mappedCanvas);
       orphanMessages.delete(id);
       const barrages = Array.isArray(params.barrages) ? params.barrages : [];
       barrages.forEach((barrage) => queueBarrage(instance, barrage));
@@ -1068,10 +1765,14 @@
       Object.assign(instance.config, params);
       debugEvent("config-updated", { instanceId: id, config: params });
     } else if (message.method === "clear") {
-      clearInstance(instance);
+      clearInstance(instance, "worker-clear");
+      instance.rendererSafeSync = false;
+      instance.rendererSafeAfter = Infinity;
+      instance.rendererCleanClearObserved = true;
+      instance.rendererBlocked = false;
       debugEvent("instance-cleared", { instanceId: id });
     } else if (message.method === "destroy") {
-      clearInstance(instance);
+      clearInstance(instance, "worker-destroy");
       instances.delete(id);
       debugEvent("instance-destroyed", { instanceId: id }, "info");
     } else if (message.method === "stop" && instance.active) {
@@ -1081,6 +1782,7 @@
         instance.pushTimer = 0;
       }
       stopAnimation(instance);
+      shutdownInstanceRenderer(instance, "worker-stop");
       debugEvent("instance-stopped", { instanceId: id });
     } else if (message.method === "start" && !instance.active) {
       instance.active = true;
@@ -1237,8 +1939,46 @@
       requestId: requestId || 0,
       instanceCount: instances.size,
       version: DEBUG_VERSION,
-      orphanCount: orphanMessages.size
+      orphanCount: orphanMessages.size,
+      rendererEnabled
     }, "*");
+  }
+
+  function postRendererReady(requestId) {
+    window.postMessage({
+      source: PAGE_SOURCE,
+      type: "renderer-ready",
+      requestId: Number(requestId) || 0,
+      enabled: rendererEnabled,
+      instanceCount: instances.size,
+      takeoverCount: Array.from(instances.values())
+        .filter((instance) => instance.rendererTakeover).length,
+      version: DEBUG_VERSION
+    }, "*");
+  }
+
+  function updateRendererSettings(data) {
+    const wasEnabled = rendererEnabled;
+    rendererHeartbeatAt = Date.now();
+    rendererEnabled = Boolean(data.enabled);
+    if (!rendererEnabled) {
+      for (const instance of instances.values()) {
+        shutdownInstanceRenderer(instance, "settings-disabled");
+      }
+    } else {
+      for (const instance of instances.values()) {
+        if (instance.active && !channelsEmpty(instance)) {
+          startAnimation(instance);
+        }
+      }
+    }
+    if (rendererEnabled !== wasEnabled) {
+      debugEvent("renderer-settings", {
+        enabled: rendererEnabled,
+        instanceCount: instances.size
+      }, "info");
+    }
+    postRendererReady(data.requestId);
   }
 
   observeCanvasTransfers();
@@ -1262,6 +2002,22 @@
       }, "*");
       return;
     }
+    if (event.data.type === "renderer-settings") {
+      updateRendererSettings(event.data);
+      return;
+    }
+    if (event.data.type === "renderer-result") {
+      const requestId = Number(event.data.requestId) || 0;
+      const request = activationRequests.get(requestId);
+      if (request && event.data.trackId != null
+          && String(event.data.trackId) !== String(request.track.id)) {
+        settleRendererActivation(requestId, false, "track-mismatch");
+      } else {
+        settleRendererActivation(requestId, event.data.ok === true,
+          String(event.data.reason || "").slice(0, 120));
+      }
+      return;
+    }
     if (event.data.type !== "probe") {
       return;
     }
@@ -1279,9 +2035,45 @@
   });
 
   setInterval(() => {
+    const now = Date.now();
+    if (rendererEnabled && !document.hidden
+        && now - rendererHeartbeatAt > RENDERER_HEARTBEAT_TIMEOUT) {
+      rendererEnabled = false;
+      for (const instance of instances.values()) {
+        shutdownInstanceRenderer(instance, "heartbeat-timeout");
+      }
+      debugEvent("renderer-heartbeat-timeout", {
+        age: now - rendererHeartbeatAt
+      }, "warn");
+    }
+    if (location.href !== rendererLocationHref) {
+      const previousHref = rendererLocationHref;
+      rendererLocationHref = location.href;
+      debugState.href = location.href;
+      for (const instance of instances.values()) {
+        shutdownInstanceRenderer(instance, "route-change");
+        instance.rendererSafeSync = false;
+        instance.rendererCleanClearObserved = false;
+        instance.rendererSafeAfter = now
+          + Math.max(1000, numberOr(instance.config.duration, 15_000)) + 1000;
+      }
+      debugEvent("renderer-route-reset", {
+        previousHref,
+        href: location.href
+      }, "warn");
+    }
     for (const [id, instance] of instances) {
       if (!instance.canvas.isConnected) {
-        clearInstance(instance);
+        if (!instance.canvasEverConnected && now < instance.mountGraceUntil) {
+          if (instance.pending.length && !instance.pushTimer) {
+            instance.pushTimer = setTimeout(
+              () => assignPendingTracks(instance),
+              CANVAS_MOUNT_RETRY
+            );
+          }
+          continue;
+        }
+        clearInstance(instance, "canvas-detached");
         instances.delete(id);
         debugEvent("instance-detached", { instanceId: id }, "warn");
         continue;
@@ -1290,6 +2082,26 @@
     recoverOrphans();
     scheduleDebugMarker();
   }, 500);
+
+  document.addEventListener("fullscreenchange", () => {
+    for (const instance of instances.values()) {
+      if (document.fullscreenElement === instance.canvas) {
+        shutdownInstanceRenderer(instance, "canvas-is-fullscreen-element");
+        continue;
+      }
+      if (!instance.rendererLayer || !(instance.canvas instanceof HTMLCanvasElement)
+          || !instance.canvas.isConnected) {
+        continue;
+      }
+      try {
+        instance.rendererGeometryKey = "";
+        instance.rendererBorderRadius = null;
+        ensureRendererLayer(instance, instance.canvas.getBoundingClientRect());
+      } catch (error) {
+        failInstanceRenderer(instance, "fullscreen-relayout-error", error);
+      }
+    }
+  });
 
   debugEvent("installed", {
     href: location.href,
