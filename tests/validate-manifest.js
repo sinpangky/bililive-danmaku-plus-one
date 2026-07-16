@@ -6,13 +6,25 @@ const path = require("node:path");
 const root = path.resolve(__dirname, "..");
 const manifestPath = path.join(root, "manifest.json");
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-const douyinMatches = [
+const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+
+if (manifest.version !== packageJson.version) {
+  throw new Error(
+    `Version mismatch: package.json is ${packageJson.version}, manifest.json is ${manifest.version}. `
+      + "Run npm run package to synchronize them."
+  );
+}
+const douyinLiveMatches = [
   "*://live.douyin.com/*",
   "*://www.douyin.com/follow/live/*"
 ];
+const douyinSpaBootstrapMatches = [
+  "*://live.douyin.com/*",
+  "*://www.douyin.com/*"
+];
 
-function hasAllDouyinMatches(entry) {
-  return douyinMatches.every((match) => (entry.matches || []).includes(match));
+function hasAllMatches(entry, expected) {
+  return expected.every((match) => (entry.matches || []).includes(match));
 }
 
 if (manifest.manifest_version !== 3) {
@@ -49,7 +61,7 @@ if (!bilibiliContentScript || bilibiliContentScript.all_frames !== true) {
 }
 
 const douyinContentScript = manifest.content_scripts.find((entry) =>
-  hasAllDouyinMatches(entry)
+  hasAllMatches(entry, douyinLiveMatches)
   && (entry.js || []).includes("src/douyin-content.js")
 );
 if (!douyinContentScript || (douyinContentScript.js || []).includes("src/content.js")) {
@@ -57,7 +69,7 @@ if (!douyinContentScript || (douyinContentScript.js || []).includes("src/content
 }
 
 const douyinPageHook = manifest.content_scripts.find((entry) =>
-  hasAllDouyinMatches(entry)
+  hasAllMatches(entry, douyinLiveMatches)
   && (entry.js || []).includes("src/douyin-page-hook.js")
 );
 if (!douyinPageHook || douyinPageHook.run_at !== "document_start"
@@ -66,7 +78,7 @@ if (!douyinPageHook || douyinPageHook.run_at !== "document_start"
 }
 
 const douyinBootstrap = manifest.content_scripts.find((entry) =>
-  hasAllDouyinMatches(entry)
+  hasAllMatches(entry, douyinSpaBootstrapMatches)
   && (entry.js || []).includes("src/douyin-bootstrap.js")
 );
 if (!douyinBootstrap || douyinBootstrap.run_at !== "document_start") {
@@ -76,8 +88,19 @@ if (!(manifest.permissions || []).includes("scripting")
     || manifest.background?.service_worker !== "background/service-worker.js") {
   throw new Error("Douyin recovery requires the scripting fallback service worker");
 }
-if (!douyinMatches.every((match) => (manifest.host_permissions || []).includes(match))) {
-  throw new Error("Douyin recovery permissions must cover direct and follow-live entry points");
+if (!(manifest.host_permissions || []).includes("*://live.douyin.com/*")
+    || !(manifest.host_permissions || []).includes("*://www.douyin.com/*")) {
+  throw new Error("Douyin recovery permissions must cover direct and SPA entry points");
+}
+
+const serviceWorkerSource = fs.readFileSync(
+  path.join(root, "background", "service-worker.js"),
+  "utf8"
+);
+if (!serviceWorkerSource.includes("src/douyin-content.js")
+    || !serviceWorkerSource.includes("src/douyin-content.css")
+    || !serviceWorkerSource.includes("chrome.tabs.onUpdated")) {
+  throw new Error("Douyin SPA recovery must inject the complete runtime on history URL changes");
 }
 
 console.log(`Manifest OK (${referencedFiles.length} referenced files, ${matches.length} host matches)`);

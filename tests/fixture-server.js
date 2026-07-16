@@ -153,15 +153,41 @@ const bilibiliHtml = String.raw`<!doctype html>
         <div class="bili-danmaku-x-dm">
           <span class="bili-danmaku-x-dm-content">B站单条弹幕</span>
         </div>
+        <div class="bili-danmaku-x-dm fixture-video-emote-row"
+          style="display:none;top:180px">
+          <span class="bili-danmaku-x-dm-content">
+            <img class="bili-danmaku-x-dm-img fixture-video-emote"
+              data-emoticon="anchor-wave" alt="[主播挥手]"
+              src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='36'%3E%3Ccircle cx='18' cy='18' r='16' fill='%23ff8a65'/%3E%3C/svg%3E">
+          </span>
+        </div>
       </div>
       <div class="bili-danmaku-x-dm bpx-player-ctrl-dm-input" style="display:none;position:absolute;left:20px;top:auto;bottom:20px;z-index:2">
         <textarea class="bpx-player-dm-input" placeholder="发送弹幕" aria-label="全屏快捷弹幕输入框"></textarea>
         <button class="bpx-player-dm-btn" type="button">发送</button>
       </div>
     </section>
+    <div id="chat-history-list" class="chat-history-list"
+      style="height:120px;overflow-y:auto">
+      <div class="danmaku-item fixture-rich-row">
+        <span class="user-name">主播：</span>
+        <span class="danmaku-content">
+          <img class="room-emote fixture-streamer-emote" data-emoticon="anchor-wave"
+            alt="[主播挥手]"
+            src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='36'%3E%3Ccircle cx='18' cy='18' r='16' fill='%23ff8a65'/%3E%3C/svg%3E">
+        </span>
+      </div>
+    </div>
     <div class="chat-input-ctnr">
       <textarea class="chat-input" aria-label="弹幕输入框"></textarea>
       <button class="bl-button--primary" type="button">发送</button>
+      <button class="fixture-emoji-toggle" aria-label="表情" type="button">表情</button>
+      <div class="emoji-panel fixture-emoji-panel" hidden>
+        <button class="emoticon-item fixture-emoji-item" data-emoticon="anchor-wave" type="button">
+          <img data-emoticon="anchor-wave" alt="[主播挥手]"
+            src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='36'%3E%3Ccircle cx='18' cy='18' r='16' fill='%23ff8a65'/%3E%3C/svg%3E">
+        </button>
+      </div>
     </div>
     <script>
       const player = document.querySelector(".bpx-player-container");
@@ -172,7 +198,29 @@ const bilibiliHtml = String.raw`<!doctype html>
       const quickControls = document.querySelector(".bpx-player-ctrl-dm-input");
       const quickInput = document.querySelector(".bpx-player-dm-input");
       const quickSend = document.querySelector(".bpx-player-dm-btn");
+      const emojiToggle = document.querySelector(".fixture-emoji-toggle");
+      const emojiPanel = document.querySelector(".fixture-emoji-panel");
+      const emojiItem = document.querySelector(".fixture-emoji-item");
+      const richChat = document.querySelector("#chat-history-list");
       const parameters = new URLSearchParams(location.search);
+      if (parameters.get("rich") === "1") {
+        document.querySelector(".fixture-video-emote-row").style.display = "block";
+      }
+      emojiToggle.addEventListener("click", () => {
+        emojiPanel.hidden = false;
+      });
+      emojiItem.addEventListener("click", () => {
+        const row = document.createElement("div");
+        row.className = "danmaku-item fixture-rich-echo";
+        const content = document.createElement("span");
+        content.className = "danmaku-content";
+        const image = emojiItem.querySelector("img").cloneNode(true);
+        content.appendChild(image);
+        row.appendChild(content);
+        richChat.appendChild(row);
+        document.body.dataset.bilibiliEmojiSent = image.getAttribute("data-emoticon") || "";
+        emojiPanel.hidden = true;
+      });
       if (parameters.get("hashed") === "1") {
         quickControls.className = "x7Qk2m";
         quickInput.className = "p9Lm4n";
@@ -241,6 +289,10 @@ const bilibiliHtml = String.raw`<!doctype html>
 
       const timer = setInterval(() => {
         if (!document.querySelector(".bcp-one-button")) {
+          return;
+        }
+        if (parameters.get("rich") === "1") {
+          clearInterval(timer);
           return;
         }
 
@@ -367,11 +419,23 @@ const douyinHtml = String.raw`<!doctype html>
         <div class="CanvasDanmakuPlugin"><canvas width="800" height="450"></canvas></div>
       </div>
     </section>
-    <div id="douyin-chat-scroller" style="height:20px;overflow:auto">
-      <div style="height:80px">聊天区自动滚动夹具</div>
+    <div id="douyin-chat-scroller" data-e2e="chat-message-list"
+      style="position:fixed;left:500px;top:250px;width:260px;height:180px;overflow:auto;z-index:2">
+      <div data-e2e="chat-message" style="height:36px">
+        <span data-e2e="message-content">右侧聊天栏不应出现 +1</span>
+      </div>
+      <div style="height:240px">聊天区自动滚动夹具</div>
     </div>
     <textarea placeholder="说点什么" aria-label="弹幕输入框"></textarea>
     <button class="sendButton" type="button">发送</button>
+    <button class="fixture-douyin-emoji-toggle" data-e2e="emoji-toggle"
+      aria-label="表情" type="button">表情</button>
+    <div class="emoji-panel fixture-douyin-emoji-panel" hidden>
+      <button class="emoji-item fixture-douyin-emoji-item" data-emoji="fixture-smile" type="button">
+        <img data-emoji="fixture-smile" alt="😀"
+          src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Ccircle cx='12' cy='12' r='10' fill='%23ffd84d'/%3E%3C/svg%3E">
+      </button>
+    </div>
     <script>
       const parameters = new URLSearchParams(location.search);
       const spaMode = parameters.get("spa") === "1";
@@ -379,10 +443,51 @@ const douyinHtml = String.raw`<!doctype html>
       const lateHookMode = parameters.get("latehook") === "1";
       const delayedMountMode = parameters.get("delayedmount") === "1";
       const unsupportedMode = parameters.get("unsupported") === "1";
+      const richMode = parameters.get("rich") === "1";
       const barrageDuration = lateHookMode ? 15_000 : 10_000;
       const canvasHost = document.querySelector(".CanvasDanmakuPlugin");
+      const chatScroller = document.querySelector("#douyin-chat-scroller");
+      const emojiToggle = document.querySelector(".fixture-douyin-emoji-toggle");
+      const emojiPanel = document.querySelector(".fixture-douyin-emoji-panel");
+      const emojiItem = document.querySelector(".fixture-douyin-emoji-item");
       let canvas = canvasHost.querySelector("canvas");
       let transferResult = "not-called";
+
+      const appendRichChatRow = (own, manualText) => {
+        const row = document.createElement("div");
+        row.dataset.e2e = "chat-message";
+        row.className = own ? "fixture-own-chat-row" : "fixture-rich-source-row";
+        const content = document.createElement("span");
+        content.dataset.e2e = "message-content";
+        if (manualText) {
+          content.appendChild(document.createTextNode(manualText));
+        } else {
+          content.appendChild(document.createTextNode("抖音"));
+          const image = emojiItem.querySelector("img").cloneNode(true);
+          content.appendChild(image);
+          content.appendChild(document.createTextNode("画面弹幕"));
+        }
+        row.appendChild(content);
+        chatScroller.insertBefore(row, chatScroller.lastElementChild);
+        return row;
+      };
+      if (richMode) {
+        appendRichChatRow(false, "");
+      }
+      emojiToggle.addEventListener("click", () => {
+        emojiPanel.hidden = false;
+      });
+      emojiItem.addEventListener("click", () => {
+        const editor = document.querySelector("textarea");
+        editor.value += "😀";
+        editor.dispatchEvent(new InputEvent("input", {
+          bubbles: true,
+          composed: true,
+          data: "😀",
+          inputType: "insertText"
+        }));
+        emojiPanel.hidden = true;
+      });
 
       if (spaMode) {
         history.pushState({}, "", "/123456?platform=douyin&spa=1" + (edgeMode ? "&edge=1" : ""));
@@ -452,6 +557,17 @@ const douyinHtml = String.raw`<!doctype html>
           post("addBarrage", barrage(prefix + "-other", "其他弹幕继续移动", false));
         }, 120);
       };
+      const postImageOnly = (id) => post("addBarrage", {
+        id,
+        startTime: Date.now(),
+        reserveDuration: 5_000,
+        content: [{
+          type: "image",
+          src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Crect width='20' height='20' fill='%23fff'/%3E%3C/svg%3E",
+          width: 20,
+          height: 20
+        }]
+      });
 
       post("createInstance", {
         config: {
@@ -467,16 +583,32 @@ const douyinHtml = String.raw`<!doctype html>
         barrages: []
       }, true);
       if (unsupportedMode) {
-        post("addBarrage", {
-          id: "fixture-unsupported-image-only",
+        // Reproduce the real-room failure both in the initial batch and after
+        // takeover. These decorative/image-only messages are skipped one by
+        // one and must never block the complete renderer instance.
+        postImageOnly("fixture-image-only-initial");
+        setTimeout(() => postImageOnly("fixture-image-only-later"), 1_600);
+        setTimeout(() => post("addBarrage", {
+          id: "fixture-empty-later",
           startTime: Date.now(),
           reserveDuration: 5_000,
-          content: [{
-            type: "image",
-            src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Crect width='20' height='20' fill='%23fff'/%3E%3C/svg%3E",
-            width: 20,
-            height: 20
-          }]
+          content: []
+        }), 1_750);
+        let passiveSequence = 0;
+        setInterval(() => {
+          passiveSequence += 1;
+          postImageOnly("fixture-image-only-sustain-" + passiveSequence);
+          if (passiveSequence % 3 === 0) {
+            post("addBarrage", {
+              id: "fixture-empty-sustain-" + passiveSequence,
+              startTime: Date.now(),
+              reserveDuration: 5_000,
+              content: []
+            });
+          }
+        }, 800);
+        [8_000, 16_000, 24_000].forEach((delay, index) => {
+          setTimeout(() => postPair("fixture-sustain-" + index), delay);
         });
       }
       postPair("fixture-initial");
@@ -515,9 +647,21 @@ const douyinHtml = String.raw`<!doctype html>
       const input = document.querySelector("textarea");
       const send = document.querySelector(".sendButton");
       send.addEventListener("click", (event) => {
-        document.body.dataset.douyinSent = input.value;
+        const sentMessage = input.value;
+        const plainMessage = sentMessage.replace(/😀/g, "");
+        const manual = richMode && sentMessage === "我自己发送的侧边消息";
+        document.body.dataset.douyinSent = plainMessage;
+        document.body.dataset.douyinSentRich = sentMessage;
         document.body.dataset.douyinNativeSendTrusted = String(event.isTrusted);
         input.value = "";
+        if (richMode) {
+          const ownRow = appendRichChatRow(true, manual ? sentMessage : "");
+          ownRow.dataset.fixtureSentKind = manual ? "manual" : "emoji";
+        }
+        setTimeout(() => post(
+          "addBarrage",
+          barrage("fixture-own-echo-" + Date.now(), plainMessage, richMode && !manual)
+        ), 80);
       });
 
       window.__douyinDomFixture = {
@@ -527,7 +671,8 @@ const douyinHtml = String.raw`<!doctype html>
         post,
         postPair,
         delayedMountMode,
-        unsupportedMode
+        unsupportedMode,
+        richMode
       };
 
       setInterval(() => {

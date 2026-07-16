@@ -8,14 +8,21 @@
 
   const CONTENT_SOURCE = "danmaku-echo-douyin-content";
   const PAGE_SOURCE = "danmaku-echo-douyin-page";
-  const DEBUG_VERSION = "douyin-dom-renderer-v4";
+  const DEBUG_VERSION = "douyin-dom-renderer-v8-track-hover";
   const DOM_ACTION_WIDTH = 50;
+  const DOM_ACTION_GAP = 8;
+  const DOM_ACTION_TRAILING_SPACE = 12;
+  const DOM_BARRAGE_PADDING_X = 8;
+  const DOM_BARRAGE_PADDING_Y = 4;
   const DOM_NODE_LIMIT = 160;
   const RENDERER_HEARTBEAT_TIMEOUT = 15_000;
   const RENDERER_RESULT_TIMEOUT = 8_000;
   const FROZEN_TRACK_TIMEOUT = 20_000;
+  const HOVER_LEAVE_GRACE = 220;
   const CANVAS_MOUNT_GRACE = 8_000;
   const CANVAS_MOUNT_RETRY = 100;
+  const OWN_MESSAGE_TTL = 12_000;
+  const OWN_MESSAGE_LIMIT = 24;
   const instances = new Map();
   const offscreenSources = new WeakMap();
   const canvasIds = new WeakMap();
@@ -27,8 +34,20 @@
   let nextActivationRequestId = 1;
   let rendererEnabled = false;
   let rendererHeartbeatAt = 0;
+  function rendererRouteKey(value) {
+    try {
+      const url = new URL(value, location.href);
+      const pathname = url.pathname.replace(/\/+$/, "") || "/";
+      return `${url.origin}${pathname}`;
+    } catch (_error) {
+      return String(value || "").split(/[?#]/, 1)[0];
+    }
+  }
+
   let rendererLocationHref = location.href;
+  let rendererLocationRouteKey = rendererRouteKey(location.href);
   const activationRequests = new Map();
+  const ownMessages = [];
 
   const debugState = {
     version: DEBUG_VERSION,
@@ -48,6 +67,9 @@
       rendererNodesCreated: 0,
       rendererActivations: 0,
       rendererResults: 0,
+      ownMessagesQueued: 0,
+      ownBarragesMatched: 0,
+      skippedBarrages: 0,
       probes: 0,
       probeHits: 0,
       probeMisses: 0
@@ -430,6 +452,69 @@
     return content.map((item) => serializeContent(item, 0, budget)).filter(Boolean);
   }
 
+  function pruneOwnMessages(now) {
+    const cutoff = now - OWN_MESSAGE_TTL;
+    while (ownMessages.length && ownMessages[0].at < cutoff) {
+      ownMessages.shift();
+    }
+  }
+
+  function rememberOwnMessage(data) {
+    const text = normalizeText(data && data.text);
+    if (!plausibleText(text)) {
+      return;
+    }
+    const now = Date.now();
+    pruneOwnMessages(now);
+    ownMessages.push({
+      id: String(data.intentId || "").slice(0, 80),
+      text,
+      at: now,
+      source: String(data.sourceType || "unknown").slice(0, 40)
+    });
+    if (ownMessages.length > OWN_MESSAGE_LIMIT) {
+      ownMessages.splice(0, ownMessages.length - OWN_MESSAGE_LIMIT);
+    }
+    debugState.counters.ownMessagesQueued += 1;
+    debugEvent("own-message-queued", {
+      text,
+      source: String(data.sourceType || "unknown").slice(0, 40),
+      queueLength: ownMessages.length
+    });
+  }
+
+  function cancelOwnMessage(data) {
+    const id = String(data && data.intentId || "").slice(0, 80);
+    if (!id) {
+      return;
+    }
+    const index = ownMessages.findIndex((item) => item.id === id);
+    if (index >= 0) {
+      ownMessages.splice(index, 1);
+      debugEvent("own-message-cancelled", { intentId: id });
+    }
+  }
+
+  function consumeOwnMessage(text) {
+    const normalized = normalizeText(text);
+    if (!normalized) {
+      return false;
+    }
+    pruneOwnMessages(Date.now());
+    const index = ownMessages.findIndex((item) => item.text === normalized);
+    if (index < 0) {
+      return false;
+    }
+    const matched = ownMessages.splice(index, 1)[0];
+    debugState.counters.ownBarragesMatched += 1;
+    debugEvent("own-barrage-matched", {
+      text: normalized,
+      source: matched.source,
+      age: Date.now() - matched.at
+    });
+    return true;
+  }
+
   function elementMarker(element) {
     if (!(element instanceof Element)) {
       return "";
@@ -687,6 +772,12 @@
     if (Number.isFinite(Number(item.fontSize))) {
       element.style.fontSize = `${Math.max(8, Math.min(96, Number(item.fontSize)))}px`;
     }
+    if (item.type !== "image" && Number.isFinite(Number(item.width))) {
+      element.style.width = `${Math.max(0, Math.min(1000, Number(item.width)))}px`;
+    }
+    if (item.type !== "image" && Number.isFinite(Number(item.height))) {
+      element.style.height = `${Math.max(0, Math.min(500, Number(item.height)))}px`;
+    }
     if (item.fontWeight != null) {
       element.style.fontWeight = String(item.fontWeight).slice(0, 100);
     }
@@ -883,6 +974,9 @@
     if (state.hoverTimer) {
       clearTimeout(state.hoverTimer);
     }
+    if (state.releaseTimer) {
+      clearTimeout(state.releaseTimer);
+    }
     if (state.node && state.node.isConnected) {
       state.node.remove();
     }
@@ -927,19 +1021,6 @@
     }, "error");
   }
 
-  function blockInstanceRenderer(instance, reason) {
-    if (instance.rendererBlocked) {
-      return;
-    }
-    instance.rendererBlocked = true;
-    shutdownInstanceRenderer(instance, reason);
-    debugEvent("renderer-blocked", {
-      instanceId: instance.id,
-      reason,
-      generation: instance.rendererGeneration
-    }, "warn");
-  }
-
   function releaseRendererTrack(track) {
     const state = track.renderer;
     if (!state) {
@@ -948,6 +1029,10 @@
     if (state.hoverTimer) {
       clearTimeout(state.hoverTimer);
       state.hoverTimer = 0;
+    }
+    if (state.releaseTimer) {
+      clearTimeout(state.releaseTimer);
+      state.releaseTimer = 0;
     }
     if (state.hovered && Number.isFinite(state.visualLeft) && Number.isFinite(state.targetLeft)) {
       // Preserve the distance accumulated while the ghost trajectory kept
@@ -972,6 +1057,10 @@
     state.hovered = true;
     state.node.dataset.hovered = "true";
     delete state.node.dataset.resuming;
+    if (state.releaseTimer) {
+      clearTimeout(state.releaseTimer);
+      state.releaseTimer = 0;
+    }
     if (state.hoverTimer) {
       clearTimeout(state.hoverTimer);
     }
@@ -980,6 +1069,22 @@
         releaseRendererTrack(track);
       }
     }, FROZEN_TRACK_TIMEOUT);
+  }
+
+  function scheduleRendererTrackRelease(track) {
+    const state = track.renderer;
+    if (!state) {
+      return;
+    }
+    if (state.releaseTimer) {
+      clearTimeout(state.releaseTimer);
+    }
+    state.releaseTimer = setTimeout(() => {
+      state.releaseTimer = 0;
+      if (track.renderer === state) {
+        releaseRendererTrack(track);
+      }
+    }, HOVER_LEAVE_GRACE);
   }
 
   function settleRendererActivation(requestId, ok, reason) {
@@ -1050,7 +1155,8 @@
       trackId: track.id,
       instanceId: track.instance.id,
       messageId: String(track.options.id == null ? track.id : track.options.id),
-      text: track.description.text
+      text: track.description.text,
+      content: track.content
     }, "*");
   }
 
@@ -1060,9 +1166,17 @@
       throw new Error(`renderer node limit exceeded (${DOM_NODE_LIMIT})`);
     }
     const node = document.createElement("div");
-    node.className = "bcp-douyin-dom-barrage";
+    node.className = "bcp-douyin-dom-track";
     node.dataset.bcpDouyinOwned = "true";
     setRendererMetadata(node, track);
+
+    const barrage = document.createElement("div");
+    barrage.className = "bcp-douyin-dom-barrage";
+    barrage.dataset.bcpDouyinOwned = "true";
+    if (track.own) {
+      barrage.dataset.own = "true";
+    }
+    setRendererMetadata(barrage, track);
     node.style.position = "absolute";
     node.style.left = "0";
     node.style.top = "0";
@@ -1070,11 +1184,22 @@
     node.style.alignItems = "center";
     node.style.boxSizing = "border-box";
     node.style.whiteSpace = "nowrap";
-    node.style.pointerEvents = "none";
+    node.style.columnGap = `${DOM_ACTION_GAP}px`;
+    node.style.paddingRight = `${DOM_ACTION_TRAILING_SPACE}px`;
+    node.style.pointerEvents = "auto";
     node.style.userSelect = "none";
     node.style.webkitUserSelect = "none";
     node.style.willChange = "transform";
     node.style.contain = "layout style paint";
+
+    barrage.style.display = "flex";
+    barrage.style.alignItems = "center";
+    barrage.style.flex = "1 1 auto";
+    barrage.style.minWidth = "0";
+    barrage.style.height = "100%";
+    barrage.style.boxSizing = "border-box";
+    barrage.style.pointerEvents = "none";
+    barrage.style.padding = rendererBox(track.description.rendererPadding);
 
     const content = document.createElement("span");
     content.className = "bcp-douyin-dom-content";
@@ -1112,9 +1237,11 @@
     button.style.maxWidth = `${DOM_ACTION_WIDTH}px`;
     button.style.boxSizing = "border-box";
 
-    node.append(content, button);
+    barrage.appendChild(content);
+    node.append(barrage, button);
     const state = {
       node,
+      barrage,
       content,
       button,
       hovered: false,
@@ -1124,12 +1251,13 @@
       resumeOffset: 0,
       visualWidth: 0,
       visualHeight: 0,
-      hoverTimer: 0
+      hoverTimer: 0,
+      releaseTimer: 0
     };
     track.renderer = state;
     instance.rendererNodes.set(track.id, node);
     node.addEventListener("pointerenter", () => holdRendererTrack(track));
-    node.addEventListener("pointerleave", () => releaseRendererTrack(track));
+    node.addEventListener("pointerleave", () => scheduleRendererTrackRelease(track));
     node.addEventListener("click", (event) => event.stopPropagation());
     button.addEventListener("pointerdown", (event) => {
       event.preventDefault();
@@ -1155,7 +1283,10 @@
       state.visualLeft = targetLeft + numberOr(state.resumeOffset, 0);
     }
     if (!state.hovered) {
-      const width = Math.max(DOM_ACTION_WIDTH + 1, barrageRect.width);
+      const width = Math.max(
+        DOM_ACTION_WIDTH + DOM_ACTION_GAP + DOM_ACTION_TRAILING_SPACE + 1,
+        barrageRect.width
+      );
       const height = Math.max(24, barrageRect.height);
       if (Math.abs(width - state.visualWidth) > 0.1) {
         state.node.style.width = `${width}px`;
@@ -1453,18 +1584,36 @@
     // be hidden. Douyin usually provides image dimensions; missing dimensions
     // use the same deterministic square fallback in both measurement and DOM.
     const description = describeBarrage(options, instance.config, null);
-    if (!plausibleText(description.text)) {
-      debugEvent("barrage-ignored", { instanceId: instance.id, reason: "implausible-text" });
-      blockInstanceRenderer(instance, "unsupported-barrage-content");
+    const content = serializeBarrage(options);
+    const interactive = plausibleText(description.text);
+    if (!interactive) {
+      debugState.counters.skippedBarrages += 1;
+      debugEvent("barrage-skipped", {
+        instanceId: instance.id,
+        reason: "no-interactive-text",
+        barrageId: String(options.id == null ? "" : options.id),
+        imageCount: description.imageCount
+      });
       return false;
     }
+    const sourcePadding = boxEdges(options.padding);
+    description.rendererPadding = [
+      Math.max(DOM_BARRAGE_PADDING_Y, sourcePadding.top),
+      Math.max(DOM_BARRAGE_PADDING_X, sourcePadding.right),
+      Math.max(DOM_BARRAGE_PADDING_Y, sourcePadding.bottom),
+      Math.max(DOM_BARRAGE_PADDING_X, sourcePadding.left)
+    ];
+    description.width += description.rendererPadding[1] + description.rendererPadding[3]
+      - sourcePadding.right - sourcePadding.left;
+    description.height += description.rendererPadding[0] + description.rendererPadding[2]
+      - sourcePadding.top - sourcePadding.bottom;
     description.contentWidth = description.width;
-    description.width += DOM_ACTION_WIDTH;
+    description.width += DOM_ACTION_WIDTH + DOM_ACTION_GAP + DOM_ACTION_TRAILING_SPACE;
     description.height = Math.max(24, description.height);
     const maxCount = Math.max(1, numberOr(instance.config.maxCount, 200));
     if (instance.pending.length >= maxCount) {
-      debugEvent("barrage-ignored", { instanceId: instance.id, reason: "pending-limit" });
-      blockInstanceRenderer(instance, "pending-limit");
+      debugState.counters.skippedBarrages += 1;
+      debugEvent("barrage-skipped", { instanceId: instance.id, reason: "pending-limit" });
       return false;
     }
     const track = {
@@ -1472,7 +1621,8 @@
       instance,
       options,
       description,
-      content: serializeBarrage(options),
+      content,
+      own: consumeOwnMessage(description.text),
       deltaXWithoutDpr: 0,
       bookedChannel: null,
       observedAt,
@@ -1996,6 +2146,14 @@
       updateRendererSettings(event.data);
       return;
     }
+    if (event.data.type === "own-message-intent") {
+      rememberOwnMessage(event.data);
+      return;
+    }
+    if (event.data.type === "own-message-cancel") {
+      cancelOwnMessage(event.data);
+      return;
+    }
     if (event.data.type === "renderer-result") {
       const requestId = Number(event.data.requestId) || 0;
       const request = activationRequests.get(requestId);
@@ -2040,17 +2198,24 @@
       const previousHref = rendererLocationHref;
       rendererLocationHref = location.href;
       debugState.href = location.href;
-      for (const instance of instances.values()) {
-        shutdownInstanceRenderer(instance, "route-change");
-        instance.rendererSafeSync = false;
-        instance.rendererCleanClearObserved = false;
-        instance.rendererSafeAfter = now
-          + Math.max(1000, numberOr(instance.config.duration, 15_000)) + 1000;
+      const nextRouteKey = rendererRouteKey(location.href);
+      if (nextRouteKey !== rendererLocationRouteKey) {
+        const previousRouteKey = rendererLocationRouteKey;
+        rendererLocationRouteKey = nextRouteKey;
+        for (const instance of instances.values()) {
+          shutdownInstanceRenderer(instance, "route-change");
+          instance.rendererSafeSync = false;
+          instance.rendererCleanClearObserved = false;
+          instance.rendererSafeAfter = now
+            + Math.max(1000, numberOr(instance.config.duration, 15_000)) + 1000;
+        }
+        debugEvent("renderer-route-reset", {
+          previousHref,
+          href: location.href,
+          previousRouteKey,
+          routeKey: nextRouteKey
+        });
       }
-      debugEvent("renderer-route-reset", {
-        previousHref,
-        href: location.href
-      }, "warn");
     }
     for (const [id, instance] of instances) {
       if (!instance.canvas.isConnected) {

@@ -8,15 +8,20 @@
 
   const CONTENT_SOURCE = "danmaku-echo-douyin-content";
   const PAGE_SOURCE = "danmaku-echo-douyin-page";
+  const LIVE_ROUTE_PATTERN = /^https:\/\/(?:live\.douyin\.com\/|www\.douyin\.com\/follow\/live(?:\/|[?#]|$))/i;
   const startedAt = Date.now();
+  let currentHref = location.href;
+  let routeGeneration = 0;
   const debug = {
-    version: "douyin-bootstrap-v1",
+    version: "douyin-bootstrap-v2-spa-entry",
     startedAt: new Date(startedAt).toISOString(),
     href: location.href,
     attempts: [],
     pageReady: false,
     pageVersion: "",
     instanceCount: 0,
+    routeGeneration: 0,
+    routeChanges: [],
     lastError: ""
   };
   globalThis.__danmakuEchoDouyinBootstrapDebug = debug;
@@ -48,6 +53,9 @@
   }
 
   function requestInjection(attempt) {
+    if (!LIVE_ROUTE_PATTERN.test(location.href)) {
+      return;
+    }
     const entry = {
       attempt,
       at: Date.now(),
@@ -57,7 +65,7 @@
     debug.attempts.push(entry);
     try {
       chrome.runtime.sendMessage({
-        type: "danmaku-echo.ensure-douyin-page-hook",
+        type: "danmaku-echo.ensure-douyin-runtime",
         attempt,
         href: location.href
       }, (response) => {
@@ -107,12 +115,63 @@
   if (!document.documentElement) {
     document.addEventListener("readystatechange", syncMarker, { once: true });
   }
-  [0, 120, 600, 1800].forEach((delay, attempt) => {
-    setTimeout(() => {
-      if (!debug.pageReady || attempt === 0) {
-        requestInjection(attempt + 1);
+
+  function scheduleLiveRuntime(reason) {
+    if (!LIVE_ROUTE_PATTERN.test(location.href)) {
+      return;
+    }
+    routeGeneration += 1;
+    const generation = routeGeneration;
+    debug.href = location.href;
+    debug.routeGeneration = generation;
+    debug.pageReady = false;
+    debug.routeChanges.push({
+      at: Date.now(),
+      href: location.href,
+      reason
+    });
+    if (debug.routeChanges.length > 20) {
+      debug.routeChanges.splice(0, debug.routeChanges.length - 20);
+    }
+    [0, 80, 300, 900, 2200].forEach((delay, attempt) => {
+      setTimeout(() => {
+        if (generation !== routeGeneration || !LIVE_ROUTE_PATTERN.test(location.href)) {
+          return;
+        }
+        if (!debug.pageReady || attempt === 0) {
+          requestInjection(attempt + 1);
+        }
+      }, delay);
+    });
+    syncMarker();
+  }
+
+  function checkRoute(reason) {
+    if (currentHref === location.href) {
+      return;
+    }
+    currentHref = location.href;
+    debug.href = currentHref;
+    debug.pageReady = false;
+    debug.pageVersion = "";
+    debug.instanceCount = 0;
+    scheduleLiveRuntime(reason);
+    syncMarker();
+  }
+
+  if (LIVE_ROUTE_PATTERN.test(location.href)) {
+    scheduleLiveRuntime("initial-live-route");
+  }
+  window.addEventListener("popstate", () => checkRoute("popstate"), true);
+  window.addEventListener("hashchange", () => checkRoute("hashchange"), true);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      checkRoute("document-visible");
+      if (LIVE_ROUTE_PATTERN.test(location.href) && !debug.pageReady) {
+        scheduleLiveRuntime("document-visible-retry");
       }
-    }, delay);
+    }
   });
+  setInterval(() => checkRoute("url-poll"), 50);
   syncMarker();
 })();

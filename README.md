@@ -33,7 +33,7 @@ Danmaku Echo（弹幕回声）是一个适用于 Chrome 和 Edge 的 Manifest V3
 
 每条 DOM 弹幕拥有独立状态。鼠标进入时只冻结当前条目的可视位置；`+1` 发送成功或鼠标移出后，会从悬停位置按原速度继续移动，不再快速追赶后台轨迹，因此不会产生弹射感。`+1` 按钮固定预留在弹幕文字后方，悬停不会拉伸弹幕，也不会把操作误绑定到相邻条目。
 
-抖音页面钩子、设置通道和样式现在都从 `document_start` 启动，覆盖 `live.douyin.com/*` 与 `www.douyin.com/follow/live/*`。正常首载可直接接管；若钩子较晚才认领到现有 Canvas，则会等待官方 `clear` 后的新弹幕或安全过期窗口，避免隐藏尚未同步的原生内容。
+抖音主站会从普通页面通过 SPA 无刷新进入直播间，因此扩展在 `www.douyin.com/*` 仅常驻一个轻量 URL 启动器；路由进入 `/follow/live/*` 时才补注入页面钩子、设置通道和样式。直接打开 `live.douyin.com/*` 仍从 `document_start` 启动。若钩子较晚才认领到现有 Canvas，则会等待官方 `clear` 后的新弹幕或安全过期窗口，避免隐藏尚未同步的原生内容。
 
 只有当首批 DOM 节点已经连接时，扩展才使用 `visibility: hidden` 隐藏原生 Canvas；Worker 继续在后台运行。设置关闭、心跳超时、渲染异常、Canvas 移除、切房、停止或销毁实例时会立即恢复 Canvas。抖音右侧聊天区仍使用独立的 DOM 消息适配与官方发送流程。
 
@@ -49,6 +49,7 @@ Danmaku Echo（弹幕回声）是一个适用于 Chrome 和 Edge 的 Manifest V3
 - 支持抖音首次进入直播间、SPA 切房和 Worker/OffscreenCanvas 弹幕，无需二次刷新页面。
 - 自动适配原生全屏，并在发送后释放官方输入框焦点。
 - 提供 `Alt + 单击` 通用回退操作，应对直播站点类名调整。
+- 可分别为虎牙、哔哩哔哩和抖音设置 `+1` 按钮、选中高亮、提示浮层及状态颜色；留空时使用内置默认值。
 - 设置通过 `chrome.storage.sync` 保存，不读取账号凭据。
 
 ### 安装
@@ -115,9 +116,9 @@ tests/                     清单校验、单元测试和浏览器测试夹具
 
 ### 隐私与权限
 
-- 申请 `storage` 权限保存扩展设置；申请 `scripting` 权限仅用于在抖音直播入口首次加载时补注入页面钩子。
-- 抖音的主机权限仅覆盖 `live.douyin.com/*` 与 `www.douyin.com/follow/live/*`，用于上述受限补注入，不会覆盖抖音的其他普通页面或其他网站。
-- 仅在虎牙直播、哔哩哔哩直播和抖音直播页面注入内容脚本。
+- 申请 `storage` 权限保存扩展设置；申请 `scripting` 权限仅用于抖音首次进房和 SPA 进房时补注入直播运行时。
+- 抖音主机权限覆盖 `live.douyin.com/*` 与 `www.douyin.com/*`；普通抖音页面只运行不读取页面内容的轻量 URL 启动器，完整功能仅在直播路由启用，不覆盖其他网站。
+- 完整功能脚本仅在虎牙直播、哔哩哔哩直播和抖音直播页面启用。
 - 不读取 Cookie、密码或登录令牌，不调用私有直播接口。
 - 不收集、上传或出售用户数据。
 
@@ -163,7 +164,7 @@ This release introduces a dedicated safe DOM takeover for Douyin's on-video danm
 
 Every DOM barrage has independent interaction state. Hover freezes only that node's visible position. After a successful `+1` or pointer leave, it resumes from the held position at its original speed instead of rapidly catching up to the background trajectory, eliminating the slingshot effect. The fixed `+1` area now sits after the message text without stretching the barrage or rebinding to a neighbor.
 
-The Douyin page hook, settings channel, and styles now start at `document_start` on both `live.douyin.com/*` and `www.douyin.com/follow/live/*`. Normal first loads can take over immediately. If a late hook recovers an existing Canvas, takeover waits for an official `clear` plus new barrages or a safe expiry window so unsynchronized native content is never hidden.
+Douyin can enter a live room from an ordinary page through SPA navigation, so only a lightweight URL bootstrap stays on `www.douyin.com/*`; it injects the page hook, settings channel, and styles when the route enters `/follow/live/*`. Direct `live.douyin.com/*` loads still start at `document_start`. If a late hook recovers an existing Canvas, takeover waits for an official `clear` plus new barrages or a safe expiry window so unsynchronized native content is never hidden.
 
 The native Canvas is hidden with `visibility: hidden` only after the first DOM nodes are connected, while the Worker keeps running in the background. Disabling settings, a heartbeat timeout, renderer failure, Canvas removal, room navigation, stop, or destroy restores the Canvas immediately. Douyin's side chat keeps its separate DOM-message adapter and official send path.
 
@@ -179,6 +180,7 @@ The native Canvas is hidden with `visibility: hidden` only after the first DOM n
 - Supports first room entry, SPA room changes, and Worker/OffscreenCanvas danmaku on Douyin without a second refresh.
 - Supports native fullscreen and releases official editor focus after sending.
 - Includes an `Alt + click` fallback for future site markup changes.
+- Provides independent Huya, Bilibili, and Douyin colors for the `+1` action, selection highlight, overlays, and status feedback; blank values keep the built-in defaults.
 - Stores settings with `chrome.storage.sync` and never reads account credentials.
 
 ### Installation
@@ -245,9 +247,9 @@ tests/                     Manifest checks, unit tests, and browser fixtures
 
 ### Privacy and permissions
 
-- Requests `storage` for settings and `scripting` only to recover the page hook during the first load of a Douyin live entry point.
-- Its Douyin host permission is limited to `live.douyin.com/*` and `www.douyin.com/follow/live/*`; it does not cover ordinary Douyin pages or unrelated sites.
-- Injects content scripts only on Huya Live, Bilibili Live, and Douyin Live.
+- Requests `storage` for settings and `scripting` only to recover the Douyin live runtime on direct and SPA room entry.
+- Its Douyin host permission covers `live.douyin.com/*` and `www.douyin.com/*`. Ordinary Douyin pages run only a lightweight URL bootstrap that does not read page content; the complete runtime activates only on live routes and never on unrelated sites.
+- Activates complete feature scripts only on Huya Live, Bilibili Live, and Douyin Live pages.
 - Does not read cookies, passwords, or login tokens and does not call private live APIs.
 - Does not collect, upload, or sell user data.
 

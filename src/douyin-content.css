@@ -30,23 +30,22 @@
   display: none !important;
 }
 
-.bcp-douyin-dom-barrage {
+.bcp-douyin-dom-track {
   --bcp-douyin-action-space: 50px;
+  --bcp-douyin-action-gap: 8px;
+  --bcp-douyin-hover-trailing-space: 12px;
   align-items: center;
   backface-visibility: hidden;
-  background: transparent;
-  border: 0;
-  border-radius: 6px;
   box-sizing: border-box;
   contain: layout style paint;
-  cursor: default;
+  column-gap: var(--bcp-douyin-action-gap);
   display: inline-flex;
   left: 0;
   margin: 0;
   max-width: none;
   min-width: 0;
-  padding: 0;
-  pointer-events: none !important;
+  padding: 0 var(--bcp-douyin-hover-trailing-space) 0 0;
+  pointer-events: auto !important;
   position: absolute;
   top: 0;
   transform-origin: left top;
@@ -55,11 +54,32 @@
   will-change: transform;
 }
 
-.bcp-douyin-dom-barrage[data-hovered='true'],
-.bcp-douyin-dom-barrage:hover,
-.bcp-douyin-dom-barrage:focus-within {
-  background: rgb(12 12 14 / 76%);
+.bcp-douyin-dom-barrage {
+  align-items: center;
+  align-self: stretch;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  box-sizing: border-box;
+  cursor: default;
+  display: inline-flex;
+  flex: 1 1 auto;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+  pointer-events: none !important;
+  white-space: nowrap;
+}
+
+.bcp-douyin-dom-track[data-hovered='true'] > .bcp-douyin-dom-barrage,
+.bcp-douyin-dom-track:focus-within > .bcp-douyin-dom-barrage {
+  background: color-mix(in srgb,
+    var(--bcp-panel-background, #191b20) 76%, transparent);
   box-shadow: 0 2px 9px rgb(0 0 0 / 24%);
+}
+
+.bcp-douyin-dom-track[data-hovered='true'],
+.bcp-douyin-dom-track:focus-within {
   z-index: 2;
 }
 
@@ -77,6 +97,22 @@
   white-space: nowrap;
 }
 
+/* A layout-neutral frame makes the user's echoed barrage easy to spot. */
+.bcp-douyin-dom-barrage[data-own='true'] .bcp-douyin-dom-content {
+  background: color-mix(in srgb,
+    var(--bcp-selection, #ff7c39) 18%, transparent);
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb,
+    var(--bcp-selection, #ff7c39) 96%, transparent);
+}
+
+/* The side chat keeps native interactions, but sent messages get a layout-neutral frame. */
+[data-bcp-douyin-own-chat-content='true'] {
+  background: rgb(255 91 52 / 14%) !important;
+  border-radius: 5px !important;
+  box-shadow: 0 0 0 2px rgb(255 116 76 / 92%) !important;
+}
+
 /*
  * This column exists from the first rendered frame.  Hovering therefore never
  * changes the barrage's measured width or lane allocation.
@@ -84,12 +120,15 @@
 .bcp-douyin-dom-action {
   align-items: center;
   appearance: none;
-  background: rgb(255 91 52 / 96%);
-  border: 1px solid rgb(255 255 255 / 38%);
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--bcp-action-start, #ff8a34) 96%, transparent),
+    color-mix(in srgb, var(--bcp-action-end, #ff5f3d) 96%, transparent));
+  border: 1px solid color-mix(in srgb,
+    var(--bcp-action-text, #fff) 38%, transparent);
   border-radius: 999px;
   box-shadow: 0 2px 7px rgb(0 0 0 / 24%);
   box-sizing: border-box;
-  color: #fff;
+  color: var(--bcp-action-text, #fff);
   cursor: pointer;
   display: inline-flex;
   flex: 0 0 var(--bcp-douyin-action-space);
@@ -108,11 +147,10 @@
   width: var(--bcp-douyin-action-space);
 }
 
-.bcp-douyin-dom-barrage[data-hovered='true'] .bcp-douyin-dom-action,
-.bcp-douyin-dom-barrage:hover .bcp-douyin-dom-action,
-.bcp-douyin-dom-barrage:focus-within .bcp-douyin-dom-action,
-.bcp-douyin-dom-barrage[data-sending='true'] .bcp-douyin-dom-action,
-.bcp-douyin-dom-barrage[data-send-ok='true'] .bcp-douyin-dom-action {
+.bcp-douyin-dom-track[data-hovered='true'] > .bcp-douyin-dom-action,
+.bcp-douyin-dom-track:focus-within > .bcp-douyin-dom-action,
+.bcp-douyin-dom-track[data-sending='true'] > .bcp-douyin-dom-action,
+.bcp-douyin-dom-track[data-send-ok='true'] > .bcp-douyin-dom-action {
   opacity: 1;
   pointer-events: auto;
   visibility: visible;
@@ -120,34 +158,41 @@
 
 .bcp-douyin-dom-action:hover,
 .bcp-douyin-dom-action:focus-visible {
-  background: rgb(255 115 68 / 100%);
-  border-color: rgb(255 255 255 / 72%);
+  filter: brightness(1.08);
+  border-color: color-mix(in srgb,
+    var(--bcp-action-text, #fff) 72%, transparent);
 }
 
 .bcp-douyin-dom-action:focus-visible {
-  outline: 3px solid rgb(255 175 100 / 62%);
+  outline: 3px solid color-mix(in srgb,
+    var(--bcp-focus-ring, #ffb35e) 62%, transparent);
   outline-offset: 2px;
 }
 
-.bcp-douyin-dom-barrage[data-sending='true'] .bcp-douyin-dom-action {
-  color: rgb(255 255 255 / 72%);
+.bcp-douyin-dom-track[data-sending='true'] > .bcp-douyin-dom-action {
+  color: color-mix(in srgb,
+    var(--bcp-action-text, #fff) 72%, transparent);
   cursor: wait;
 }
 
-.bcp-douyin-dom-barrage[data-send-ok='true'] .bcp-douyin-dom-action {
-  background: rgb(35 181 104 / 96%);
-  border-color: rgb(205 255 228 / 72%);
+.bcp-douyin-dom-track[data-send-ok='true'] > .bcp-douyin-dom-action {
+  background: color-mix(in srgb,
+    var(--bcp-success, #4fd38e) 96%, transparent);
+  border-color: color-mix(in srgb,
+    var(--bcp-success, #4fd38e) 72%, #fff);
   cursor: default;
 }
 
 .bcp-douyin-card {
   align-items: center;
-  background: rgb(24 24 28 / 96%);
-  border: 1px solid rgb(255 126 66 / 72%);
+  background: color-mix(in srgb,
+    var(--bcp-panel-background, #191b20) 96%, transparent);
+  border: 1px solid color-mix(in srgb,
+    var(--bcp-selection, #ff7c39) 72%, transparent);
   border-radius: 11px;
   box-shadow: 0 8px 24px rgb(0 0 0 / 34%);
   box-sizing: border-box;
-  color: #fff;
+  color: var(--bcp-panel-text, #fff);
   display: flex;
   font: 500 13px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   gap: 8px;
@@ -225,11 +270,14 @@
 .bcp-douyin-button {
   align-items: center;
   appearance: none;
-  background: linear-gradient(135deg, #ff8a34, #ff5f3d);
-  border: 1px solid rgb(255 255 255 / 28%);
+  background: linear-gradient(135deg,
+    var(--bcp-action-start, #ff8a34),
+    var(--bcp-action-end, #ff5f3d));
+  border: 1px solid color-mix(in srgb,
+    var(--bcp-action-text, #fff) 28%, transparent);
   border-radius: 999px;
   box-sizing: border-box;
-  color: #fff;
+  color: var(--bcp-action-text, #fff);
   cursor: pointer;
   display: inline-flex;
   flex: 0 0 auto;
@@ -250,7 +298,8 @@
 }
 
 .bcp-douyin-button:focus-visible {
-  outline: 3px solid rgb(255 179 94 / 55%);
+  outline: 3px solid color-mix(in srgb,
+    var(--bcp-focus-ring, #ffb35e) 55%, transparent);
   outline-offset: 2px;
 }
 
@@ -261,12 +310,14 @@
 }
 
 .bcp-douyin-toast {
-  background: rgb(25 27 32 / 96%);
-  border: 1px solid rgb(255 255 255 / 12%);
+  background: color-mix(in srgb,
+    var(--bcp-panel-background, #191b20) 96%, transparent);
+  border: 1px solid color-mix(in srgb,
+    var(--bcp-panel-text, #fff) 12%, transparent);
   border-radius: 10px;
   box-shadow: 0 10px 30px rgb(0 0 0 / 30%);
   box-sizing: border-box;
-  color: #fff;
+  color: var(--bcp-panel-text, #fff);
   font: 500 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   left: 50%;
   max-width: min(420px, calc(100vw - 32px));
@@ -286,15 +337,18 @@
 }
 
 .bcp-douyin-toast--success {
-  border-color: rgb(79 211 142 / 48%);
+  border-color: color-mix(in srgb,
+    var(--bcp-success, #4fd38e) 48%, transparent);
 }
 
 .bcp-douyin-toast--warning {
-  border-color: rgb(255 191 82 / 52%);
+  border-color: color-mix(in srgb,
+    var(--bcp-warning, #ffbf52) 52%, transparent);
 }
 
 .bcp-douyin-toast--error {
-  border-color: rgb(255 92 92 / 55%);
+  border-color: color-mix(in srgb,
+    var(--bcp-error, #ff5c5c) 55%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {

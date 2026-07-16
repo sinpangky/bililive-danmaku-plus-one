@@ -8,7 +8,7 @@ const edgePath = process.argv[2];
 const targetUrl = process.argv[3];
 const profilePath = process.argv[4];
 const port = Number(process.argv[5] || 9333);
-const extensionPath = process.argv[6] || "";
+const extensionPath = process.argv[6] && process.argv[6] !== "none" ? process.argv[6] : "";
 const waitMilliseconds = Number(process.argv[7] || 15_000);
 const shouldProbeDouyin = process.argv[8] === "--probe-douyin";
 const hostResolverRules = process.argv[9] && process.argv[9] !== "none" ? process.argv[9] : "";
@@ -477,6 +477,7 @@ async function inspect() {
   }
 
   let douyinDomRegression = null;
+  let douyinRichRegression = null;
   if (normalizedInjectPlatform === "douyin" || hasDouyinFixture) {
     const readTakeoverState = () => evaluateValue(String.raw`(() => {
       const canvas = document.querySelector(".CanvasDanmakuPlugin canvas, #DanmakuLayout canvas");
@@ -495,19 +496,38 @@ async function inspect() {
       };
       const nodes = Array.from(document.querySelectorAll(".bcp-douyin-dom-barrage"))
         .map((node) => {
-          const action = node.querySelector(".bcp-douyin-dom-action");
+          const track = node.closest(".bcp-douyin-dom-track");
+          const action = track && track.querySelector(":scope > .bcp-douyin-dom-action");
           const content = node.querySelector(".bcp-douyin-dom-content");
+          const contentStyle = content ? getComputedStyle(content) : null;
           return {
             message: node.dataset.message || (action && action.dataset.message)
               || String(node.textContent || "").replace(/\+1\s*$/, "").trim(),
             trackId: node.dataset.trackId || (action && action.dataset.trackId) || "",
             instanceId: node.dataset.instanceId || (action && action.dataset.instanceId) || "",
-            hovered: node.dataset.hovered || "",
-            sending: node.dataset.sending || "",
+            own: node.dataset.own || "",
+            ownFrame: Boolean(contentStyle && contentStyle.boxShadow !== "none"),
+            hovered: track && track.dataset.hovered || "",
+            sending: track && track.dataset.sending || "",
+            trackRect: rectValue(track),
+            trackPointerEvents: track ? getComputedStyle(track).pointerEvents : "missing",
             rect: rectValue(node),
             contentRect: rectValue(content),
             actionRect: rectValue(action),
-            actionAfterContent: Boolean(content && action && content.nextElementSibling === action),
+            actionGap: action
+              ? action.getBoundingClientRect().left - node.getBoundingClientRect().right
+              : null,
+            trailingHoverSpace: action && track
+              ? track.getBoundingClientRect().right - action.getBoundingClientRect().right
+              : null,
+            actionAfterContent: Boolean(action && node.nextElementSibling === action
+              && node.parentElement === action.parentElement && !node.contains(action)),
+            contentInset: content ? {
+              left: content.getBoundingClientRect().left - node.getBoundingClientRect().left,
+              top: content.getBoundingClientRect().top - node.getBoundingClientRect().top,
+              right: node.getBoundingClientRect().right - content.getBoundingClientRect().right,
+              bottom: node.getBoundingClientRect().bottom - content.getBoundingClientRect().bottom
+            } : null,
             actionVisibility: action ? getComputedStyle(action).visibility : "missing",
             actionPointerEvents: action ? getComputedStyle(action).pointerEvents : "missing"
           };
@@ -522,12 +542,19 @@ async function inspect() {
         pageDebug = null;
       }
       const fixtureState = window.__douyinDomFixture || null;
+      const chatRow = document.querySelector("[data-e2e='chat-message']");
+      const chatCard = document.querySelector(
+        "[data-bcp-douyin-interaction-card='true']:not([hidden])"
+      );
       return {
         fixture: Boolean(fixtureState),
         delayedMountMode: Boolean(fixtureState && fixtureState.delayedMountMode),
         unsupportedMode: Boolean(fixtureState && fixtureState.unsupportedMode),
+        richMode: Boolean(fixtureState && fixtureState.richMode),
         rendererBlocked: Boolean(pageDebug && Array.isArray(pageDebug.instances)
           && pageDebug.instances.some((item) => item.renderer && item.renderer.blocked)),
+        skippedBarrageCount: Number(pageDebug && pageDebug.counters
+          && pageDebug.counters.skippedBarrages) || 0,
         viewport: {
           width: document.documentElement.clientWidth || innerWidth,
           height: document.documentElement.clientHeight || innerHeight
@@ -537,10 +564,20 @@ async function inspect() {
         canvasDisplay: canvasStyle ? canvasStyle.display : "missing",
         layerPresent: Boolean(layer),
         layerHidden: Boolean(layer && (layer.hidden || getComputedStyle(layer).display === "none")),
+        chatRowRect: rectValue(chatRow),
+        chatCardVisible: Boolean(chatCard),
         nodes,
         target: nodes.find((item) => item.message.includes("抖音画面弹幕")) || null,
         other: nodes.find((item) => item.message.includes("其他弹幕继续移动")) || null,
         sent: document.body.dataset.douyinSent || "",
+        sentRich: document.body.dataset.douyinSentRich || "",
+        ownChatRows: Array.from(document.querySelectorAll(
+          "[data-bcp-douyin-own-chat='true']"
+        )).map((row) => ({
+          kind: row.dataset.fixtureSentKind || "",
+          text: String(row.textContent || "").trim(),
+          framed: Boolean(row.querySelector("[data-bcp-douyin-own-chat-content='true']"))
+        })),
         workerStopWasNotSent: document.body.dataset.douyinWorkerStopWasNotSent || "",
         lateCanvasVisibleBeforeClean:
           document.body.dataset.douyinLateCanvasVisibleBeforeClean || "",
@@ -550,18 +587,20 @@ async function inspect() {
       };
     })()`);
 
-    let initial = null;
+    let initial = await readTakeoverState();
+    if (initial && initial.fixture && initial.unsupportedMode) {
+      // Stay beyond the real-room failure window while decorative and empty
+      // official barrages continue arriving.
+      await delay(20_000);
+    }
     for (let attempt = 0; attempt < 100; attempt += 1) {
       initial = await readTakeoverState();
-      if (initial && initial.fixture && initial.unsupportedMode
-          && initial.rendererBlocked && initial.canvasVisibility !== "hidden") {
-        break;
-      }
       const actionInsideCanvas = initial && initial.target && initial.target.actionRect
+        && initial.target.trackRect
         && initial.canvasRect
-        && initial.target.actionRect.right <= initial.canvasRect.right - 2
+        && initial.target.trackRect.right <= initial.canvasRect.right - 2
         && initial.target.actionRect.left >= initial.canvasRect.left + 2
-        && initial.target.actionRect.right <= initial.viewport.width - 2;
+        && initial.target.trackRect.right <= initial.viewport.width - 2;
       if (initial && initial.fixture && initial.canvasVisibility === "hidden"
           && !initial.layerHidden && initial.target && initial.other && actionInsideCanvas) {
         break;
@@ -569,22 +608,22 @@ async function inspect() {
       await delay(50);
     }
 
-    if (initial && initial.fixture && initial.unsupportedMode) {
-      douyinDomRegression = {
-        ready: initial.rendererBlocked && initial.canvasVisibility !== "hidden",
-        unsupportedFallback: initial.rendererBlocked
-          && initial.canvasVisibility !== "hidden"
-          && initial.canvasDisplay !== "none",
-        workerStopWasNotSent: initial.workerStopWasNotSent === "true",
-        initial
-      };
-    } else if (!initial || !initial.target || !initial.other) {
+    if (!initial || !initial.target || !initial.other) {
       douyinDomRegression = {
         ready: false,
         reason: "dom-barrages-not-ready",
         initial
       };
     } else {
+      if (initial.chatRowRect) {
+        await dispatchMouse(
+          "mouseMoved",
+          initial.chatRowRect.left + initial.chatRowRect.width / 2,
+          initial.chatRowRect.top + initial.chatRowRect.height / 2
+        );
+        await delay(120);
+      }
+      const afterChatHover = await readTakeoverState();
       await dispatchMouse("mouseMoved", 1, 449);
       await dispatchMouse(
         "mouseMoved",
@@ -612,7 +651,29 @@ async function inspect() {
 
       const action = hoverEnd.target && hoverEnd.target.actionRect;
       const clickedMessage = hoverEnd.target ? hoverEnd.target.message : "";
+      let gapHover = null;
+      let trailingHover = null;
       if (action) {
+        const barrage = hoverEnd.target.rect;
+        if (barrage && action.left > barrage.right) {
+          await dispatchMouse(
+            "mouseMoved",
+            barrage.right + (action.left - barrage.right) / 2,
+            action.top + action.height / 2
+          );
+          await delay(280);
+          gapHover = await readTakeoverState();
+        }
+        const trackRect = hoverEnd.target.trackRect;
+        if (trackRect && trackRect.right > action.right) {
+          await dispatchMouse(
+            "mouseMoved",
+            action.right + Math.min(6, (trackRect.right - action.right) / 2),
+            action.top + action.height / 2
+          );
+          await delay(280);
+          trailingHover = await readTakeoverState();
+        }
         const visibleLeft = Math.max(0, action.left);
         const visibleRight = Math.min(hoverEnd.viewport.width - 1, action.right);
         const visibleTop = Math.max(0, action.top);
@@ -642,18 +703,78 @@ async function inspect() {
         resumeSamples.push(await readTakeoverState());
       }
       const afterClick = resumeSamples[resumeSamples.length - 1];
+      const ownEcho = afterClick.nodes.find((item) => item.message === clickedMessage
+        && item.own === "true");
 
-      await evaluateValue(String.raw`(() => {
-        window.postMessage({
-          source: "danmaku-echo-douyin-content",
-          type: "renderer-settings",
-          enabled: false,
-          reason: "fixture-disable-regression"
-        }, "*");
+      const disableRenderer = () => evaluateValue(String.raw`(() => {
+        window.dispatchEvent(new MessageEvent("message", {
+          source: window,
+          data: {
+            source: "danmaku-echo-douyin-content",
+            type: "renderer-settings",
+            enabled: false,
+            reason: "fixture-disable-regression"
+          }
+        }));
         return true;
       })()`);
-      await delay(250);
+      await disableRenderer();
+      await delay(60);
       const afterDisable = await readTakeoverState();
+
+      if (initial.richMode) {
+        const manualButtonRect = await evaluateValue(`(() => {
+          const input = document.querySelector("textarea[placeholder='说点什么']");
+          const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
+          setter.call(input, "我自己发送的侧边消息");
+          input.dispatchEvent(new InputEvent("input", {
+            bubbles: true,
+            composed: true,
+            data: "我自己发送的侧边消息",
+            inputType: "insertText"
+          }));
+          const button = document.querySelector(".sendButton");
+          Object.assign(button.style, {
+            position: "fixed",
+            left: "220px",
+            top: "420px",
+            zIndex: "10"
+          });
+          const rect = button.getBoundingClientRect();
+          return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+        })()`);
+        const manualX = manualButtonRect.left + manualButtonRect.width / 2;
+        const manualY = manualButtonRect.top + manualButtonRect.height / 2;
+        await dispatchMouse("mouseMoved", manualX, manualY);
+        await dispatchMouse("mousePressed", manualX, manualY);
+        await dispatchMouse("mouseReleased", manualX, manualY);
+        let manualState = null;
+        for (let attempt = 0; attempt < 30; attempt += 1) {
+          await delay(60);
+          manualState = await readTakeoverState();
+          if (manualState.ownChatRows.some((row) => row.kind === "manual" && row.framed)) {
+            break;
+          }
+        }
+        douyinRichRegression = {
+          emojiIncludedInPlusOne: afterClick.sentRich === "抖音😀画面弹幕",
+          emojiOwnChatFramed: afterClick.ownChatRows.some(
+            (row) => row.kind === "emoji" && row.framed
+          ),
+          manualOwnChatFramed: Boolean(manualState && manualState.ownChatRows.some(
+            (row) => row.kind === "manual" && row.framed
+          )),
+          sideChatPlusOneAbsent: afterClick.chatCardVisible === false,
+          manualSentRich: manualState && manualState.sentRich || "",
+          manualRows: manualState && manualState.ownChatRows || []
+        };
+        douyinRichRegression.assertionFailures = [
+          "emojiIncludedInPlusOne",
+          "emojiOwnChatFramed",
+          "manualOwnChatFramed",
+          "sideChatPlusOneAbsent"
+        ].filter((key) => douyinRichRegression[key] !== true);
+      }
 
       const targetResumePositions = resumeSamples
         .map((sample) => sample.target && sample.target.rect && sample.target.rect.left)
@@ -663,6 +784,8 @@ async function inspect() {
         .filter(Number.isFinite);
       const targetResumeSteps = targetResumePositions.slice(1)
         .map((left, index) => targetResumePositions[index] - left);
+      const otherResumeSteps = otherResumePositions.slice(1)
+        .map((left, index) => otherResumePositions[index] - left);
       const targetResumeTravel = targetResumePositions.length > 1
         ? targetResumePositions[0] - targetResumePositions[targetResumePositions.length - 1]
         : null;
@@ -673,6 +796,7 @@ async function inspect() {
         ? targetResumeTravel / otherResumeTravel
         : null;
       const resumeMaxStep = targetResumeSteps.length ? Math.max(...targetResumeSteps) : null;
+      const otherResumeMaxStep = otherResumeSteps.length ? Math.max(...otherResumeSteps) : null;
       const releaseTargetTravel = hoverEnd.target && releaseStart && releaseStart.target
         ? hoverEnd.target.rect.left - releaseStart.target.rect.left
         : null;
@@ -682,10 +806,10 @@ async function inspect() {
       const noReleaseSpring = releaseTargetTravel != null && releaseOtherTravel != null
         && releaseTargetTravel >= -0.5
         && releaseTargetTravel <= Math.max(3, releaseOtherTravel * 1.35 + 3);
-
       douyinDomRegression = {
         ready: initial.canvasVisibility === "hidden" && !initial.layerHidden,
         layerPresent: initial.layerPresent,
+        rightChatPlusOneAbsent: !afterChatHover.chatCardVisible,
         barrageCount: initial.nodes.length,
         canvasHiddenAfterReady: initial.canvasVisibility === "hidden",
         canvasDisplayPreserved: initial.canvasDisplay !== "none",
@@ -709,32 +833,69 @@ async function inspect() {
             && hoverEnd.target.actionAfterContent
             && hoverEnd.target.actionRect.left >= hoverEnd.target.contentRect.right - 1
         ),
+        trackOwnsHover: Boolean(
+          hoverEnd.target && hoverEnd.target.trackPointerEvents !== "none"
+        ),
+        actionGapReserved: Boolean(
+          hoverEnd.target && hoverEnd.target.actionGap >= 7.5
+        ),
+        trailingHoverReserved: Boolean(
+          hoverEnd.target && hoverEnd.target.trailingHoverSpace >= 11.5
+        ),
+        gapHoverKeptPaused: Boolean(
+          gapHover && gapHover.target && gapHover.target.hovered === "true"
+            && distance(hoverEnd.target.rect, gapHover.target.rect) <= 1.5
+        ),
+        trailingHoverKeptPaused: Boolean(
+          trailingHover && trailingHover.target && trailingHover.target.hovered === "true"
+            && distance(
+              (gapHover && gapHover.target || hoverEnd.target).rect,
+              trailingHover.target.rect
+            ) <= 1.5
+        ),
+        messagePaddingExpanded: Boolean(
+          hoverEnd.target && hoverEnd.target.contentInset
+            && hoverEnd.target.contentInset.left >= 7.5
+            && hoverEnd.target.contentInset.right >= 7.5
+            && hoverEnd.target.contentInset.top >= 3.5
+            && hoverEnd.target.contentInset.bottom >= 3.5
+        ),
         clickedMessage,
         sentMessage: afterClick.sent,
         clickSentMatchingMessage: Boolean(clickedMessage && afterClick.sent === clickedMessage),
+        ownMessageFramed: Boolean(ownEcho && ownEcho.ownFrame),
         targetResumeTravel,
         otherResumeTravel,
         resumeSpeedRatio,
         resumeMaxStep,
+        otherResumeMaxStep,
         releaseTargetTravel,
         releaseOtherTravel,
         noReleaseSpring,
         resumedFromHeldPositionAtNormalSpeed: Boolean(
           noReleaseSpring && targetResumeTravel != null && targetResumeTravel >= 8
             && targetResumeSteps.every((step) => step >= -0.5)
-            && resumeMaxStep != null && resumeMaxStep <= 16
+            && resumeMaxStep != null && otherResumeMaxStep != null
+            && resumeMaxStep <= otherResumeMaxStep * 1.35 + 3
             && resumeSpeedRatio != null && resumeSpeedRatio >= 0.75 && resumeSpeedRatio <= 1.25
         ),
         workerStopWasNotSent: afterClick.workerStopWasNotSent === "true",
         canvasRestoredAfterDisable: afterDisable.canvasVisibility !== "hidden"
           && afterDisable.canvasDisplay !== "none",
         layerInactiveAfterDisable: !afterDisable.layerPresent || afterDisable.layerHidden,
+        unsupportedStayedActive: !initial.unsupportedMode || Boolean(
+          !initial.rendererBlocked && initial.canvasVisibility === "hidden"
+            && initial.skippedBarrageCount >= 2
+        ),
         lateCanvasVisibleBeforeClean: initial.lateCanvasVisibleBeforeClean,
         lateLayerInactiveBeforeClean: initial.lateLayerInactiveBeforeClean,
         lateCleanBoundarySent: initial.lateCleanBoundarySent,
         beforeHover: initial,
+        afterChatHover,
         hoverStart,
         hoverEnd,
+        gapHover,
+        trailingHover,
         resumeSamples,
         afterClick,
         afterDisable
@@ -754,6 +915,195 @@ async function inspect() {
         return true;
       })()`);
     }
+  }
+
+  let sideChatRegression = null;
+  if (normalizedInjectPlatform === "huya" || normalizedInjectPlatform === "bilibili") {
+    sideChatRegression = await evaluateValue(`(async () => {
+      const platform = ${JSON.stringify(normalizedInjectPlatform)};
+      const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+      const nextPaint = () => new Promise((resolve) => requestAnimationFrame(resolve));
+      const root = document.createElement("section");
+      root.className = platform === "bilibili" ? "chat-history-list" : "room-chat-messages";
+      Object.assign(root.style, {
+        position: "fixed",
+        left: "20px",
+        top: "220px",
+        width: "300px",
+        height: "120px",
+        overflowY: "auto",
+        background: "#18181c",
+        zIndex: "1000"
+      });
+      let targetRow = null;
+      let targetContent = null;
+      let targetUser = null;
+      for (let index = 0; index < 24; index += 1) {
+        const row = document.createElement("div");
+        row.className = platform === "bilibili" ? "danmaku-item" : "J_msg";
+        row.style.height = "28px";
+        const user = document.createElement("span");
+        user.className = platform === "bilibili" ? "user-name" : "name";
+        user.textContent = "测试用户" + index + "：";
+        const content = document.createElement("span");
+        content.className = platform === "bilibili" ? "danmaku-content" : "msg";
+        content.textContent = index === 6 ? "侧边聊天暂停测试" : "填充聊天消息" + index;
+        row.append(user, content);
+        root.appendChild(row);
+        if (index === 6) {
+          targetRow = row;
+          targetContent = content;
+          targetUser = user;
+        }
+      }
+      const outside = document.createElement("div");
+      outside.style.position = "fixed";
+      outside.style.left = "360px";
+      outside.style.top = "220px";
+      outside.style.width = "20px";
+      outside.style.height = "20px";
+      document.body.append(root, outside);
+      root.scrollTop = 120;
+      let panel = null;
+      let report = null;
+      if (platform === "bilibili") {
+        targetUser.addEventListener("click", () => {
+          panel = document.createElement("div");
+          panel.className = "user-card-popover";
+          panel.setAttribute("role", "dialog");
+          report = document.createElement("button");
+          report.textContent = "@用户并举报";
+          panel.appendChild(report);
+          document.body.appendChild(panel);
+        }, { once: true });
+      }
+      const autoScroll = setInterval(() => {
+        root.scrollTop = Math.min(root.scrollTop + 5, root.scrollHeight - root.clientHeight);
+      }, 16);
+      await delay(70);
+      targetContent.dispatchEvent(new PointerEvent("pointerover", {
+        bubbles: true,
+        composed: true,
+        pointerType: "mouse"
+      }));
+      await delay(70);
+      await nextPaint();
+      const button = document.querySelector(".bcp-one-button");
+      const messagePlusOneAvailable = Boolean(button && !button.hidden
+        && String(button.getAttribute("aria-label") || "").includes("侧边聊天暂停测试"));
+      const pauseMarkerApplied = root.dataset.bcpOneScrollPaused === "true";
+      const pausedStart = root.scrollTop;
+      await delay(220);
+      await nextPaint();
+      const pausedEnd = root.scrollTop;
+      const scrollPaused = Math.abs(pausedEnd - pausedStart) <= 1;
+
+      let usernameActionRejected = true;
+      let userPanelRejected = true;
+      if (platform === "bilibili") {
+        targetUser.dispatchEvent(new PointerEvent("pointerover", {
+          bubbles: true,
+          composed: true,
+          pointerType: "mouse",
+          relatedTarget: targetContent
+        }));
+        await delay(40);
+        usernameActionRejected = Boolean(button && button.hidden);
+        targetUser.click();
+        report.dispatchEvent(new PointerEvent("pointerover", {
+          bubbles: true,
+          composed: true,
+          pointerType: "mouse",
+          relatedTarget: targetUser
+        }));
+        await delay(40);
+        userPanelRejected = Boolean(button && button.hidden);
+        targetContent.dispatchEvent(new PointerEvent("pointerover", {
+          bubbles: true,
+          composed: true,
+          pointerType: "mouse",
+          relatedTarget: report
+        }));
+        await delay(40);
+      }
+
+      const beforeRelease = root.scrollTop;
+      targetContent.dispatchEvent(new PointerEvent("pointerout", {
+        bubbles: true,
+        composed: true,
+        pointerType: "mouse",
+        relatedTarget: outside
+      }));
+      await delay(180);
+      const afterRelease = root.scrollTop;
+      const scrollResumed = afterRelease - beforeRelease >= 10;
+      const pauseMarkerReleased = root.dataset.bcpOneScrollPaused !== "true";
+      clearInterval(autoScroll);
+      if (panel) panel.remove();
+      root.remove();
+      outside.remove();
+      return {
+        platform,
+        messagePlusOneAvailable,
+        pauseMarkerApplied,
+        pausedStart,
+        pausedEnd,
+        scrollPaused,
+        usernameActionRejected,
+        userPanelRejected,
+        beforeRelease,
+        afterRelease,
+        scrollResumed,
+        pauseMarkerReleased
+      };
+    })()`);
+    sideChatRegression.assertionFailures = [
+      "messagePlusOneAvailable",
+      "pauseMarkerApplied",
+      "scrollPaused",
+      "usernameActionRejected",
+      "userPanelRejected",
+      "scrollResumed",
+      "pauseMarkerReleased"
+    ].filter((key) => sideChatRegression[key] !== true);
+  }
+
+  let bilibiliRichRegression = null;
+  if (normalizedInjectPlatform === "bilibili"
+      && new URL(targetUrl).searchParams.get("rich") === "1") {
+    bilibiliRichRegression = await evaluateValue(`(async () => {
+      const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+      const image = document.querySelector(".fixture-video-emote");
+      image.dispatchEvent(new PointerEvent("pointerover", {
+        bubbles: true,
+        composed: true,
+        pointerType: "mouse"
+      }));
+      await delay(80);
+      const plusOne = document.querySelector(".bcp-one-button:not([hidden])");
+      const selectedImageMessage = Boolean(plusOne
+        && String(plusOne.getAttribute("aria-label") || "").includes("主播挥手"));
+      if (plusOne) plusOne.click();
+      for (let attempt = 0; attempt < 30
+          && !document.body.dataset.bilibiliEmojiSent; attempt += 1) {
+        await delay(60);
+      }
+      const sentAsImage = document.body.dataset.bilibiliEmojiSent === "anchor-wave";
+      const echoImage = document.querySelector(".fixture-rich-echo img[data-emoticon='anchor-wave']");
+      return {
+        videoImageSelected: Boolean(image && image.closest(".bilibili-live-player-video-danmaku")),
+        selectedImageMessage,
+        sentAsImage,
+        echoImageRendered: Boolean(echoImage),
+        sentInputText: document.querySelector(".chat-input").value
+      };
+    })()`);
+    bilibiliRichRegression.assertionFailures = [
+      "videoImageSelected",
+      "selectedImageMessage",
+      "sentAsImage",
+      "echoImageRendered"
+    ].filter((key) => bilibiliRichRegression[key] !== true);
   }
 
   const expression = String.raw`(() => {
@@ -809,7 +1159,7 @@ async function inspect() {
       return item;
     });
     const captured = Array.from(document.querySelectorAll(
-      ".bcp-douyin-dom-layer,.bcp-douyin-dom-barrage,.bcp-douyin-dom-action"
+      ".bcp-douyin-dom-layer,.bcp-douyin-dom-track,.bcp-douyin-dom-barrage,.bcp-douyin-dom-action"
     ))
       .slice(0, 100).map(describe);
     const resources = performance.getEntriesByType("resource")
@@ -881,38 +1231,47 @@ async function inspect() {
   const value = result.result.value;
   value.douyinProbe = douyinProbe;
   value.douyinDomRegression = douyinDomRegression;
+  value.douyinRichRegression = douyinRichRegression;
+  value.sideChatRegression = sideChatRegression;
+  value.bilibiliRichRegression = bilibiliRichRegression;
   if (hasDouyinFixture && douyinDomRegression) {
     const failures = [];
-    if (douyinDomRegression.unsupportedFallback !== undefined) {
-      if (!douyinDomRegression.ready) failures.push("unsupported-ready");
-      if (!douyinDomRegression.unsupportedFallback) failures.push("unsupported-fallback");
-      if (!douyinDomRegression.workerStopWasNotSent) failures.push("worker-not-stopped");
-    } else {
+    [
+      "ready",
+      "targetPaused",
+      "otherContinued",
+      "sizeStable",
+      "actionVisible",
+      "actionBehindMessage",
+      "trackOwnsHover",
+      "actionGapReserved",
+      "trailingHoverReserved",
+      "gapHoverKeptPaused",
+      "trailingHoverKeptPaused",
+      "messagePaddingExpanded",
+      "clickSentMatchingMessage",
+      "ownMessageFramed",
+      "noReleaseSpring",
+      "resumedFromHeldPositionAtNormalSpeed",
+      "workerStopWasNotSent",
+      "canvasRestoredAfterDisable",
+      "layerInactiveAfterDisable",
+      "rightChatPlusOneAbsent"
+    ].forEach((key) => {
+      if (douyinDomRegression[key] !== true) failures.push(key);
+    });
+    if (lateDouyinHook) {
       [
-        "ready",
-        "targetPaused",
-        "otherContinued",
-        "sizeStable",
-        "actionVisible",
-        "actionBehindMessage",
-        "clickSentMatchingMessage",
-        "noReleaseSpring",
-        "resumedFromHeldPositionAtNormalSpeed",
-        "workerStopWasNotSent",
-        "canvasRestoredAfterDisable",
-        "layerInactiveAfterDisable"
+        "lateCanvasVisibleBeforeClean",
+        "lateLayerInactiveBeforeClean",
+        "lateCleanBoundarySent"
       ].forEach((key) => {
-        if (douyinDomRegression[key] !== true) failures.push(key);
+        if (douyinDomRegression[key] !== "true") failures.push(key);
       });
-      if (lateDouyinHook) {
-        [
-          "lateCanvasVisibleBeforeClean",
-          "lateLayerInactiveBeforeClean",
-          "lateCleanBoundarySent"
-        ].forEach((key) => {
-          if (douyinDomRegression[key] !== "true") failures.push(key);
-        });
-      }
+    }
+    if (douyinDomRegression.beforeHover && douyinDomRegression.beforeHover.unsupportedMode
+        && douyinDomRegression.unsupportedStayedActive !== true) {
+      failures.push("unsupported-stayed-active");
     }
     douyinDomRegression.assertionFailures = failures;
   }
@@ -925,6 +1284,21 @@ inspect()
     if (result.douyinDomRegression
         && result.douyinDomRegression.assertionFailures
         && result.douyinDomRegression.assertionFailures.length) {
+      process.exitCode = 1;
+    }
+    if (result.sideChatRegression
+        && result.sideChatRegression.assertionFailures
+        && result.sideChatRegression.assertionFailures.length) {
+      process.exitCode = 1;
+    }
+    if (result.bilibiliRichRegression
+        && result.bilibiliRichRegression.assertionFailures
+        && result.bilibiliRichRegression.assertionFailures.length) {
+      process.exitCode = 1;
+    }
+    if (result.douyinRichRegression
+        && result.douyinRichRegression.assertionFailures
+        && result.douyinRichRegression.assertionFailures.length) {
       process.exitCode = 1;
     }
   })

@@ -256,6 +256,56 @@
     ".bilibili-player-video-danmaku-input-wrap [contenteditable='true']",
     ".bilibili-player-video-danmaku-input-wrap [role='textbox']"
   ];
+  const BILIBILI_CHAT_ACTION_SURFACES = [
+    "[role='dialog']",
+    "[role='menu']",
+    "[role='listbox']",
+    "[class*='user-card']",
+    "[class*='userCard']",
+    "[class*='user-info']",
+    "[class*='userInfo']",
+    "[class*='user-panel']",
+    "[class*='userPanel']",
+    "[class*='profile-card']",
+    "[class*='profileCard']",
+    "[class*='danmaku-menu']",
+    "[class*='danmakuMenu']",
+    "[class*='action-panel']",
+    "[class*='actionPanel']",
+    "[class*='popover']",
+    "[class*='popper']",
+    "[class*='context-menu']",
+    "[class*='contextMenu']"
+  ];
+  const BILIBILI_CHAT_ACTION_TEXT = /(?:@|举报|禁言|关注|取关|拉黑|屏蔽|用户资料|个人主页)/i;
+  const BILIBILI_CHAT_STRONG_ACTION_TEXT = /(?:举报|禁言|关注|取关|拉黑|屏蔽|用户资料|个人主页)/i;
+  const BILIBILI_EMOJI_TOGGLE_SELECTORS = [
+    "[data-testid*='emoji' i]",
+    "[data-e2e*='emoji' i]",
+    "[aria-label*='表情']",
+    "[title*='表情']",
+    "[class*='emoji-btn' i]",
+    "[class*='emojiBtn']",
+    "[class*='emoticon-btn' i]",
+    "[class*='emotion-btn' i]",
+    "[class*='face-btn' i]",
+    "button[class*='emoji' i]",
+    "button[class*='emoticon' i]",
+    "button[class*='face' i]",
+    "[role='button'][class*='emoji' i]",
+    "[role='button'][class*='face' i]"
+  ];
+  const BILIBILI_EMOJI_SURFACE_SELECTORS = [
+    "[data-testid*='emoji' i]",
+    "[data-e2e*='emoji' i]",
+    "[class*='emoji-panel' i]",
+    "[class*='emojiPanel']",
+    "[class*='emoticon-panel' i]",
+    "[class*='emotion-panel' i]",
+    "[class*='face-panel' i]",
+    "[class*='emoji-list' i]",
+    "[class*='emoticon-list' i]"
+  ];
   const OVERLAY_HOVER_PADDING = 14;
   const OVERLAY_LEAVE_DELAY = 160;
   const state = {
@@ -263,6 +313,7 @@
     candidate: null,
     candidateKind: null,
     message: "",
+    richPayload: null,
     hideTimer: 0,
     lastActionAt: 0,
     roots: [document],
@@ -278,7 +329,9 @@
     pointerX: 0,
     pointerY: 0,
     hiddenBilibiliQuickBars: new Map(),
-    bilibiliDismissToken: 0
+    bilibiliDismissToken: 0,
+    chatScrollLock: null,
+    chatScrollFrame: 0
   };
 
   function storageGet() {
@@ -456,6 +509,45 @@
       && path.some((item) => item instanceof Element && isBilibiliQuickInputRegion(item));
   }
 
+  function pathTouchesBilibiliChatActions(path) {
+    if (platformId !== "bilibili") {
+      return false;
+    }
+
+    for (const item of path) {
+      if (!(item instanceof Element)) {
+        continue;
+      }
+      if (closestMatching(item, config.userNames)) {
+        return true;
+      }
+      const actionSurface = closestMatching(item, BILIBILI_CHAT_ACTION_SURFACES);
+      if (actionSurface) {
+        const role = actionSurface.getAttribute("role") || "";
+        const text = shared.normalizeWhitespace(
+          actionSurface.innerText || actionSurface.textContent
+        ).slice(0, 500);
+        if (/^(?:dialog|menu|listbox)$/i.test(role) || BILIBILI_CHAT_ACTION_TEXT.test(text)) {
+          return true;
+        }
+      }
+      const control = closestMatching(item, ["button", "a", "[role='button']", "[role='menuitem']"]);
+      if (control && BILIBILI_CHAT_ACTION_TEXT.test(
+        shared.normalizeWhitespace(control.innerText || control.textContent)
+      )) {
+        return true;
+      }
+      const itemText = shared.normalizeWhitespace(item.innerText || item.textContent).slice(0, 500);
+      if (BILIBILI_CHAT_STRONG_ACTION_TEXT.test(itemText)) {
+        const position = getComputedStyle(item).position;
+        if (position === "fixed" || position === "absolute") {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   function findChatRoot(path) {
     const inPath = closestFromPath(path, config.chatRoots);
     if (inPath) {
@@ -477,8 +569,121 @@
     return null;
   }
 
+  function canPauseChatScroll() {
+    return platformId === "huya" || platformId === "bilibili";
+  }
+
+  function chatScrollTargets(root) {
+    const targets = [];
+    const seen = new Set();
+    const add = (element, fallback) => {
+      if (!(element instanceof HTMLElement) || seen.has(element)
+          || element === document.body || element === document.documentElement) {
+        return;
+      }
+      const style = getComputedStyle(element);
+      const scrollable = element.scrollHeight > element.clientHeight + 1
+        && /(?:auto|scroll|overlay|hidden)/i.test(style.overflowY);
+      if (!scrollable && !fallback) {
+        return;
+      }
+      seen.add(element);
+      targets.push({
+        element,
+        top: element.scrollTop,
+        left: element.scrollLeft
+      });
+    };
+
+    add(root, true);
+    let ancestor = root.parentElement;
+    for (let depth = 0; ancestor && depth < 5; depth += 1, ancestor = ancestor.parentElement) {
+      add(ancestor, false);
+    }
+    let descendants = [];
+    try {
+      descendants = Array.from(root.querySelectorAll("*")).slice(0, 160);
+    } catch (_error) {
+      descendants = [];
+    }
+    descendants.forEach((element) => add(element, false));
+    return targets;
+  }
+
+  function maintainChatScrollLock() {
+    state.chatScrollFrame = 0;
+    const lock = state.chatScrollLock;
+    if (!lock || !isEnabled() || !lock.root.isConnected) {
+      releaseChatScrollLock();
+      return;
+    }
+    lock.targets.forEach((target) => {
+      if (!target.element.isConnected) {
+        return;
+      }
+      if (Math.abs(target.element.scrollTop - target.top) > 0.5) {
+        target.element.scrollTop = target.top;
+      }
+      if (Math.abs(target.element.scrollLeft - target.left) > 0.5) {
+        target.element.scrollLeft = target.left;
+      }
+    });
+    state.chatScrollFrame = requestAnimationFrame(maintainChatScrollLock);
+  }
+
+  function pauseChatScroll(root) {
+    if (!canPauseChatScroll() || !(root instanceof Element)) {
+      return;
+    }
+    if (state.chatScrollLock && state.chatScrollLock.root === root) {
+      return;
+    }
+    releaseChatScrollLock();
+    state.chatScrollLock = {
+      root,
+      targets: chatScrollTargets(root)
+    };
+    root.dataset.bcpOneScrollPaused = "true";
+    state.chatScrollFrame = requestAnimationFrame(maintainChatScrollLock);
+  }
+
+  function releaseChatScrollLock() {
+    if (state.chatScrollFrame) {
+      cancelAnimationFrame(state.chatScrollFrame);
+      state.chatScrollFrame = 0;
+    }
+    const lock = state.chatScrollLock;
+    state.chatScrollLock = null;
+    if (lock && lock.root.isConnected) {
+      delete lock.root.dataset.bcpOneScrollPaused;
+    }
+  }
+
+  function updateChatScrollLock(path) {
+    if (!canPauseChatScroll()) {
+      return;
+    }
+    const root = findChatRoot(path);
+    if (root) {
+      pauseChatScroll(root);
+    }
+  }
+
+  function releaseChatScrollLockAfterPointerOut(next) {
+    const lock = state.chatScrollLock;
+    if (!lock) {
+      return;
+    }
+    const element = next instanceof Element ? next : null;
+    if (element && (lock.root.contains(element)
+        || (state.button && state.button.contains(element)))) {
+      return;
+    }
+    releaseChatScrollLock();
+  }
+
   function findCandidate(path) {
-    if (pathTouchesBilibiliQuickInput(path)) {
+    if (pathTouchesBilibiliQuickInput(path) || pathTouchesBilibiliChatActions(path)) {
       return null;
     }
 
@@ -524,6 +729,26 @@
       && y <= rect.bottom + margin;
   }
 
+  function overlayMessageForValidation(element) {
+    const plainText = element.dataset.bcpDouyinCanvas === "true"
+      ? shared.parseMessageText(element.dataset.bcpDouyinCanvasText, config.maxLength)
+      : textFromCandidate(element);
+    if (shared.isPlausibleMessage(plainText, config.maxLength)) {
+      return plainText;
+    }
+    if (platformId !== "bilibili") {
+      return "";
+    }
+
+    // Bilibili renders image-only video emoticons without textContent. Reuse
+    // the rich payload parser here so known danmaku nodes are not rejected
+    // before selectCandidate() can preserve and resend their image asset.
+    const payload = richPayloadFromCandidate(element);
+    return payload.assets.length && shared.isPlausibleMessage(payload.text, config.maxLength)
+      ? payload.text
+      : "";
+  }
+
   function isOverlayMessageElement(element) {
     if (!(element instanceof Element) || isOwned(element) || !isVisible(element)) {
       return false;
@@ -561,10 +786,7 @@
       }
     }
 
-    const text = element.dataset.bcpDouyinCanvas === "true"
-      ? shared.parseMessageText(element.dataset.bcpDouyinCanvasText, config.maxLength)
-      : textFromCandidate(element);
-    return shared.isPlausibleMessage(text, config.maxLength);
+    return Boolean(overlayMessageForValidation(element));
   }
 
   function isGenericOverlayElement(element) {
@@ -584,7 +806,7 @@
     }
 
     const rect = element.getBoundingClientRect();
-    const text = shared.parseMessageText(element.innerText || element.textContent, config.maxLength);
+    const text = overlayMessageForValidation(element);
     const style = getComputedStyle(element);
     const className = typeof element.className === "string" ? element.className : "";
     const marker = [
@@ -608,7 +830,7 @@
       && rect.height <= 100
       && rect.width >= 4
       && rect.width <= Math.min(900, innerWidth * 0.9)
-      && shared.isPlausibleMessage(text, config.maxLength);
+      && Boolean(text);
   }
 
   function isInsideFrozenHoverZone(x, y) {
@@ -729,6 +951,139 @@
       return `[${value}]`;
     }
     return "";
+  }
+
+  function normalizedAssetKeys(value) {
+    const raw = shared.normalizeWhitespace(value);
+    if (!raw) {
+      return [];
+    }
+    const keys = new Set([`raw:${raw.toLowerCase().slice(0, 512)}`]);
+    const unwrapped = raw.replace(/^\[|\]$/g, "").trim().toLowerCase();
+    if (unwrapped) {
+      keys.add(`name:${unwrapped.slice(0, 120)}`);
+    }
+    try {
+      const url = new URL(raw, location.href);
+      const pathname = decodeURIComponent(url.pathname).toLowerCase();
+      if (pathname) {
+        keys.add(`path:${pathname}`);
+        const segments = pathname.split("/").filter(Boolean);
+        if (segments.length) {
+          const file = segments[segments.length - 1];
+          keys.add(`file:${file}`);
+          keys.add(`stem:${file.split(/[@~!]/, 1)[0]}`);
+        }
+      }
+    } catch (_error) {
+      // Tokens and internal emoji ids are not necessarily URLs.
+    }
+    return Array.from(keys);
+  }
+
+  function assetDescriptorFromElement(element) {
+    if (!(element instanceof Element)) {
+      return null;
+    }
+    const image = element instanceof HTMLImageElement
+      ? element
+      : element.querySelector("img");
+    const sources = [
+      image && image.currentSrc,
+      image && image.getAttribute("src"),
+      image && image.getAttribute("data-src"),
+      image && image.getAttribute("data-url"),
+      element.getAttribute("data-src"),
+      element.getAttribute("data-url")
+    ].filter(Boolean);
+    const names = [
+      image && emojiTokenFromImage(image),
+      image && image.getAttribute("alt"),
+      image && image.getAttribute("data-text"),
+      image && image.getAttribute("data-emoji"),
+      image && image.getAttribute("data-emoji-name"),
+      image && image.getAttribute("data-emoticon"),
+      image && image.getAttribute("data-id"),
+      image && image.getAttribute("title"),
+      image && image.getAttribute("aria-label"),
+      element.getAttribute("data-text"),
+      element.getAttribute("data-emoji"),
+      element.getAttribute("data-emoji-name"),
+      element.getAttribute("data-emoticon"),
+      element.getAttribute("data-id"),
+      element.getAttribute("title"),
+      element.getAttribute("aria-label")
+    ].filter(Boolean);
+    const keys = new Set();
+    sources.concat(names).forEach((value) => {
+      normalizedAssetKeys(value).forEach((key) => keys.add(key));
+    });
+    if (!keys.size) {
+      return null;
+    }
+    return {
+      src: String(sources[0] || "").slice(0, 4096),
+      token: shared.normalizeWhitespace(names[0] || "").slice(0, 120),
+      keys: Array.from(keys).slice(0, 24)
+    };
+  }
+
+  function messageElementFromCandidate(candidate) {
+    if (!(candidate instanceof Element)) {
+      return null;
+    }
+    for (const selector of config.messageText) {
+      try {
+        const element = candidate.matches(selector) ? candidate : candidate.querySelector(selector);
+        if (element) {
+          return element;
+        }
+      } catch (_error) {
+        // Ignore selectors unsupported by an older Chromium build.
+      }
+    }
+    return candidate;
+  }
+
+  function richPayloadFromCandidate(candidate) {
+    const element = messageElementFromCandidate(candidate);
+    if (!element) {
+      return { text: "", plainText: "", assets: [] };
+    }
+    const assets = Array.from(element.querySelectorAll("img"))
+      .filter((image) => !closestMatching(image, config.userNames)
+        && !closestMatching(image, [
+          "[class*='avatar' i]",
+          "[class*='badge' i]",
+          "[class*='medal' i]"
+        ]))
+      .map(assetDescriptorFromElement)
+      .filter(Boolean)
+      .slice(0, 8);
+    const plainClone = element.cloneNode(true);
+    plainClone.querySelectorAll("img,button,svg,[aria-hidden='true'],[data-bcp-one-owned]")
+      .forEach((item) => item.remove());
+    const plainText = shared.parseMessageText(plainClone.textContent, config.maxLength);
+    let text = richTextFromElement(element);
+    if (!shared.isPlausibleMessage(text, config.maxLength) && assets.length) {
+      text = assets.map((asset) => asset.token).filter(Boolean).join(" ") || "图片表情";
+    }
+    return { text, plainText, assets };
+  }
+
+  function assetMatchScore(element, asset) {
+    const descriptor = assetDescriptorFromElement(element);
+    if (!descriptor || !asset || !Array.isArray(asset.keys)) {
+      return 0;
+    }
+    const expected = new Set(asset.keys);
+    let score = 0;
+    descriptor.keys.forEach((key) => {
+      if (expected.has(key)) {
+        score += key.startsWith("raw:") ? 8 : key.startsWith("path:") ? 6 : 4;
+      }
+    });
+    return score;
   }
 
   function richTextFromElement(element) {
@@ -1236,9 +1591,10 @@
     }
 
     const isDouyinCanvas = candidate.dataset.bcpDouyinCanvas === "true";
+    const richPayload = isDouyinCanvas ? null : richPayloadFromCandidate(candidate);
     const message = isDouyinCanvas
       ? shared.parseMessageText(candidate.dataset.bcpDouyinCanvasText, config.maxLength)
-      : textFromCandidate(candidate);
+      : (richPayload && richPayload.text) || textFromCandidate(candidate);
     if (!shared.isPlausibleMessage(message, config.maxLength)) {
       return false;
     }
@@ -1248,6 +1604,7 @@
     state.candidate = candidate;
     state.candidateKind = kind || "chat";
     state.message = message;
+    state.richPayload = richPayload;
     candidate.classList.add("bcp-one-target");
     if (state.candidateKind === "overlay") {
       freezeOverlayCandidate(candidate);
@@ -1288,6 +1645,7 @@
     state.candidate = null;
     state.candidateKind = null;
     state.message = "";
+    state.richPayload = null;
     stopPositionTracking();
     if (state.button) {
       state.button.hidden = true;
@@ -1775,6 +2133,187 @@
     }
   }
 
+  function bilibiliEmojiItemCandidates() {
+    const results = [];
+    const seen = new Set();
+    const add = (element) => {
+      if (!(element instanceof Element) || seen.has(element) || !isVisible(element)
+          || closestMatching(element, config.chatRoots) || isOwned(element)) {
+        return;
+      }
+      seen.add(element);
+      results.push(element);
+    };
+    queryAllDeep([
+      "[data-emoji]",
+      "[data-emoji-name]",
+      "[data-emoticon]",
+      "[data-emoticon-id]",
+      "[class*='emoji-item' i]",
+      "[class*='emojiItem']",
+      "[class*='emoticon-item' i]"
+    ]).forEach(add);
+    queryAllDeep(BILIBILI_EMOJI_SURFACE_SELECTORS).forEach((surface) => {
+      if (!isVisible(surface) || closestMatching(surface, config.chatRoots)) {
+        return;
+      }
+      surface.querySelectorAll("img,[data-emoji],[data-emoticon],[role='button'],button")
+        .forEach(add);
+    });
+    queryAllDeep(["img"]).slice(0, 1000).forEach((image) => {
+      if (!closestMatching(image, config.videoRoots)) {
+        add(image);
+      }
+    });
+    return results.slice(0, 500);
+  }
+
+  function findMatchingBilibiliEmoji(asset) {
+    let best = null;
+    let bestScore = 0;
+    bilibiliEmojiItemCandidates().forEach((element) => {
+      const score = assetMatchScore(element, asset);
+      if (score > bestScore) {
+        bestScore = score;
+        best = element;
+      }
+    });
+    if (!best || bestScore < 4) {
+      return null;
+    }
+    return best.closest([
+      "button",
+      "[role='button']",
+      "[data-emoji]",
+      "[data-emoticon]",
+      "[class*='emoji-item' i]",
+      "[class*='emoticon-item' i]"
+    ].join(",")) || best;
+  }
+
+  function findBilibiliEmojiToggle(input) {
+    const inputRect = input && input.getBoundingClientRect();
+    const candidates = queryAllDeep(BILIBILI_EMOJI_TOGGLE_SELECTORS)
+      .filter((element) => isVisible(element) && !closestMatching(element, config.chatRoots)
+        && !isOwned(element));
+    candidates.sort((first, second) => {
+      const score = (element) => {
+        const marker = elementMarker(element);
+        const rect = element.getBoundingClientRect();
+        const distance = inputRect
+          ? Math.abs(rect.left - inputRect.right) + Math.abs(rect.top - inputRect.top)
+          : 0;
+        return (/(emoji|emoticon|emotion|face|表情)/i.test(marker) ? 500 : 0)
+          - Math.min(300, distance / 5);
+      };
+      return score(second) - score(first);
+    });
+    return candidates[0] || null;
+  }
+
+  async function waitForBilibiliEmoji(asset, timeout) {
+    const deadline = Date.now() + timeout;
+    let match = findMatchingBilibiliEmoji(asset);
+    while (!match && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      match = findMatchingBilibiliEmoji(asset);
+    }
+    return match;
+  }
+
+  function countMatchingBilibiliChatAssets(asset) {
+    let count = 0;
+    queryAllDeep(config.messages).slice(-120).forEach((row) => {
+      row.querySelectorAll("img").forEach((image) => {
+        if (assetMatchScore(image, asset) >= 4) {
+          count += 1;
+        }
+      });
+    });
+    return count;
+  }
+
+  function richInputFingerprint(input) {
+    if (!input || !input.isConnected) {
+      return "";
+    }
+    if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
+      return input.value;
+    }
+    return `${input.textContent || ""}|${input.innerHTML || ""}`.slice(0, 4096);
+  }
+
+  async function waitForBilibiliEmojiResult(input, asset, previousCount, previousInput, timeout) {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      if (countMatchingBilibiliChatAssets(asset) > previousCount) {
+        return "sent";
+      }
+      if (richInputFingerprint(input) !== previousInput) {
+        return "inserted";
+      }
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    }
+    return "none";
+  }
+
+  async function repeatBilibiliRichPayload(payload) {
+    const now = Date.now();
+    if (now - state.lastActionAt < 700) {
+      showToast("操作太快，请稍后再试", "warning");
+      return false;
+    }
+    state.lastActionAt = now;
+    const asset = payload && Array.isArray(payload.assets) ? payload.assets[0] : null;
+    const input = findInput();
+    if (!asset || !input) {
+      showToast("未找到B站表情资源或弹幕输入框", "error");
+      return false;
+    }
+    const previousCount = countMatchingBilibiliChatAssets(asset);
+    let item = findMatchingBilibiliEmoji(asset);
+    if (!item) {
+      const toggle = findBilibiliEmojiToggle(input);
+      if (toggle && typeof toggle.click === "function") {
+        toggle.click();
+        item = await waitForBilibiliEmoji(asset, 800);
+      }
+    }
+    if (!item || typeof item.click !== "function") {
+      showToast("未在B站表情面板中找到对应图片，已取消 +1", "error");
+      return false;
+    }
+    const beforeInput = richInputFingerprint(input);
+    item.click();
+    let result = await waitForBilibiliEmojiResult(input, asset, previousCount, beforeInput, 900);
+    if (result === "inserted" && richInputFingerprint(input) !== beforeInput) {
+      const button = findSendButton(input);
+      if (button) {
+        button.click();
+      } else {
+        pressEnter(input);
+      }
+      result = await waitForBilibiliEmojiResult(input, asset, previousCount, beforeInput, 900);
+      if (result !== "sent" && !richInputFingerprint(input)) {
+        result = "sent";
+      }
+    }
+    if (result === "none") {
+      const button = findSendButton(input);
+      if (button) {
+        button.click();
+        result = await waitForBilibiliEmojiResult(input, asset, previousCount, beforeInput, 900);
+      }
+    }
+    if (result !== "sent") {
+      showToast("B站图片表情发送未确认，请重试", "error");
+      return false;
+    }
+    releaseInputFocus(input);
+    showToast("已发送图片表情 +1", "success");
+    return true;
+  }
+
   async function repeatMessage(message) {
     const now = Date.now();
     if (now - state.lastActionAt < 700) {
@@ -1839,14 +2378,30 @@
       message = resolveDouyinCanvasMessage(canvasText) || message || canvasText;
       state.message = message;
     }
-    if (message) {
+    const richPayload = state.richPayload;
+    if (platformId === "bilibili" && richPayload && richPayload.assets.length) {
+      repeatBilibiliRichPayload(richPayload);
+    } else if (message) {
       repeatMessage(message);
     }
     scheduleHide();
   }
 
   function onPointerOver(event) {
-    if (!isEnabled() || isOwned(event.target)) {
+    if (!isEnabled()) {
+      return;
+    }
+
+    const path = event.composedPath ? event.composedPath() : [event.target];
+    updateChatScrollLock(path);
+    if (isOwned(event.target)) {
+      return;
+    }
+
+    if (pathTouchesBilibiliChatActions(path)) {
+      if (state.candidate) {
+        clearSelection();
+      }
       return;
     }
 
@@ -1855,7 +2410,6 @@
       return;
     }
 
-    const path = event.composedPath ? event.composedPath() : [event.target];
     const found = findCandidate(path);
     if (found && found.element !== state.candidate) {
       selectCandidate(found.element, found.kind);
@@ -1924,6 +2478,14 @@
       return;
     }
 
+    const path = event.composedPath ? event.composedPath() : [event.target];
+    if (pathTouchesBilibiliChatActions(path)) {
+      if (state.candidate) {
+        clearSelection();
+      }
+      return;
+    }
+
     if (isOwned(event.target)) {
       cancelHide();
       return;
@@ -1961,6 +2523,7 @@
   }
 
   function onPointerOut(event) {
+    releaseChatScrollLockAfterPointerOut(event.relatedTarget);
     if (!state.candidate) {
       return;
     }
@@ -1987,6 +2550,9 @@
     }
 
     const path = event.composedPath ? event.composedPath() : [event.target];
+    if (pathTouchesBilibiliChatActions(path)) {
+      return;
+    }
     let found = findCandidate(path);
     if (!found) {
       const overlay = findOverlayAtPoint(event.clientX, event.clientY);
@@ -2011,7 +2577,19 @@
     scheduleHide();
   }
 
-  function onViewportChange() {
+  function onViewportChange(event) {
+    const lock = state.chatScrollLock;
+    if (lock && event) {
+      const target = lock.targets.find((item) => item.element === event.target);
+      if (target && target.element.isConnected) {
+        if (Math.abs(target.element.scrollTop - target.top) > 0.5) {
+          target.element.scrollTop = target.top;
+        }
+        if (Math.abs(target.element.scrollLeft - target.left) > 0.5) {
+          target.element.scrollLeft = target.left;
+        }
+      }
+    }
     requestAnimationFrame(updateButtonPosition);
   }
 
@@ -2023,7 +2601,9 @@
 
   function applySettings(saved) {
     state.settings = shared.mergeSettings(saved);
+    shared.applyPlatformColors(document.documentElement, state.settings.colors[platformId]);
     if (!isEnabled()) {
+      releaseChatScrollLock();
       clearSelection();
     }
   }

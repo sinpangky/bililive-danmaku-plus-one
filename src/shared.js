@@ -9,6 +9,34 @@
 })(typeof globalThis === "object" ? globalThis : this, function createShared() {
   "use strict";
 
+  const COLOR_SETTING_KEYS = Object.freeze([
+    "actionStart",
+    "actionEnd",
+    "actionText",
+    "focusRing",
+    "selection",
+    "panelBackground",
+    "panelText",
+    "success",
+    "warning",
+    "error"
+  ]);
+  const COLOR_CSS_VARIABLES = Object.freeze({
+    actionStart: "--bcp-action-start",
+    actionEnd: "--bcp-action-end",
+    actionText: "--bcp-action-text",
+    focusRing: "--bcp-focus-ring",
+    selection: "--bcp-selection",
+    panelBackground: "--bcp-panel-background",
+    panelText: "--bcp-panel-text",
+    success: "--bcp-success",
+    warning: "--bcp-warning",
+    error: "--bcp-error"
+  });
+  const EMPTY_COLOR_SETTINGS = Object.freeze(Object.fromEntries(
+    COLOR_SETTING_KEYS.map((key) => [key, ""])
+  ));
+
   const DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
     altClick: true,
@@ -16,8 +44,41 @@
       huya: true,
       bilibili: true,
       douyin: true
+    }),
+    colors: Object.freeze({
+      huya: EMPTY_COLOR_SETTINGS,
+      bilibili: EMPTY_COLOR_SETTINGS,
+      douyin: EMPTY_COLOR_SETTINGS
     })
   });
+
+  function normalizeHexColor(value) {
+    const color = String(value == null ? "" : value).trim();
+    return /^#[0-9a-f]{6}$/i.test(color) ? color.toUpperCase() : "";
+  }
+
+  function mergeColorSettings(saved) {
+    const value = saved && typeof saved === "object" ? saved : {};
+    return Object.fromEntries(COLOR_SETTING_KEYS.map((key) => [
+      key,
+      normalizeHexColor(value[key])
+    ]));
+  }
+
+  function applyPlatformColors(root, colors) {
+    if (!root || !root.style) {
+      return;
+    }
+    const values = mergeColorSettings(colors);
+    COLOR_SETTING_KEYS.forEach((key) => {
+      const property = COLOR_CSS_VARIABLES[key];
+      if (values[key]) {
+        root.style.setProperty(property, values[key]);
+      } else {
+        root.style.removeProperty(property);
+      }
+    });
+  }
 
   function detectPlatform(hostname, pathname) {
     const host = String(hostname || "").toLowerCase().replace(/:\d+$/, "");
@@ -92,6 +153,9 @@
     const savedPlatforms = value.platforms && typeof value.platforms === "object"
       ? value.platforms
       : {};
+    const savedColors = value.colors && typeof value.colors === "object"
+      ? value.colors
+      : {};
 
     return {
       enabled: typeof value.enabled === "boolean" ? value.enabled : DEFAULT_SETTINGS.enabled,
@@ -100,15 +164,23 @@
         huya: typeof savedPlatforms.huya === "boolean" ? savedPlatforms.huya : true,
         bilibili: typeof savedPlatforms.bilibili === "boolean" ? savedPlatforms.bilibili : true,
         douyin: typeof savedPlatforms.douyin === "boolean" ? savedPlatforms.douyin : true
+      },
+      colors: {
+        huya: mergeColorSettings(savedColors.huya),
+        bilibili: mergeColorSettings(savedColors.bilibili),
+        douyin: mergeColorSettings(savedColors.douyin)
       }
     };
   }
 
   return Object.freeze({
+    COLOR_SETTING_KEYS,
     DEFAULT_SETTINGS,
+    applyPlatformColors,
     detectPlatform,
     isPlausibleMessage,
     mergeSettings,
+    normalizeHexColor,
     normalizeWhitespace,
     parseMessageText
   });
