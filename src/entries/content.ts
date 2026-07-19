@@ -1,311 +1,49 @@
+// @ts-nocheck -- legacy platform adapter; types are being introduced module by module.
+import { LIVE_PLATFORM_CONFIG, isSupportedContentPlatform } from "../platforms/live/config";
+import {
+  BILIBILI_CHAT_ACTION_SURFACES,
+  BILIBILI_CHAT_ACTION_TEXT,
+  BILIBILI_CHAT_AD_LABEL_SELECTORS,
+  BILIBILI_CHAT_AD_SELECTORS,
+  BILIBILI_CHAT_STRONG_ACTION_TEXT,
+  BILIBILI_EMOJI_SURFACE_SELECTORS,
+  BILIBILI_EMOJI_TOGGLE_SELECTORS,
+  BILIBILI_QUICK_BAR_SELECTORS,
+  BILIBILI_QUICK_INPUTS,
+  isBilibiliAdvertisementLabel,
+  isBilibiliAdvertisementMarker
+} from "../platforms/bilibili/dom-config";
+import { normalizedAssetKeys as normalizedRichAssetKeys } from "../platforms/douyin/rich-data";
+import { createFavoritesRuntime } from "../features/favorites/launcher";
+import { createContentOverlay } from "../ui/content-overlay";
+
 (function initBulletPlusOne() {
   "use strict";
 
   const shared = globalThis.BulletPlusOneShared;
   const platformId = shared && shared.detectPlatform(location.hostname);
 
-  if (!shared || !platformId || globalThis.__bulletPlusOneLoaded) {
+  if (!shared || !isSupportedContentPlatform(platformId) || globalThis.__bulletPlusOneLoaded) {
     return;
   }
 
   globalThis.__bulletPlusOneLoaded = true;
 
-  const PLATFORM_CONFIG = {
-    huya: {
-      name: "虎牙直播",
-      maxLength: 1000,
-      chatRoots: [
-        "#chat-room__list",
-        ".chat-room__list",
-        ".chat-room__bd",
-        ".room-chat-messages",
-        "[class*='chat-room'][class*='list']",
-        "[class*='chatRoom'][class*='list']"
-      ],
-      videoRoots: [
-        "#player-wrap",
-        "#player-container",
-        ".player-wrap",
-        ".player-container",
-        "[class*='player-wrap']",
-        "[class*='player-container']"
-      ],
-      overlayMessages: [
-        ".danmu-item",
-        ".danmaku-item",
-        ".bullet-item",
-        ".player-danmu-item",
-        "[class*='danmu-item']",
-        "[class*='danmaku-item']",
-        "[class*='danmuItem']",
-        "[class*='bullet-item']"
-      ],
-      messages: [
-        ".J_msg",
-        ".msg-item",
-        ".msg-normal",
-        "[data-cid]",
-        "[class*='message-item']",
-        "[class*='messageItem']"
-      ],
-      messageText: [
-        ".msg",
-        ".txt",
-        ".msg-content",
-        ".message-content",
-        "[class*='message-content']",
-        "[class*='messageContent']"
-      ],
-      userNames: [
-        ".name",
-        ".nick",
-        ".username",
-        "[class*='user-name']",
-        "[class*='userName']",
-        "[class*='nickname']"
-      ],
-      inputs: [
-        "#pub_msg_input",
-        "textarea[placeholder*='弹幕']",
-        "textarea[placeholder*='发言']",
-        ".chat-room__input textarea",
-        ".chat-room__input [contenteditable='true']",
-        "[class*='chat-input'] [contenteditable='true']"
-      ],
-      sendButtons: [
-        "#msg_send_bt",
-        ".btn-send",
-        ".chat-room__input button",
-        "button[class*='send']",
-        "[class*='send-btn']"
-      ]
-    },
-    bilibili: {
-      name: "哔哩哔哩直播",
-      maxLength: 1000,
-      chatRoots: [
-        "#chat-items",
-        "#chat-history-list",
-        ".chat-history-list",
-        ".chat-items",
-        "[class*='chat-history']",
-        "[class*='danmaku-list']"
-      ],
-      videoRoots: [
-        "#live-player",
-        ".live-player-mounter",
-        ".bpx-player-container",
-        ".bilibili-live-player-video-area",
-        "[class*='live-player']",
-        "[class*='player-container']"
-      ],
-      overlayMessages: [
-        ".bili-danmaku-x-dm",
-        ".bili-danmaku-x-dm-content",
-        ".b-danmaku",
-        ".bilibili-player-video-danmaku .b-danmaku",
-        ".bpx-player-dm-wrap .bili-danmaku-x-dm",
-        ".bilibili-live-player-video-danmaku [class*='danmaku-item']",
-        ".bpx-player-dm-wrap [class*='danmaku-item']",
-        "[class*='video-danmaku-item']"
-      ],
-      messages: [
-        ".danmaku-item",
-        ".chat-item",
-        "[data-danmaku]",
-        "[data-id][class*='danmaku']",
-        "[class*='message-item']"
-      ],
-      messageText: [
-        ".danmaku-content",
-        ".danmaku-item-right",
-        ".message-content",
-        "[class*='danmaku-content']",
-        "[class*='danmakuContent']"
-      ],
-      userNames: [
-        ".user-name",
-        ".username",
-        ".uname",
-        "[class*='user-name']",
-        "[class*='userName']"
-      ],
-      inputs: [
-        "textarea.chat-input",
-        ".chat-input-ctnr textarea",
-        ".bpx-player-dm-input",
-        ".bilibili-player-video-danmaku-input",
-        ".bpx-player-ctrl-dm-input input",
-        ".bpx-player-ctrl-dm-input textarea",
-        ".bpx-player-ctrl-dm-input [contenteditable='true']",
-        "textarea[placeholder*='弹幕']",
-        "textarea[placeholder*='说点什么']",
-        "[contenteditable='true'][data-placeholder*='弹幕']",
-        ".chat-input[contenteditable='true']"
-      ],
-      sendButtons: [
-        ".chat-input-ctnr button[type='submit']",
-        ".chat-input-ctnr .bl-button--primary",
-        ".bpx-player-dm-btn",
-        ".bpx-player-ctrl-dm-btn",
-        ".send-btn",
-        "button[class*='send']",
-        "[class*='send-button']"
-      ]
-    },
-    douyin: {
-      name: "抖音直播",
-      maxLength: 1000,
-      chatRoots: [
-        "[data-e2e='chat-message-list']",
-        "[data-e2e='chat-room-message-list']",
-        "[class*='webcast-chatroom___items']",
-        "[class*='webcast-chatroom___list']",
-        "[class*='webcast-chatroom'] [class*='message-list']",
-        "[class*='chatroom'] [class*='message']",
-        "[class*='ChatMessageList']",
-        "[class*='messageList']"
-      ],
-      videoRoots: [
-        "[data-e2e='live-player']",
-        "[data-e2e='player-container']",
-        "[class*='live-player']",
-        "[class*='player-container']",
-        "[class*='PlayerContainer']",
-        "[class*='video-container']"
-      ],
-      overlayMessages: [
-        "[data-bcp-douyin-canvas='true']",
-        "[data-e2e='danmaku-item']",
-        "[class*='webcast-danmaku___item']",
-        "[class*='danmaku-item']",
-        "[class*='danmakuItem']",
-        "[class*='danmu-item']",
-        "[class*='bullet-item']"
-      ],
-      messages: [
-        "[data-e2e='chat-message']",
-        "[data-e2e='chat-room-message']",
-        "[data-e2e='danmaku-item']",
-        "[class*='webcast-chatroom___item']",
-        "[class*='ChatMessage']",
-        "[class*='chat-message']",
-        "[class*='message-item']"
-      ],
-      messageText: [
-        "[data-e2e='chat-message-text']",
-        "[data-e2e='message-content']",
-        "[class*='message-content']",
-        "[class*='messageContent']",
-        "[class*='content']"
-      ],
-      userNames: [
-        "[data-e2e='chat-message-user-name']",
-        "[class*='nickname']",
-        "[class*='user-name']",
-        "[class*='userName']"
-      ],
-      inputs: [
-        "[data-e2e='chat-room-input']",
-        "textarea[data-e2e*='chat']",
-        "textarea[placeholder*='弹幕']",
-        "textarea[placeholder*='说点什么']",
-        "[contenteditable='true'][data-placeholder*='弹幕']",
-        "[contenteditable='true'][data-placeholder*='说点什么']",
-        "[class*='webcast-chatroom___input'] [contenteditable='true']",
-        "[class*='chat-input'] [contenteditable='true']",
-        "[class*='ChatInput'] [contenteditable='true']"
-      ],
-      sendButtons: [
-        "[data-e2e='chat-room-send']",
-        "[data-e2e*='send' i]",
-        "[data-testid*='send' i]",
-        "[aria-label*='发送']",
-        "button[data-e2e*='send']",
-        "[class*='webcast-chatroom___send']",
-        "button[class*='send']",
-        "[class*='send-button']",
-        "[class*='sendButton']"
-      ]
-    }
-  };
-
-  const config = PLATFORM_CONFIG[platformId];
+  const config = LIVE_PLATFORM_CONFIG[platformId];
   const EDITABLE_CONTROL_SELECTOR = [
     "input",
     "textarea",
-    "[contenteditable='true']",
+    "[contenteditable]:not([contenteditable='false'])",
     "[role='textbox']"
   ].join(",");
-  const BILIBILI_QUICK_BAR_SELECTORS = [
-    ".bpx-player-ctrl-dm-input",
-    ".bilibili-player-video-danmaku-input-wrap",
-    ".bilibili-player-video-danmaku-input",
-    "[class*='danmaku-input']",
-    "[class*='dm-input']"
-  ];
-  const BILIBILI_QUICK_INPUTS = [
-    ".bpx-player-dm-input",
-    ".bilibili-player-video-danmaku-input",
-    ".bpx-player-ctrl-dm-input input",
-    ".bpx-player-ctrl-dm-input textarea",
-    ".bpx-player-ctrl-dm-input [contenteditable='true']",
-    ".bpx-player-ctrl-dm-input [role='textbox']",
-    ".bilibili-player-video-danmaku-input-wrap input",
-    ".bilibili-player-video-danmaku-input-wrap textarea",
-    ".bilibili-player-video-danmaku-input-wrap [contenteditable='true']",
-    ".bilibili-player-video-danmaku-input-wrap [role='textbox']"
-  ];
-  const BILIBILI_CHAT_ACTION_SURFACES = [
-    "[role='dialog']",
-    "[role='menu']",
-    "[role='listbox']",
-    "[class*='user-card']",
-    "[class*='userCard']",
-    "[class*='user-info']",
-    "[class*='userInfo']",
-    "[class*='user-panel']",
-    "[class*='userPanel']",
-    "[class*='profile-card']",
-    "[class*='profileCard']",
-    "[class*='danmaku-menu']",
-    "[class*='danmakuMenu']",
-    "[class*='action-panel']",
-    "[class*='actionPanel']",
-    "[class*='popover']",
-    "[class*='popper']",
-    "[class*='context-menu']",
-    "[class*='contextMenu']"
-  ];
-  const BILIBILI_CHAT_ACTION_TEXT = /(?:@|举报|禁言|关注|取关|拉黑|屏蔽|用户资料|个人主页)/i;
-  const BILIBILI_CHAT_STRONG_ACTION_TEXT = /(?:举报|禁言|关注|取关|拉黑|屏蔽|用户资料|个人主页)/i;
-  const BILIBILI_EMOJI_TOGGLE_SELECTORS = [
-    "[data-testid*='emoji' i]",
-    "[data-e2e*='emoji' i]",
-    "[aria-label*='表情']",
-    "[title*='表情']",
-    "[class*='emoji-btn' i]",
-    "[class*='emojiBtn']",
-    "[class*='emoticon-btn' i]",
-    "[class*='emotion-btn' i]",
-    "[class*='face-btn' i]",
-    "button[class*='emoji' i]",
-    "button[class*='emoticon' i]",
-    "button[class*='face' i]",
-    "[role='button'][class*='emoji' i]",
-    "[role='button'][class*='face' i]"
-  ];
-  const BILIBILI_EMOJI_SURFACE_SELECTORS = [
-    "[data-testid*='emoji' i]",
-    "[data-e2e*='emoji' i]",
-    "[class*='emoji-panel' i]",
-    "[class*='emojiPanel']",
-    "[class*='emoticon-panel' i]",
-    "[class*='emotion-panel' i]",
-    "[class*='face-panel' i]",
-    "[class*='emoji-list' i]",
-    "[class*='emoticon-list' i]"
-  ];
+  const TEXT_EDITOR_SELECTOR = [
+    "textarea",
+    "input:not([type])",
+    "input[type='text']",
+    "input[type='search']",
+    "[contenteditable]:not([contenteditable='false'])",
+    "[role='textbox']"
+  ].join(",");
   const OVERLAY_HOVER_PADDING = 14;
   const OVERLAY_LEAVE_DELAY = 160;
   const state = {
@@ -313,25 +51,27 @@
     candidate: null,
     candidateKind: null,
     message: "",
+    sender: "",
     richPayload: null,
     hideTimer: 0,
     lastActionAt: 0,
     roots: [document],
     rootsCachedAt: 0,
+    ui: null,
     portal: null,
+    actionBar: null,
     button: null,
+    replyButton: null,
+    favoriteButton: null,
     toast: null,
     frozenClone: null,
     originalVisibility: null,
     pausedAnimations: [],
-    positionFrame: 0,
     pointerFrame: 0,
     pointerX: 0,
     pointerY: 0,
     hiddenBilibiliQuickBars: new Map(),
-    bilibiliDismissToken: 0,
-    chatScrollLock: null,
-    chatScrollFrame: 0
+    bilibiliDismissToken: 0
   };
 
   function storageGet() {
@@ -346,7 +86,8 @@
   }
 
   function isEnabled() {
-    return Boolean(state.settings.enabled && state.settings.platforms[platformId]);
+    return Boolean(state.settings.enabled && state.settings.platforms[platformId]
+      && Object.values(state.settings.actions).some(Boolean));
   }
 
   function isOwned(node) {
@@ -548,6 +289,67 @@
     return false;
   }
 
+  function isBilibiliChatAdvertisement(element) {
+    if (platformId !== "bilibili" || !(element instanceof Element)) {
+      return false;
+    }
+
+    const chatRoot = closestMatching(element, config.chatRoots);
+    if (!chatRoot) {
+      return false;
+    }
+
+    let card = closestMatching(element, config.messages) || element;
+    if (card === chatRoot) {
+      return false;
+    }
+
+    let current = card;
+    while (current && current !== chatRoot) {
+      if (matchesAny(current, BILIBILI_CHAT_AD_SELECTORS)) {
+        return true;
+      }
+
+      const metadata = [
+        elementMarker(current),
+        current.getAttribute("data-type"),
+        current.getAttribute("data-module"),
+        current.getAttribute("data-report"),
+        current.getAttribute("data-testid"),
+        current.getAttribute("data-e2e")
+      ].filter(Boolean).join(" ");
+      if (isBilibiliAdvertisementMarker(metadata)) {
+        return true;
+      }
+      current = current.parentElement;
+    }
+
+    let labels = [];
+    try {
+      labels = Array.from(card.querySelectorAll(BILIBILI_CHAT_AD_LABEL_SELECTORS.join(",")));
+    } catch (_error) {
+      labels = [];
+    }
+
+    const hasAdvertisementLabel = labels.some((label) => isBilibiliAdvertisementLabel(
+      shared.normalizeWhitespace(label.innerText || label.textContent)
+    ));
+    if (!hasAdvertisementLabel) {
+      return false;
+    }
+
+    // A user may legitimately mention the word "广告". Only treat label text
+    // as an ad when the row also has the structure of an interactive card.
+    return Boolean(card.querySelector(
+      "a[href], button, [role='button'], [data-url], [data-href], [class*='banner' i], [class*='card' i]"
+    ));
+  }
+
+  function pathTouchesBilibiliChatAdvertisement(path) {
+    return platformId === "bilibili"
+      && path.some((item) => item instanceof Element && isBilibiliChatAdvertisement(item));
+  }
+
   function findChatRoot(path) {
     const inPath = closestFromPath(path, config.chatRoots);
     if (inPath) {
@@ -569,121 +371,10 @@
     return null;
   }
 
-  function canPauseChatScroll() {
-    return platformId === "huya" || platformId === "bilibili";
-  }
-
-  function chatScrollTargets(root) {
-    const targets = [];
-    const seen = new Set();
-    const add = (element, fallback) => {
-      if (!(element instanceof HTMLElement) || seen.has(element)
-          || element === document.body || element === document.documentElement) {
-        return;
-      }
-      const style = getComputedStyle(element);
-      const scrollable = element.scrollHeight > element.clientHeight + 1
-        && /(?:auto|scroll|overlay|hidden)/i.test(style.overflowY);
-      if (!scrollable && !fallback) {
-        return;
-      }
-      seen.add(element);
-      targets.push({
-        element,
-        top: element.scrollTop,
-        left: element.scrollLeft
-      });
-    };
-
-    add(root, true);
-    let ancestor = root.parentElement;
-    for (let depth = 0; ancestor && depth < 5; depth += 1, ancestor = ancestor.parentElement) {
-      add(ancestor, false);
-    }
-    let descendants = [];
-    try {
-      descendants = Array.from(root.querySelectorAll("*")).slice(0, 160);
-    } catch (_error) {
-      descendants = [];
-    }
-    descendants.forEach((element) => add(element, false));
-    return targets;
-  }
-
-  function maintainChatScrollLock() {
-    state.chatScrollFrame = 0;
-    const lock = state.chatScrollLock;
-    if (!lock || !isEnabled() || !lock.root.isConnected) {
-      releaseChatScrollLock();
-      return;
-    }
-    lock.targets.forEach((target) => {
-      if (!target.element.isConnected) {
-        return;
-      }
-      if (Math.abs(target.element.scrollTop - target.top) > 0.5) {
-        target.element.scrollTop = target.top;
-      }
-      if (Math.abs(target.element.scrollLeft - target.left) > 0.5) {
-        target.element.scrollLeft = target.left;
-      }
-    });
-    state.chatScrollFrame = requestAnimationFrame(maintainChatScrollLock);
-  }
-
-  function pauseChatScroll(root) {
-    if (!canPauseChatScroll() || !(root instanceof Element)) {
-      return;
-    }
-    if (state.chatScrollLock && state.chatScrollLock.root === root) {
-      return;
-    }
-    releaseChatScrollLock();
-    state.chatScrollLock = {
-      root,
-      targets: chatScrollTargets(root)
-    };
-    root.dataset.bcpOneScrollPaused = "true";
-    state.chatScrollFrame = requestAnimationFrame(maintainChatScrollLock);
-  }
-
-  function releaseChatScrollLock() {
-    if (state.chatScrollFrame) {
-      cancelAnimationFrame(state.chatScrollFrame);
-      state.chatScrollFrame = 0;
-    }
-    const lock = state.chatScrollLock;
-    state.chatScrollLock = null;
-    if (lock && lock.root.isConnected) {
-      delete lock.root.dataset.bcpOneScrollPaused;
-    }
-  }
-
-  function updateChatScrollLock(path) {
-    if (!canPauseChatScroll()) {
-      return;
-    }
-    const root = findChatRoot(path);
-    if (root) {
-      pauseChatScroll(root);
-    }
-  }
-
-  function releaseChatScrollLockAfterPointerOut(next) {
-    const lock = state.chatScrollLock;
-    if (!lock) {
-      return;
-    }
-    const element = next instanceof Element ? next : null;
-    if (element && (lock.root.contains(element)
-        || (state.button && state.button.contains(element)))) {
-      return;
-    }
-    releaseChatScrollLock();
-  }
-
   function findCandidate(path) {
-    if (pathTouchesBilibiliQuickInput(path) || pathTouchesBilibiliChatActions(path)) {
+    if (pathTouchesBilibiliQuickInput(path)
+      || pathTouchesBilibiliChatActions(path)
+      || pathTouchesBilibiliChatAdvertisement(path)) {
       return null;
     }
 
@@ -693,7 +384,7 @@
     }
 
     const known = closestFromPath(path, config.messages);
-    if (known) {
+    if (known && !isBilibiliChatAdvertisement(known)) {
       return { element: known, kind: "chat" };
     }
 
@@ -708,6 +399,10 @@
       }
 
       if (node.matches("button, input, textarea, a, [contenteditable='true']")) {
+        continue;
+      }
+
+      if (isBilibiliChatAdvertisement(node)) {
         continue;
       }
 
@@ -730,9 +425,7 @@
   }
 
   function overlayMessageForValidation(element) {
-    const plainText = element.dataset.bcpDouyinCanvas === "true"
-      ? shared.parseMessageText(element.dataset.bcpDouyinCanvasText, config.maxLength)
-      : textFromCandidate(element);
+    const plainText = textFromCandidate(element);
     if (shared.isPlausibleMessage(plainText, config.maxLength)) {
       return plainText;
     }
@@ -834,13 +527,9 @@
   }
 
   function isInsideFrozenHoverZone(x, y) {
-    const workerCandidate = state.candidate
-      && state.candidate.dataset.bcpDouyinWorker === "true"
-      ? state.candidate
-      : null;
     const frozenTarget = state.frozenClone && state.frozenClone.isConnected
       ? state.frozenClone
-      : workerCandidate;
+      : null;
     return state.candidateKind === "overlay"
       && frozenTarget
       && pointInside(
@@ -856,16 +545,7 @@
       return state.candidate;
     }
 
-    let exactCandidates;
-    if (platformId === "douyin") {
-      try {
-        exactCandidates = Array.from(document.querySelectorAll(config.overlayMessages.join(",")));
-      } catch (_error) {
-        exactCandidates = queryAllDeep(config.overlayMessages);
-      }
-    } else {
-      exactCandidates = queryAllDeep(config.overlayMessages);
-    }
+    const exactCandidates = queryAllDeep(config.overlayMessages);
     const exactHits = [];
 
     exactCandidates.forEach((candidate, index) => {
@@ -953,34 +633,6 @@
     return "";
   }
 
-  function normalizedAssetKeys(value) {
-    const raw = shared.normalizeWhitespace(value);
-    if (!raw) {
-      return [];
-    }
-    const keys = new Set([`raw:${raw.toLowerCase().slice(0, 512)}`]);
-    const unwrapped = raw.replace(/^\[|\]$/g, "").trim().toLowerCase();
-    if (unwrapped) {
-      keys.add(`name:${unwrapped.slice(0, 120)}`);
-    }
-    try {
-      const url = new URL(raw, location.href);
-      const pathname = decodeURIComponent(url.pathname).toLowerCase();
-      if (pathname) {
-        keys.add(`path:${pathname}`);
-        const segments = pathname.split("/").filter(Boolean);
-        if (segments.length) {
-          const file = segments[segments.length - 1];
-          keys.add(`file:${file}`);
-          keys.add(`stem:${file.split(/[@~!]/, 1)[0]}`);
-        }
-      }
-    } catch (_error) {
-      // Tokens and internal emoji ids are not necessarily URLs.
-    }
-    return Array.from(keys);
-  }
-
   function assetDescriptorFromElement(element) {
     if (!(element instanceof Element)) {
       return null;
@@ -1016,7 +668,7 @@
     ].filter(Boolean);
     const keys = new Set();
     sources.concat(names).forEach((value) => {
-      normalizedAssetKeys(value).forEach((key) => keys.add(key));
+      normalizedRichAssetKeys(value, location.href).forEach((key) => keys.add(key));
     });
     if (!keys.size) {
       return null;
@@ -1135,47 +787,7 @@
     return richTextFromElement(candidate);
   }
 
-  function comparableDouyinText(value) {
-    return shared.normalizeWhitespace(value)
-      .replace(/\[[^\]\n]{1,40}\]/g, "")
-      .replace(/\p{Extended_Pictographic}/gu, "")
-      .replace(/\s+/g, "");
-  }
-
-  function resolveDouyinCanvasMessage(canvasText) {
-    if (platformId !== "douyin") {
-      return "";
-    }
-    const canvasKey = comparableDouyinText(canvasText);
-    if (!canvasKey) {
-      return "";
-    }
-    const candidates = queryAllDeep(config.messages).slice(-80).reverse();
-    for (const candidate of candidates) {
-      if (isOwned(candidate)) {
-        continue;
-      }
-      const richText = richTextFromCandidate(candidate);
-      if (!shared.isPlausibleMessage(richText, config.maxLength)) {
-        continue;
-      }
-      const richKey = comparableDouyinText(richText);
-      if (richKey === canvasKey && richText !== canvasText) {
-        return richText;
-      }
-    }
-    return "";
-  }
-
   function textFromCandidate(candidate) {
-    if (candidate.dataset && candidate.dataset.bcpDouyinCanvasText) {
-      const canvasText = shared.parseMessageText(
-        candidate.dataset.bcpDouyinCanvasText,
-        config.maxLength
-      );
-      return resolveDouyinCanvasMessage(canvasText) || canvasText;
-    }
-
     const specific = textFromSpecificElement(candidate);
     if (specific) {
       return specific;
@@ -1202,146 +814,168 @@
     return shared.parseMessageText(clone.textContent, config.maxLength);
   }
 
+  function senderFromElement(element) {
+    if (!(element instanceof Element)) {
+      return "";
+    }
+
+    for (const selector of config.userNames) {
+      let nameElement = null;
+      try {
+        nameElement = element.matches(selector) ? element : element.querySelector(selector);
+      } catch (_error) {
+        nameElement = null;
+      }
+      if (!nameElement) {
+        continue;
+      }
+      const values = [
+        nameElement.getAttribute("data-username"),
+        nameElement.getAttribute("data-uname"),
+        nameElement.getAttribute("data-name"),
+        nameElement.textContent,
+        nameElement.getAttribute("aria-label"),
+        nameElement.getAttribute("title")
+      ];
+      for (const value of values) {
+        const sender = shared.normalizeSenderName(value);
+        if (sender) {
+          return sender;
+        }
+      }
+    }
+
+    for (const attribute of [
+      "data-username",
+      "data-user-name",
+      "data-uname",
+      "data-nickname",
+      "data-nick-name",
+      "data-sender-name"
+    ]) {
+      const sender = shared.normalizeSenderName(element.getAttribute(attribute));
+      if (sender) {
+        return sender;
+      }
+    }
+    const rowText = shared.normalizeWhitespace(element.innerText || element.textContent);
+    const prefix = rowText.match(/^([^：:\n]{1,64})[：:]\s*/u);
+    return shared.normalizeSenderName(prefix && prefix[1]);
+  }
+
+  function comparableReplyMessage(value) {
+    return shared.normalizeWhitespace(value)
+      .replace(/\s+/g, "")
+      .toLowerCase();
+  }
+
+  function senderFromMatchingChatRow(message) {
+    const expected = comparableReplyMessage(message);
+    if (!expected) {
+      return "";
+    }
+    const rows = queryAllDeep(config.messages).slice(-120).reverse();
+    for (const row of rows) {
+      if (isOwned(row) || isBilibiliChatAdvertisement(row)) {
+        continue;
+      }
+      const rowMessage = richTextFromCandidate(row) || textFromCandidate(row);
+      if (comparableReplyMessage(rowMessage) !== expected) {
+        continue;
+      }
+      const sender = senderFromElement(row);
+      if (sender) {
+        return sender;
+      }
+    }
+    return "";
+  }
+
+  function senderFromCandidate(candidate, message, kind) {
+    const direct = senderFromElement(candidate);
+    if (direct) {
+      return direct;
+    }
+    if (kind === "overlay") {
+      return senderFromMatchingChatRow(message);
+    }
+    return "";
+  }
+
   function fullscreenElement() {
     return document.fullscreenElement || document.webkitFullscreenElement || null;
   }
 
+  function fullscreenActive() {
+    if (fullscreenElement()) {
+      return true;
+    }
+    try {
+      const topDocument = window.top && window.top.document;
+      return Boolean(topDocument
+        && (topDocument.fullscreenElement || topDocument.webkitFullscreenElement));
+    } catch (_error) {
+      // Cross-origin player frames cannot inspect their parent document. A
+      // viewport-sized player root is the safest remaining fullscreen signal.
+    }
+    return queryAllDeep(config.videoRoots).some((root) => {
+      if (!isVisible(root)) return false;
+      const rect = root.getBoundingClientRect();
+      return rect.width >= innerWidth * 0.9 && rect.height >= innerHeight * 0.85;
+    });
+  }
+
   function ensurePortal() {
     const host = fullscreenElement() || document.documentElement;
-
-    if (!state.portal) {
-      const portal = document.createElement("div");
-      portal.className = "bcp-one-portal";
-      portal.dataset.bcpOneOwned = "true";
-      state.portal = portal;
+    if (!state.ui) {
+      state.ui = createContentOverlay({
+        onFavorite: onFavoriteActionClick,
+        onPlaceholder: onPlaceholderActionClick,
+        onPlusOne: onPlusOneClick,
+        onPointerEnter: cancelHide,
+        onPointerLeave: scheduleHide
+      });
+      state.portal = state.ui.portal;
     }
-
-    if (state.portal.parentNode !== host) {
-      try {
-        host.appendChild(state.portal);
-      } catch (_error) {
-        document.documentElement.appendChild(state.portal);
-      }
-    }
-
-    return state.portal;
+    return state.ui.ensureHost(host);
   }
 
   function ensureButton() {
-    const portal = ensurePortal();
-
-    if (state.button && state.button.isConnected) {
-      if (state.button.parentNode !== portal) {
-        portal.appendChild(state.button);
-      }
-      return state.button;
-    }
-
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "bcp-one-button";
-    button.textContent = "+1";
-    button.hidden = true;
-    button.dataset.bcpOneOwned = "true";
-    button.addEventListener("pointerenter", cancelHide);
-    button.addEventListener("pointerleave", scheduleHide);
-    button.addEventListener("click", onPlusOneClick);
-    portal.appendChild(button);
-    state.button = button;
-    return button;
+    ensurePortal();
+    renderActionBar();
+    state.actionBar = state.ui.actionBar();
+    state.button = state.ui.plusOneButton();
+    return state.button;
   }
 
-  function createDouyinCanvasSnapshot(candidate, rect) {
-    const sourceId = candidate.dataset.bcpDouyinCanvasSourceId;
-    if (!sourceId) {
-      return null;
+  function onPlaceholderActionClick(event, action) {
+    event.preventDefault();
+    event.stopPropagation();
+    cancelHide();
+    if (action === "reply") {
+      prepareReply();
     }
-    const source = Array.from(
-      document.querySelectorAll("canvas[data-bcp-douyin-canvas-source-id]")
-    ).find((canvas) => canvas.dataset.bcpDouyinCanvasSourceId === sourceId);
-    if (!(source instanceof HTMLCanvasElement)) {
-      return null;
-    }
-    const sourceRect = source.getBoundingClientRect();
-    if (sourceRect.width <= 0 || sourceRect.height <= 0 || source.width <= 0 || source.height <= 0) {
-      return null;
-    }
+  }
 
-    const visibleLeft = Math.max(rect.left, sourceRect.left);
-    const visibleTop = Math.max(rect.top, sourceRect.top);
-    const visibleRight = Math.min(rect.right, sourceRect.right);
-    const visibleBottom = Math.min(rect.bottom, sourceRect.bottom);
-    const visibleWidth = visibleRight - visibleLeft;
-    const visibleHeight = visibleBottom - visibleTop;
-    if (visibleWidth <= 0 || visibleHeight <= 0) {
-      return null;
+  function onFavoriteActionClick(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    cancelHide();
+    if (!state.settings.actions.favorite || !state.message || !state.favoritesRuntime) {
+      return;
     }
+    const hasRichAssets = Boolean(state.richPayload && state.richPayload.assets.length);
+    void state.favoritesRuntime.favoriteText(state.message, hasRichAssets);
+  }
 
-    const scaleX = source.width / sourceRect.width;
-    const scaleY = source.height / sourceRect.height;
-    const sourceX = (visibleLeft - sourceRect.left) * scaleX;
-    const sourceY = (visibleTop - sourceRect.top) * scaleY;
-    const sourceWidth = Math.min(visibleWidth * scaleX, source.width - sourceX);
-    const sourceHeight = Math.min(visibleHeight * scaleY, source.height - sourceY);
-    if (sourceWidth <= 0 || sourceHeight <= 0) {
-      return null;
-    }
-
-    const snapshot = document.createElement("canvas");
-    const pixelScale = Math.max(1, Math.min(4, Math.max(scaleX, scaleY)));
-    snapshot.width = Math.max(1, Math.round(visibleWidth * pixelScale));
-    snapshot.height = Math.max(1, Math.round(visibleHeight * pixelScale));
-    const context = snapshot.getContext("2d");
-    if (!context) {
-      return null;
-    }
-    try {
-      context.drawImage(
-        source,
-        sourceX,
-        sourceY,
-        sourceWidth,
-        sourceHeight,
-        0,
-        0,
-        snapshot.width,
-        snapshot.height
-      );
-    } catch (_error) {
-      return null;
-    }
-    snapshot.dataset.bcpDouyinSnapshot = "true";
-    snapshot.setAttribute("aria-hidden", "true");
-    return {
-      element: snapshot,
-      rect: {
-        left: visibleLeft,
-        top: visibleTop,
-        width: visibleWidth,
-        height: visibleHeight
-      }
-    };
+  function renderActionBar() {
+    if (state.ui) state.ui.setActions(state.settings.actions);
   }
 
   function freezeOverlayCandidate(candidate) {
     const rect = candidate.getBoundingClientRect();
     const computed = getComputedStyle(candidate);
-    const isDouyinCanvas = candidate.dataset.bcpDouyinCanvas === "true";
-    const isDouyinWorker = candidate.dataset.bcpDouyinWorker === "true";
-    if (isDouyinWorker) {
-      window.postMessage({
-        source: "bullet-plus-one-content",
-        type: "freeze-douyin-canvas",
-        trackId: candidate.dataset.bcpDouyinCanvasId,
-        trackIds: candidate.dataset.bcpDouyinCanvasTrackIds,
-        instanceId: candidate.dataset.bcpDouyinCanvasInstanceId,
-        text: candidate.dataset.bcpDouyinCanvasText || ""
-      }, "*");
-      return;
-    }
-    const snapshot = isDouyinCanvas ? createDouyinCanvasSnapshot(candidate, rect) : null;
-    const clone = snapshot ? snapshot.element : candidate.cloneNode(true);
-    const frozenRect = snapshot ? snapshot.rect : rect;
+    const clone = candidate.cloneNode(true);
     const copiedProperties = [
       "display",
       "box-sizing",
@@ -1377,41 +1011,13 @@
       }
     }
 
-    if (isDouyinCanvas) {
-      if (!(clone instanceof HTMLCanvasElement)) {
-        clone.textContent = candidate.dataset.bcpDouyinCanvasText || "";
-        clone.removeAttribute("aria-hidden");
-        clone.style.setProperty(
-          "font",
-          candidate.dataset.bcpDouyinCanvasFont || computed.font,
-          "important"
-        );
-        clone.style.setProperty(
-          "color",
-          candidate.dataset.bcpDouyinCanvasColor || "#ffffff",
-          "important"
-        );
-        clone.style.setProperty(
-          "text-shadow",
-          candidate.dataset.bcpDouyinCanvasShadow || "0 1px 2px rgb(0 0 0 / 80%)",
-          "important"
-        );
-        const stroke = candidate.dataset.bcpDouyinCanvasStroke;
-        if (stroke && stroke !== "transparent") {
-          clone.style.setProperty("-webkit-text-stroke", `1px ${stroke}`, "important");
-        }
-      }
-      clone.style.setProperty("line-height", "1", "important");
-      clone.style.setProperty("overflow", "visible", "important");
-    }
-
     clone.style.setProperty("position", "fixed", "important");
-    clone.style.setProperty("left", `${frozenRect.left}px`, "important");
-    clone.style.setProperty("top", `${frozenRect.top}px`, "important");
+    clone.style.setProperty("left", `${rect.left}px`, "important");
+    clone.style.setProperty("top", `${rect.top}px`, "important");
     clone.style.setProperty("right", "auto", "important");
     clone.style.setProperty("bottom", "auto", "important");
-    clone.style.setProperty("width", `${frozenRect.width}px`, "important");
-    clone.style.setProperty("height", `${frozenRect.height}px`, "important");
+    clone.style.setProperty("width", `${rect.width}px`, "important");
+    clone.style.setProperty("height", `${rect.height}px`, "important");
     clone.style.setProperty("margin", "0", "important");
     clone.style.setProperty("transform", "none", "important");
     clone.style.setProperty("animation", "none", "important");
@@ -1440,80 +1046,15 @@
     }
 
     candidate.style.setProperty("visibility", "hidden", "important");
-    if (isDouyinCanvas) {
-      window.postMessage({
-        source: "bullet-plus-one-content",
-        type: "freeze-douyin-canvas",
-        trackId: candidate.dataset.bcpDouyinCanvasId,
-        trackIds: candidate.dataset.bcpDouyinCanvasTrackIds,
-        instanceId: candidate.dataset.bcpDouyinCanvasInstanceId,
-        text: candidate.dataset.bcpDouyinCanvasText || ""
-      }, "*");
-    }
     ensurePortal().appendChild(clone);
     state.frozenClone = clone;
   }
 
   function unfreezeOverlayCandidate() {
-    const candidate = state.candidate;
     const frozenClone = state.frozenClone;
-    const isDouyinCanvas = candidate && candidate.dataset.bcpDouyinCanvas === "true";
-    const releaseDouyinTracks = () => {
-      window.postMessage({
-        source: "bullet-plus-one-content",
-        type: "unfreeze-douyin-canvas",
-        trackId: candidate.dataset.bcpDouyinCanvasId,
-        trackIds: candidate.dataset.bcpDouyinCanvasTrackIds,
-        instanceId: candidate.dataset.bcpDouyinCanvasInstanceId,
-        text: candidate.dataset.bcpDouyinCanvasText || ""
-      }, "*");
-    };
-
-    if (isDouyinCanvas && frozenClone && frozenClone.isConnected) {
+    if (frozenClone) {
+      frozenClone.remove();
       state.frozenClone = null;
-      frozenClone.classList.add("bcp-one-resuming");
-      frozenClone.style.removeProperty("transform");
-      const rect = frozenClone.getBoundingClientRect();
-      const measuredVelocity = Number(candidate.dataset.bcpDouyinCanvasVelocityX);
-      const speed = measuredVelocity < -0.005
-        ? Math.min(0.8, Math.max(0.04, -measuredVelocity))
-        : 0.12;
-      const distance = Math.max(32, rect.right + OVERLAY_HOVER_PADDING);
-      const duration = Math.min(12_000, Math.max(400, distance / speed));
-      let animation = null;
-      try {
-        animation = frozenClone.animate([
-          { transform: "translateX(0)" },
-          { transform: `translateX(-${distance}px)` }
-        ], {
-          duration,
-          easing: "linear",
-          fill: "forwards"
-        });
-      } catch (_error) {
-        animation = null;
-      }
-
-      if (animation) {
-        animation.finished.then(() => {
-          frozenClone.remove();
-          releaseDouyinTracks();
-        }, () => {
-          frozenClone.remove();
-          releaseDouyinTracks();
-        });
-      } else {
-        frozenClone.remove();
-        releaseDouyinTracks();
-      }
-    } else {
-      if (isDouyinCanvas) {
-        releaseDouyinTracks();
-      }
-      if (frozenClone) {
-        frozenClone.remove();
-        state.frozenClone = null;
-      }
     }
 
     if (state.candidate && state.candidate.isConnected && state.originalVisibility) {
@@ -1544,57 +1085,31 @@
 
   function updateButtonPosition() {
     const positionTarget = state.frozenClone || state.candidate;
-    if (!positionTarget || !state.button || state.button.hidden || !positionTarget.isConnected) {
+    if (!positionTarget || !state.actionBar || state.actionBar.hidden || !positionTarget.isConnected) {
       return;
     }
 
     const rect = positionTarget.getBoundingClientRect();
-    const buttonRect = state.button.getBoundingClientRect();
+    const buttonRect = state.actionBar.getBoundingClientRect();
     const preferredLeft = rect.right + 8;
     const fallbackLeft = rect.right - buttonRect.width - 4;
     const left = preferredLeft + buttonRect.width <= innerWidth - 8 ? preferredLeft : fallbackLeft;
     const top = rect.top + (rect.height - buttonRect.height) / 2;
 
-    state.button.style.left = `${Math.max(8, Math.min(left, innerWidth - buttonRect.width - 8))}px`;
-    state.button.style.top = `${Math.max(8, Math.min(top, innerHeight - buttonRect.height - 8))}px`;
-  }
-
-  function stopPositionTracking() {
-    if (state.positionFrame) {
-      cancelAnimationFrame(state.positionFrame);
-      state.positionFrame = 0;
-    }
-  }
-
-  function startPositionTracking() {
-    stopPositionTracking();
-
-    const track = () => {
-      state.positionFrame = 0;
-      if (state.candidateKind !== "overlay" || !state.candidate || !state.candidate.isConnected) {
-        if (state.candidateKind === "overlay") {
-          clearSelection();
-        }
-        return;
-      }
-
-      updateButtonPosition();
-      state.positionFrame = requestAnimationFrame(track);
-    };
-
-    state.positionFrame = requestAnimationFrame(track);
+    state.actionBar.style.left = `${Math.max(8, Math.min(left, innerWidth - buttonRect.width - 8))}px`;
+    state.actionBar.style.top = `${Math.max(8, Math.min(top, innerHeight - buttonRect.height - 8))}px`;
   }
 
   function selectCandidate(candidate, kind) {
     if (kind === "overlay" && !isOverlayMessageElement(candidate)) {
       return false;
     }
+    if (kind !== "overlay" && isBilibiliChatAdvertisement(candidate)) {
+      return false;
+    }
 
-    const isDouyinCanvas = candidate.dataset.bcpDouyinCanvas === "true";
-    const richPayload = isDouyinCanvas ? null : richPayloadFromCandidate(candidate);
-    const message = isDouyinCanvas
-      ? shared.parseMessageText(candidate.dataset.bcpDouyinCanvasText, config.maxLength)
-      : (richPayload && richPayload.text) || textFromCandidate(candidate);
+    const richPayload = richPayloadFromCandidate(candidate);
+    const message = (richPayload && richPayload.text) || textFromCandidate(candidate);
     if (!shared.isPlausibleMessage(message, config.maxLength)) {
       return false;
     }
@@ -1604,35 +1119,16 @@
     state.candidate = candidate;
     state.candidateKind = kind || "chat";
     state.message = message;
+    state.sender = senderFromCandidate(candidate, message, state.candidateKind);
     state.richPayload = richPayload;
     candidate.classList.add("bcp-one-target");
     if (state.candidateKind === "overlay") {
       freezeOverlayCandidate(candidate);
-      if (candidate.dataset.bcpDouyinWorker === "true") {
-        startPositionTracking();
-      }
     }
 
-    const button = ensureButton();
-    button.hidden = false;
-    button.title = `复读：${message}`;
-    button.setAttribute("aria-label", `弹幕加一：${message}`);
-    updateButtonPosition();
-
-    if (isDouyinCanvas) {
-      setTimeout(() => {
-        if (state.candidate !== candidate) {
-          return;
-        }
-        const richMessage = resolveDouyinCanvasMessage(message) || message;
-        if (!shared.isPlausibleMessage(richMessage, config.maxLength)) {
-          return;
-        }
-        state.message = richMessage;
-        button.title = `复读：${richMessage}`;
-        button.setAttribute("aria-label", `弹幕加一：${richMessage}`);
-      }, 0);
-    }
+    ensureButton();
+    state.ui.showActionBar(message, state.sender);
+    requestAnimationFrame(updateButtonPosition);
     return true;
   }
 
@@ -1645,11 +1141,9 @@
     state.candidate = null;
     state.candidateKind = null;
     state.message = "";
+    state.sender = "";
     state.richPayload = null;
-    stopPositionTracking();
-    if (state.button) {
-      state.button.hidden = true;
-    }
+    if (state.ui) state.ui.hideActionBar();
   }
 
   function cancelHide() {
@@ -1673,45 +1167,147 @@
   }
 
   function showToast(message, kind) {
-    if (state.toast) {
-      state.toast.remove();
-    }
-
-    const toast = document.createElement("div");
-    toast.className = `bcp-one-toast bcp-one-toast--${kind || "info"}`;
-    toast.dataset.bcpOneOwned = "true";
-    toast.textContent = message;
-    ensurePortal().appendChild(toast);
-    state.toast = toast;
-
-    requestAnimationFrame(() => toast.classList.add("is-visible"));
-    setTimeout(() => {
-      toast.classList.remove("is-visible");
-      setTimeout(() => toast.remove(), 180);
-      if (state.toast === toast) {
-        state.toast = null;
-      }
-    }, 1800);
+    ensurePortal();
+    state.ui.showToast(message, kind || "info");
   }
 
-  function findInput() {
+  function inputSurfaceScore(element, index) {
+    const fullscreen = fullscreenElement();
+    const isFullscreen = fullscreenActive();
+    const insideFullscreen = Boolean(fullscreen && (fullscreen === element || fullscreen.contains(element)));
+    const insideVideo = Boolean(closestMatching(element, config.videoRoots));
+    const insideChat = Boolean(closestMatching(element, config.chatRoots));
+    const quickInput = platformId === "bilibili" && isBilibiliQuickInputRegion(element);
+    let score = 1000 - index;
+    if (isFullscreen) {
+      if (insideFullscreen) score += 1400;
+      if (insideVideo) score += 800;
+      if (quickInput) score += 900;
+      if (insideChat && !insideFullscreen) score -= 1200;
+    } else {
+      if (insideChat) score += 700;
+      if (!insideVideo) score += 300;
+      if (insideVideo || quickInput) score -= 900;
+    }
+    return score;
+  }
+
+  function findInput(options) {
+    const reply = Boolean(options && options.reply);
     const candidates = queryAllDeep(config.inputs);
+    const seen = new Set(candidates);
+    const addEditors = (root) => {
+      if (!(root instanceof Element || root instanceof Document || root instanceof ShadowRoot)) {
+        return;
+      }
+      let editors = [];
+      try {
+        editors = root.querySelectorAll(TEXT_EDITOR_SELECTOR);
+      } catch (_error) {
+        editors = [];
+      }
+      for (const editor of editors) {
+        if (!seen.has(editor)) {
+          seen.add(editor);
+          candidates.push(editor);
+        }
+      }
+    };
+    const fullscreen = fullscreenElement();
+    if (fullscreenActive()) {
+      if (fullscreen) addEditors(fullscreen);
+      queryAllDeep(config.videoRoots).forEach(addEditors);
+    } else {
+      queryAllDeep(config.chatRoots).forEach(addEditors);
+    }
     const usable = candidates.filter((element) => {
       const disabled = element.matches(":disabled")
         || element.getAttribute("aria-disabled") === "true"
         || element.getAttribute("contenteditable") === "false";
-      return !disabled && element.isConnected;
+      return !disabled && element.isConnected && element.matches(TEXT_EDITOR_SELECTOR);
     });
-    const visible = usable.find((element) => isVisible(element));
-    if (visible) {
-      return visible;
+    const visible = usable
+      .filter((element) => isVisible(element))
+      .map((element) => ({ element, index: candidates.indexOf(element) }))
+      .sort((left, right) => inputSurfaceScore(right.element, right.index)
+        - inputSurfaceScore(left.element, left.index));
+    if (reply && platformId === "bilibili" && fullscreenActive()) {
+      const fullscreenReplyInput = visible.find(({ element }) =>
+        isBilibiliQuickInputRegion(element)
+          || Boolean(closestMatching(element, config.videoRoots))
+          || Boolean(fullscreen && (fullscreen === element || fullscreen.contains(element))));
+      return fullscreenReplyInput ? fullscreenReplyInput.element : null;
+    }
+    if (visible.length) {
+      return visible[0].element;
     }
 
     // Native fullscreen only renders descendants of the fullscreen player.
     // Bilibili keeps its real chat input outside that subtree, but its event
     // handlers remain usable programmatically.
-    if (platformId === "bilibili" && fullscreenElement()) {
+    if (!reply && platformId === "bilibili" && fullscreenActive()) {
       return usable[0] || null;
+    }
+    return null;
+  }
+
+  function activateBilibiliQuickInput() {
+    if (platformId !== "bilibili" || !fullscreenActive()) {
+      return false;
+    }
+    restoreBilibiliQuickBars(null, true);
+    state.rootsCachedAt = 0;
+    const selectors = [
+      ...BILIBILI_QUICK_BAR_SELECTORS,
+      "[aria-expanded='false'][aria-label*='弹幕']",
+      "[title*='弹幕输入']",
+      "[data-testid*='danmaku'][role='button']",
+      "[data-e2e*='danmaku'][role='button']"
+    ];
+    const candidates = queryAllDeep(selectors)
+      .filter((element) => isVisible(element)
+        && Boolean(closestMatching(element, config.videoRoots) || fullscreenElement()?.contains(element)))
+      .sort((left, right) => {
+        const leftExpanded = left.getAttribute("aria-expanded") === "false" ? 1 : 0;
+        const rightExpanded = right.getAttribute("aria-expanded") === "false" ? 1 : 0;
+        return rightExpanded - leftExpanded;
+      });
+
+    for (const candidate of candidates) {
+      const nestedEditors = Array.from(candidate.querySelectorAll(TEXT_EDITOR_SELECTOR));
+      if (candidate.matches(TEXT_EDITOR_SELECTOR)
+          || nestedEditors.some((editor) => isVisible(editor))) {
+        continue;
+      }
+      const nestedActivator = Array.from(candidate.querySelectorAll(
+        "[aria-expanded='false'], button, [role='button']"
+      )).find((element) => isVisible(element));
+      const clickTarget = nestedActivator || candidate;
+      const marker = shared.normalizeWhitespace(
+        clickTarget.innerText || clickTarget.textContent || clickTarget.getAttribute("aria-label")
+      );
+      if (clickTarget.matches("button, [role='button']") && /^(?:发送|send)$/i.test(marker)) {
+        continue;
+      }
+      if (typeof clickTarget.click === "function") {
+        clickTarget.click();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async function findReplyInput() {
+    let input = findInput({ reply: true });
+    if (input || platformId !== "bilibili" || !fullscreenActive()) {
+      return input;
+    }
+    activateBilibiliQuickInput();
+    for (const delay of [0, 40, 80, 140, 220, 360]) {
+      if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+      state.rootsCachedAt = 0;
+      input = findInput({ reply: true });
+      if (input) return input;
     }
     return null;
   }
@@ -1725,7 +1321,7 @@
 
   function setNativeValue(input, value) {
     const hiddenBilibiliFullscreen = platformId === "bilibili"
-      && Boolean(fullscreenElement())
+      && fullscreenActive()
       && !isVisible(input);
     if (!hiddenBilibiliFullscreen) {
       input.focus({ preventScroll: true });
@@ -1753,7 +1349,9 @@
       return;
     }
 
-    if (input.isContentEditable || input.getAttribute("contenteditable") === "true") {
+    if (input.isContentEditable
+        || (input.hasAttribute("contenteditable")
+          && input.getAttribute("contenteditable") !== "false")) {
       if (hiddenBilibiliFullscreen) {
         input.textContent = value;
         input.dispatchEvent(new InputEvent("input", {
@@ -1794,9 +1392,67 @@
     }
   }
 
+  function placeCaretAtEnd(input) {
+    if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
+      const length = input.value.length;
+      if (typeof input.setSelectionRange === "function") {
+        input.setSelectionRange(length, length);
+      }
+      return;
+    }
+    if (input.isContentEditable
+        || (input.hasAttribute("contenteditable")
+          && input.getAttribute("contenteditable") !== "false")) {
+      const selection = getSelection();
+      if (!selection) {
+        return;
+      }
+      const range = document.createRange();
+      range.selectNodeContents(input);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  }
+
+  function focusReplyInput(input, expectedValue) {
+    const focus = () => {
+      const editor = input.isConnected ? input : findInput({ reply: true });
+      if (!editor || inputText(editor) !== expectedValue) {
+        return;
+      }
+      editor.focus({ preventScroll: true });
+      placeCaretAtEnd(editor);
+    };
+    focus();
+    requestAnimationFrame(focus);
+    setTimeout(focus, 50);
+  }
+
+  async function prepareReply() {
+    if (!state.settings.actions.reply || !state.candidate) {
+      return;
+    }
+    const sender = state.sender
+      || senderFromCandidate(state.candidate, state.message, state.candidateKind);
+    if (!sender) {
+      showToast("未能识别这条弹幕的发送者", "error");
+      return;
+    }
+    const input = await findReplyInput();
+    if (!input) {
+      showToast(`未找到${config.name}弹幕输入框，请确认已登录并展开聊天区`, "error");
+      return;
+    }
+    const nextValue = shared.replyDraftValue(inputText(input), sender);
+    setNativeValue(input, nextValue);
+    clearSelection();
+    focusReplyInput(input, nextValue);
+  }
+
   function buttonScore(button, input, selectorIndex, scopeBonus) {
     const visible = isVisible(button);
-    const allowHidden = platformId === "bilibili" && Boolean(fullscreenElement());
+    const allowHidden = platformId === "bilibili" && fullscreenActive();
     if ((!visible && !allowHidden)
       || button.matches(":disabled")
       || button.getAttribute("aria-disabled") === "true"
@@ -1987,7 +1643,7 @@
           return;
         }
         const looksEditable = editor.matches(
-          "input, textarea, [contenteditable='true'], [role='textbox']"
+          "input, textarea, [contenteditable]:not([contenteditable='false']), [role='textbox']"
         );
         if (!looksEditable) {
           return;
@@ -2118,7 +1774,7 @@
         if (active instanceof HTMLElement
           && fullPlayer
           && fullPlayer.contains(active)
-          && active.matches("input, textarea, [contenteditable='true'], [role='textbox']")) {
+          && active.matches("input, textarea, [contenteditable]:not([contenteditable='false']), [role='textbox']")) {
           active.blur();
         }
         dismissBilibiliQuickInput();
@@ -2318,14 +1974,14 @@
     const now = Date.now();
     if (now - state.lastActionAt < 700) {
       showToast("操作太快，请稍后再试", "warning");
-      return;
+      return false;
     }
     state.lastActionAt = now;
 
     const input = findInput();
     if (!input) {
       showToast(`未找到${config.name}弹幕输入框，请确认已登录并展开聊天区`, "error");
-      return;
+      return false;
     }
 
     setNativeValue(input, message);
@@ -2359,25 +2015,21 @@
 
     if (!consumed) {
       showToast("自动发送失败，弹幕仍在输入框，请重试", "error");
-      return;
+      return false;
     }
 
     releaseInputFocus(input);
     showToast("已执行 +1", "success");
+    return true;
   }
 
   function onPlusOneClick(event) {
     event.preventDefault();
     event.stopPropagation();
-    let message = state.message;
-    if (state.candidate && state.candidate.dataset.bcpDouyinCanvas === "true") {
-      const canvasText = shared.parseMessageText(
-        state.candidate.dataset.bcpDouyinCanvasText,
-        config.maxLength
-      );
-      message = resolveDouyinCanvasMessage(canvasText) || message || canvasText;
-      state.message = message;
+    if (!state.settings.actions.plusOne) {
+      return;
     }
+    const message = state.message;
     const richPayload = state.richPayload;
     if (platformId === "bilibili" && richPayload && richPayload.assets.length) {
       repeatBilibiliRichPayload(richPayload);
@@ -2393,12 +2045,11 @@
     }
 
     const path = event.composedPath ? event.composedPath() : [event.target];
-    updateChatScrollLock(path);
     if (isOwned(event.target)) {
       return;
     }
 
-    if (pathTouchesBilibiliChatActions(path)) {
+    if (pathTouchesBilibiliChatActions(path) || pathTouchesBilibiliChatAdvertisement(path)) {
       if (state.candidate) {
         clearSelection();
       }
@@ -2416,7 +2067,7 @@
     }
   }
 
-  function restoreBilibiliQuickBars(event) {
+  function restoreBilibiliQuickBars(event, force) {
     if (platformId !== "bilibili") {
       return;
     }
@@ -2435,7 +2086,7 @@
     const keyboardOpensQuickInput = Boolean(event
       && event.type === "keydown"
       && event.key === "Enter"
-      && fullscreenElement());
+      && fullscreenActive());
     const markerRequestsQuickInput = /(?:danmaku|danmu|dm)[-_ ]?(?:input|send)|(?:input|send)[-_ ]?(?:danmaku|danmu|dm)|弹幕|快捷(?:输入|发送)|发送|send|input/i
       .test(marker);
     const requestsQuickInput = targetsQuickInput
@@ -2456,7 +2107,7 @@
 
     const now = Date.now();
     for (const [container, saved] of state.hiddenBilibiliQuickBars) {
-      if (!event && now - saved.hiddenAt < 500) {
+      if (!event && !force && now - saved.hiddenAt < 500) {
         continue;
       }
       if (container.isConnected) {
@@ -2523,7 +2174,6 @@
   }
 
   function onPointerOut(event) {
-    releaseChatScrollLockAfterPointerOut(event.relatedTarget);
     if (!state.candidate) {
       return;
     }
@@ -2545,7 +2195,8 @@
   }
 
   function onAltClick(event) {
-    if (!isEnabled() || !state.settings.altClick || !event.altKey || isOwned(event.target)) {
+    if (!isEnabled() || !state.settings.actions.plusOne
+        || !state.settings.altClick || !event.altKey || isOwned(event.target)) {
       return;
     }
 
@@ -2564,32 +2215,11 @@
 
     event.preventDefault();
     event.stopPropagation();
-    let message = state.message;
-    if (state.candidate && state.candidate.dataset.bcpDouyinCanvas === "true") {
-      const canvasText = shared.parseMessageText(
-        state.candidate.dataset.bcpDouyinCanvasText,
-        config.maxLength
-      );
-      message = resolveDouyinCanvasMessage(canvasText) || message || canvasText;
-      state.message = message;
-    }
-    repeatMessage(message);
+    repeatMessage(state.message);
     scheduleHide();
   }
 
-  function onViewportChange(event) {
-    const lock = state.chatScrollLock;
-    if (lock && event) {
-      const target = lock.targets.find((item) => item.element === event.target);
-      if (target && target.element.isConnected) {
-        if (Math.abs(target.element.scrollTop - target.top) > 0.5) {
-          target.element.scrollTop = target.top;
-        }
-        if (Math.abs(target.element.scrollLeft - target.left) > 0.5) {
-          target.element.scrollLeft = target.left;
-        }
-      }
-    }
+  function onViewportChange() {
     requestAnimationFrame(updateButtonPosition);
   }
 
@@ -2602,14 +2232,20 @@
   function applySettings(saved) {
     state.settings = shared.mergeSettings(saved);
     shared.applyPlatformColors(document.documentElement, state.settings.colors[platformId]);
+    renderActionBar();
     if (!isEnabled()) {
-      releaseChatScrollLock();
       clearSelection();
     }
   }
 
   storageGet().then(applySettings);
   ensureButton();
+  state.favoritesRuntime = createFavoritesRuntime({
+    enabled: () => isEnabled() && state.settings.actions.favorite,
+    platform: platformId,
+    sendText: (message) => repeatMessage(message),
+    showToast
+  });
   document.addEventListener("pointerover", onPointerOver, true);
   document.addEventListener("pointermove", onPointerMove, true);
   document.addEventListener("pointerout", onPointerOut, true);

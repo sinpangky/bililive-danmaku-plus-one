@@ -1,5 +1,6 @@
 # Generated release archives
 dist/
+build/
 
 # Dependencies and coverage
 node_modules/

@@ -1,3 +1,35 @@
+// @ts-nocheck -- performance-sensitive page hook; typed models are extracted separately.
+import {
+  boxEdges,
+  normalizeText,
+  numberOr,
+  plausibleText,
+  rendererBox,
+  rendererPaint,
+  serializeBarrage
+} from "../platforms/douyin/barrage-model";
+import {
+  DOUYIN_CONTENT_SOURCE,
+  DOUYIN_PAGE_SOURCE,
+  isDouyinProtocolMessage
+} from "../platforms/douyin/protocol";
+import {
+  canvasPixelSize,
+  channelInfo,
+  modelDpr,
+  realChannelRange,
+  trackDuration,
+  trackInternalHeight,
+  trackIsExpired,
+  trackNeedsReserve,
+  trackPriority,
+  trackRect,
+  trackRightEdgeVisible,
+  trackRightPosition,
+  trackSpeed
+} from "../platforms/douyin/track-model";
+import { extractSenderFromRecord } from "../core/reply";
+
 (function installDanmakuEchoDouyinTracker() {
   "use strict";
 
@@ -6,14 +38,18 @@
   }
   globalThis.__bulletPlusOneDouyinCanvasHook = true;
 
-  const CONTENT_SOURCE = "danmaku-echo-douyin-content";
-  const PAGE_SOURCE = "danmaku-echo-douyin-page";
-  const DEBUG_VERSION = "douyin-dom-renderer-v8-track-hover";
-  const DOM_ACTION_WIDTH = 50;
+  const DEBUG_VERSION = "douyin-dom-renderer-v9-reply-identity";
+  const DOM_ACTION_HEIGHT = 40;
+  const DOM_ACTION_ITEM_WIDTHS = Object.freeze({
+    plusOne: 38.4,
+    reply: 56,
+    favorite: 56
+  });
+  const DOM_ACTION_DIVIDER_WIDTH = 3;
   const DOM_ACTION_GAP = 8;
   const DOM_ACTION_TRAILING_SPACE = 12;
-  const DOM_BARRAGE_PADDING_X = 8;
-  const DOM_BARRAGE_PADDING_Y = 4;
+  const DOM_BARRAGE_PADDING = 8;
+  const DOM_BARRAGE_PADDING_MAX = 12;
   const DOM_NODE_LIMIT = 160;
   const RENDERER_HEARTBEAT_TIMEOUT = 15_000;
   const RENDERER_RESULT_TIMEOUT = 8_000;
@@ -32,8 +68,30 @@
   let measurementContext = null;
   let debugMarkerTimer = 0;
   let nextActivationRequestId = 1;
+  let nextFavoriteRequestId = 1;
+  let nextReplyRequestId = 1;
   let rendererEnabled = false;
   let rendererHeartbeatAt = 0;
+  let rendererActions = { plusOne: true, reply: true, favorite: true };
+
+  function normalizeRendererActions(value) {
+    const actions = value && typeof value === "object" ? value : {};
+    return {
+      plusOne: typeof actions.plusOne === "boolean" ? actions.plusOne : true,
+      reply: typeof actions.reply === "boolean" ? actions.reply : true,
+      favorite: typeof actions.favorite === "boolean" ? actions.favorite : true
+    };
+  }
+
+  function enabledRendererActions() {
+    return ["plusOne", "reply", "favorite"].filter((key) => rendererActions[key]);
+  }
+
+  function rendererActionWidth() {
+    const actions = enabledRendererActions();
+    return actions.reduce((width, key) => width + DOM_ACTION_ITEM_WIDTHS[key], 0)
+      + Math.max(0, actions.length - 1) * DOM_ACTION_DIVIDER_WIDTH;
+  }
   function rendererRouteKey(value) {
     try {
       const url = new URL(value, location.href);
@@ -47,6 +105,7 @@
   let rendererLocationHref = location.href;
   let rendererLocationRouteKey = rendererRouteKey(location.href);
   const activationRequests = new Map();
+  const favoriteRequests = new Map();
   const ownMessages = [];
 
   const debugState = {
@@ -69,12 +128,8 @@
       rendererResults: 0,
       ownMessagesQueued: 0,
       ownBarragesMatched: 0,
-      skippedBarrages: 0,
-      probes: 0,
-      probeHits: 0,
-      probeMisses: 0
+      skippedBarrages: 0
     },
-    lastProbe: null,
     lastError: "",
     events: []
   };
@@ -145,7 +200,6 @@
       href: location.href,
       readyState: document.readyState,
       counters: Object.assign({}, debugState.counters),
-      lastProbe: debugState.lastProbe,
       lastError: debugState.lastError,
       instanceCount: instances.size,
       orphanCount: orphanMessages.size,
@@ -208,38 +262,6 @@
       console.debug("[Danmaku Echo][Douyin page]", type, entry.details);
     }
     scheduleDebugMarker();
-  }
-
-  function numberOr(value, fallback) {
-    const numeric = Number(value);
-    return Number.isFinite(numeric) ? numeric : fallback;
-  }
-
-  function normalizeText(value) {
-    return String(value == null ? "" : value)
-      .replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-
-  function plausibleText(value) {
-    const text = normalizeText(value);
-    const length = Array.from(text).length;
-    return length > 0
-      && length <= 1000
-      && !/^(高清|超清|蓝光|原画|自动|流畅|发送|设置|退出全屏|直播已结束)$/.test(text);
-  }
-
-  function boxEdges(value) {
-    if (Array.isArray(value)) {
-      const top = numberOr(value[0], 0);
-      const right = numberOr(value[1], top);
-      const bottom = numberOr(value[2], top);
-      const left = numberOr(value[3], right);
-      return { top, right, bottom, left };
-    }
-    const edge = numberOr(value, 0);
-    return { top: edge, right: edge, bottom: edge, left: edge };
   }
 
   function ensureMeasurementContext() {
@@ -376,82 +398,6 @@
     return result;
   }
 
-  function safePaint(value) {
-    if (typeof value === "string") {
-      return value.slice(0, 200);
-    }
-    if (!value || typeof value !== "object" || !Array.isArray(value.gradientPieces)) {
-      return "";
-    }
-    return {
-      type: value.type === "radial" ? "radial" : "linear",
-      gradientPieces: value.gradientPieces.slice(0, 12)
-        .filter((piece) => Array.isArray(piece) && piece.length >= 2)
-        .map((piece) => [numberOr(piece[0], 0), String(piece[1]).slice(0, 100)])
-    };
-  }
-
-  function safeBox(value) {
-    if (Array.isArray(value)) {
-      return value.slice(0, 4).map((edge) => numberOr(edge, 0));
-    }
-    return numberOr(value, 0);
-  }
-
-  function serializeContent(item, depth, budget) {
-    if (!item || typeof item !== "object" || depth > 5 || budget.remaining <= 0) {
-      return null;
-    }
-    budget.remaining -= 1;
-    const type = item.type === "text" || item.type === "image" || item.type === "block"
-      ? item.type
-      : "block";
-    const result = { type };
-    if (type === "text") {
-      result.text = String(item.text == null ? "" : item.text).slice(0, 1000);
-    } else if (type === "image" && typeof item.src === "string") {
-      result.src = item.src.slice(0, 4096);
-    }
-    ["width", "height", "fontSize", "strokeWidth", "borderWidth", "borderRadius", "borderRadiusRatio", "opacity"]
-      .forEach((key) => {
-        if (Number.isFinite(Number(item[key]))) {
-          result[key] = Number(item[key]);
-        }
-      });
-    ["fontFamily", "fontWeight"].forEach((key) => {
-      if (typeof item[key] === "string" || typeof item[key] === "number") {
-        result[key] = String(item[key]).slice(0, 100);
-      }
-    });
-    ["color", "strokeColor", "backgroundColor", "borderColor"].forEach((key) => {
-      const value = safePaint(item[key]);
-      if (value) {
-        result[key] = value;
-      }
-    });
-    if (item.margin != null) {
-      result.margin = safeBox(item.margin);
-    }
-    if (item.padding != null) {
-      result.padding = safeBox(item.padding);
-    }
-    if (item.isInline != null) {
-      result.isInline = Boolean(item.isInline);
-    }
-    if (Array.isArray(item.content)) {
-      result.content = item.content
-        .map((child) => serializeContent(child, depth + 1, budget))
-        .filter(Boolean);
-    }
-    return result;
-  }
-
-  function serializeBarrage(options) {
-    const budget = { remaining: 80 };
-    const content = Array.isArray(options.content) ? options.content : [];
-    return content.map((item) => serializeContent(item, 0, budget)).filter(Boolean);
-  }
-
   function pruneOwnMessages(now) {
     const cutoff = now - OWN_MESSAGE_TTL;
     while (ownMessages.length && ownMessages[0].at < cutoff) {
@@ -579,39 +525,6 @@
       .find((canvas) => isDanmakuCanvas(canvas) && !claimed.has(canvas)) || null;
   }
 
-  function modelDpr(instance) {
-    const devicePixelRatio = Math.max(0.25, numberOr(instance.config.devicePixelRatio, 1));
-    const fontSize = Math.max(1, numberOr(instance.config.fontSize, 20));
-    return devicePixelRatio * fontSize / 20;
-  }
-
-  function canvasPixelSize(instance, rect) {
-    const devicePixelRatio = Math.max(0.25, numberOr(instance.config.devicePixelRatio, 1));
-    return {
-      width: Math.max(20, numberOr(instance.config.width, rect.width)) * devicePixelRatio,
-      height: Math.max(20, numberOr(instance.config.height, rect.height)) * devicePixelRatio
-    };
-  }
-
-  function channelInfo(instance, rect) {
-    const pixels = canvasPixelSize(instance, rect);
-    const channelHeight = Math.max(1, numberOr(instance.config.channelHeight, 40)) * modelDpr(instance);
-    const allChannels = Math.max(1, Math.floor(pixels.height / channelHeight));
-    const limits = [pixels.height / channelHeight];
-    const maxHeightRate = numberOr(instance.config.maxHeightRate, 1);
-    if (maxHeightRate * pixels.height) {
-      limits.push(maxHeightRate * pixels.height / channelHeight);
-    }
-    const configured = numberOr(instance.config.maxChannelCount, 0);
-    if (configured > 0) {
-      limits.push(configured);
-    }
-    return {
-      maxCanUse: allChannels,
-      maxDisplay: Math.max(1, Math.floor(Math.min(...limits)) || 1)
-    };
-  }
-
   function ensureChannels(instance, count) {
     while (instance.channels.length < count) {
       instance.channels.push([]);
@@ -619,106 +532,6 @@
     if (instance.channels.length > count) {
       instance.channels.length = count;
     }
-  }
-
-  function trackDuration(track) {
-    return Math.max(1000, numberOr(
-      track.options.duration,
-      numberOr(track.instance.config.duration, 15_000)
-    ));
-  }
-
-  function trackInternalWidth(track) {
-    return track.description.width * modelDpr(track.instance);
-  }
-
-  function trackInternalHeight(track) {
-    return track.description.height * modelDpr(track.instance);
-  }
-
-  function trackRightPosition(track, rect) {
-    const pixels = canvasPixelSize(track.instance, rect);
-    return pixels.width - track.deltaXWithoutDpr * modelDpr(track.instance)
-      + trackInternalWidth(track);
-  }
-
-  function trackIsExpired(track, rect) {
-    const state = track.renderer;
-    if (state && Number.isFinite(state.visualLeft)
-        && (state.hovered || Math.abs(numberOr(state.resumeOffset, 0)) > 0.1)) {
-      return state.visualLeft + Math.max(1, numberOr(state.visualWidth, track.description.width)) <= 0;
-    }
-    return trackRightPosition(track, rect) <= 0;
-  }
-
-  function trackRightEdgeVisible(track, rect) {
-    const pixels = canvasPixelSize(track.instance, rect);
-    const gap = Math.max(0, numberOr(track.instance.config.gap, 100)) * modelDpr(track.instance);
-    return trackRightPosition(track, rect) <= pixels.width - gap;
-  }
-
-  function trackSpeed(track, rect) {
-    const pixels = canvasPixelSize(track.instance, rect);
-    return (pixels.width + trackInternalWidth(track))
-      / trackDuration(track)
-      / modelDpr(track.instance);
-  }
-
-  function usesSpecialRange(track, maxDisplay) {
-    const range = track.options && track.options.channelRange;
-    return Boolean(range && numberOr(range.startIndex, -1) >= 0
-      && maxDisplay > Math.max(1, Math.floor(numberOr(range.len, maxDisplay))));
-  }
-
-  function realChannelRange(track, maxDisplay, maxCanUse) {
-    const range = track.options && track.options.channelRange;
-    if (!usesSpecialRange(track, maxDisplay)) {
-      return { start: 0, end: Math.min(maxCanUse - 1, maxDisplay - 1) };
-    }
-    const start = Math.max(0, Math.floor(numberOr(range.startIndex, 0)));
-    const length = Math.max(1, Math.floor(numberOr(range.len, maxDisplay)));
-    return {
-      start: Math.min(maxCanUse - 1, start),
-      end: Math.min(maxCanUse - 1, start + length - 1)
-    };
-  }
-
-  function trackPriority(track, maxDisplay) {
-    const base = numberOr(track.options.prior, 0);
-    const range = track.options && track.options.channelRange;
-    return usesSpecialRange(track, maxDisplay)
-      ? base + numberOr(range && range.additionalPriority, 100)
-      : base;
-  }
-
-  function trackNeedsReserve(track, maxDisplay) {
-    const range = track.options && track.options.channelRange;
-    const additional = usesSpecialRange(track, maxDisplay)
-      ? numberOr(range && range.additionalReserveDuration, 0)
-      : 0;
-    const reserve = numberOr(track.options.reserveDuration, 0);
-    const startTime = numberOr(track.options.startTime, Date.now());
-    return startTime + reserve + additional > Date.now();
-  }
-
-  function trackRect(track, _now, canvasRect) {
-    if (!track.bookedChannel) {
-      return null;
-    }
-    const instance = track.instance;
-    const pixels = canvasPixelSize(instance, canvasRect);
-    const dpr = modelDpr(instance);
-    const scaleX = canvasRect.width / pixels.width;
-    const scaleY = canvasRect.height / pixels.height;
-    const internalLeft = pixels.width - track.deltaXWithoutDpr * dpr;
-    const internalTop = track.bookedChannel.start
-      * Math.max(1, numberOr(instance.config.channelHeight, 40)) * dpr + 2;
-    return {
-      left: canvasRect.left + internalLeft * scaleX,
-      top: canvasRect.top + internalTop * scaleY,
-      width: trackInternalWidth(track) * scaleX,
-      height: trackInternalHeight(track) * scaleY
-    };
   }
 
   function rendererInstanceSafe(instance) {
@@ -733,36 +546,6 @@
       return fullscreen;
     }
     return document.documentElement || document.body;
-  }
-
-  function rendererPaint(value, background) {
-    if (typeof value === "string") {
-      return value.slice(0, 200);
-    }
-    if (!value || typeof value !== "object" || !Array.isArray(value.gradientPieces)) {
-      return "";
-    }
-    const pieces = value.gradientPieces
-      .filter((piece) => Array.isArray(piece) && piece.length >= 2)
-      .slice(0, 12);
-    if (!pieces.length) {
-      return "";
-    }
-    if (!background) {
-      return String(pieces[0][1]).slice(0, 100);
-    }
-    const stops = pieces.map((piece) => {
-      const offset = Math.max(0, Math.min(1, numberOr(piece[0], 0))) * 100;
-      return `${String(piece[1]).slice(0, 100)} ${offset}%`;
-    });
-    return `${value.type === "radial" ? "radial-gradient(circle" : "linear-gradient(90deg"}, ${stops.join(", ")})`;
-  }
-
-  function rendererBox(value) {
-    const edges = boxEdges(value);
-    return [edges.top, edges.right, edges.bottom, edges.left]
-      .map((edge) => `${Math.max(-100, Math.min(200, numberOr(edge, 0)))}px`)
-      .join(" ");
   }
 
   function applyRendererContentStyle(element, item) {
@@ -870,6 +653,9 @@
     element.dataset.instanceId = String(track.instance.id);
     element.dataset.message = message;
     element.dataset.messageId = messageId;
+    if (track.sender) {
+      element.dataset.sender = track.sender;
+    }
   }
 
   function ensureRendererLayer(instance, canvasRect) {
@@ -885,11 +671,11 @@
       layer.style.position = "fixed";
       layer.style.margin = "0";
       layer.style.padding = "0";
-      layer.style.overflow = "hidden";
+      layer.style.overflow = "visible";
       layer.style.pointerEvents = "none";
-      layer.style.contain = "layout style paint";
+      layer.style.contain = "layout style";
       layer.style.isolation = "isolate";
-      layer.style.zIndex = "2147483000";
+      layer.style.zIndex = "2147483646";
       layer.style.visibility = "hidden";
       layer.hidden = true;
       instance.rendererLayer = layer;
@@ -1101,22 +887,17 @@
     state.sending = false;
     delete state.node.dataset.sending;
     state.button.disabled = false;
-    state.button.textContent = ok ? "✓" : "!";
-    state.button.dataset.result = ok ? "success" : "failure";
+    state.button.textContent = "+1";
+    delete state.button.dataset.result;
+    delete state.node.dataset.sendOk;
     if (ok) {
-      state.node.dataset.sendOk = "true";
       releaseRendererTrack(request.track);
-    } else {
-      delete state.node.dataset.sendOk;
     }
     state.button.title = ok ? "已发送 +1" : `发送失败${reason ? `：${reason}` : ""}`;
     debugState.counters.rendererResults += 1;
     setTimeout(() => {
       if (request.track.renderer === state) {
-        state.button.textContent = "+1";
         state.button.title = "发送相同弹幕（+1）";
-        delete state.button.dataset.result;
-        delete state.node.dataset.sendOk;
       }
     }, ok ? 900 : 1200);
   }
@@ -1127,7 +908,7 @@
       event.preventDefault();
       event.stopPropagation();
     }
-    if (!state || state.sending || !rendererEnabled) {
+    if (!state || state.sending || !rendererEnabled || !rendererActions.plusOne) {
       return;
     }
     const button = state.button;
@@ -1149,7 +930,7 @@
     activationRequests.set(requestId, { track, button, timer });
     debugState.counters.rendererActivations += 1;
     window.postMessage({
-      source: PAGE_SOURCE,
+      source: DOUYIN_PAGE_SOURCE,
       type: "renderer-activate",
       requestId,
       trackId: track.id,
@@ -1158,6 +939,130 @@
       text: track.description.text,
       content: track.content
     }, "*");
+  }
+
+  function activateRendererReply(track, event) {
+    const state = track.renderer;
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    if (!state || !rendererEnabled || !rendererActions.reply) {
+      return;
+    }
+    const button = state.replyButton;
+    if (button.dataset.track !== String(track.id)
+        || button.dataset.instance !== String(track.instance.id)
+        || button.dataset.message !== track.description.text) {
+      failInstanceRenderer(track.instance, "reply-metadata-mismatch");
+      return;
+    }
+    const requestId = nextReplyRequestId;
+    nextReplyRequestId += 1;
+    window.postMessage({
+      source: DOUYIN_PAGE_SOURCE,
+      type: "renderer-reply",
+      requestId,
+      trackId: track.id,
+      instanceId: track.instance.id,
+      messageId: String(track.options.id == null ? track.id : track.options.id),
+      text: track.description.text,
+      sender: track.sender,
+      observedAt: track.observedAt,
+      content: track.content
+    }, "*");
+  }
+
+  function settleRendererFavorite(requestId, ok) {
+    const request = favoriteRequests.get(requestId);
+    if (!request) return;
+    favoriteRequests.delete(requestId);
+    clearTimeout(request.timer);
+    const state = request.track.renderer;
+    if (!state || state.favoriteButton !== request.button) return;
+    request.button.disabled = false;
+    request.button.textContent = ok ? "已收藏" : "收藏";
+    request.button.title = ok ? "已收藏到本房" : "收藏失败或暂不支持该内容";
+    setTimeout(() => {
+      if (request.track.renderer === state) {
+        request.button.textContent = "收藏";
+        request.button.title = "收藏弹幕";
+      }
+    }, ok ? 1000 : 1500);
+  }
+
+  function activateRendererFavorite(track, event) {
+    const state = track.renderer;
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    if (!state || !rendererEnabled || !rendererActions.favorite || state.favoriteButton.disabled) {
+      return;
+    }
+    const button = state.favoriteButton;
+    if (button.dataset.track !== String(track.id)
+        || button.dataset.instance !== String(track.instance.id)
+        || button.dataset.message !== track.description.text) {
+      failInstanceRenderer(track.instance, "favorite-metadata-mismatch");
+      return;
+    }
+    const requestId = nextFavoriteRequestId++;
+    button.disabled = true;
+    button.textContent = "…";
+    const timer = setTimeout(() => settleRendererFavorite(requestId, false), RENDERER_RESULT_TIMEOUT);
+    favoriteRequests.set(requestId, { track, button, timer });
+    window.postMessage({
+      source: DOUYIN_PAGE_SOURCE,
+      type: "renderer-favorite",
+      requestId,
+      trackId: track.id,
+      instanceId: track.instance.id,
+      messageId: String(track.options.id == null ? track.id : track.options.id),
+      text: track.description.text,
+      content: track.content
+    }, "*");
+  }
+
+  function createRendererActionItem(label, action) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "bcp-douyin-dom-action-item";
+    item.textContent = label;
+    item.dataset.action = action;
+    item.dataset.bcpDouyinOwned = "true";
+    return item;
+  }
+
+  function ignoreRendererPlaceholderAction(event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function renderRendererActionBar(state) {
+    const visible = [
+      ["plusOne", state.button],
+      ["reply", state.replyButton],
+      ["favorite", state.favoriteButton]
+    ].filter(([key]) => rendererActions[key]);
+    const fragment = document.createDocumentFragment();
+    visible.forEach(([, item], index) => {
+      if (index > 0) {
+        const divider = document.createElement("span");
+        divider.className = "bcp-douyin-dom-action-divider";
+        divider.setAttribute("aria-hidden", "true");
+        fragment.appendChild(divider);
+      }
+      fragment.appendChild(item);
+    });
+    state.actionBar.replaceChildren(fragment);
+    const width = rendererActionWidth();
+    state.actionBar.hidden = visible.length === 0;
+    state.actionBar.style.flex = `0 0 ${width}px`;
+    state.actionBar.style.width = `${width}px`;
+    state.actionBar.style.minWidth = `${width}px`;
+    state.actionBar.style.maxWidth = `${width}px`;
+    state.node.style.setProperty("--bcp-douyin-action-space", `${width}px`);
   }
 
   function createRendererTrack(track, layer) {
@@ -1190,11 +1095,13 @@
     node.style.userSelect = "none";
     node.style.webkitUserSelect = "none";
     node.style.willChange = "transform";
-    node.style.contain = "layout style paint";
+    node.style.contain = "layout style";
+    node.style.overflow = "visible";
 
     barrage.style.display = "flex";
     barrage.style.alignItems = "center";
-    barrage.style.flex = "1 1 auto";
+    barrage.style.flex = "1 0 auto";
+    barrage.style.flexShrink = "0";
     barrage.style.minWidth = "0";
     barrage.style.height = "100%";
     barrage.style.boxSizing = "border-box";
@@ -1225,25 +1132,36 @@
     const firstText = track.description.firstText || {};
     applyRendererContentStyle(content, firstText);
 
-    const button = document.createElement("button");
-    button.className = "bcp-douyin-dom-action";
-    button.type = "button";
-    button.textContent = "+1";
+    const actionBar = document.createElement("div");
+    actionBar.className = "bcp-douyin-dom-action";
+    actionBar.dataset.bcpDouyinOwned = "true";
+    actionBar.setAttribute("role", "toolbar");
+    actionBar.setAttribute("aria-label", "弹幕快捷操作");
+    setRendererMetadata(actionBar, track);
+
+    const button = createRendererActionItem("+1", "plus-one");
+    button.classList.add("bcp-douyin-dom-plus-one");
     button.title = "发送相同弹幕（+1）";
     button.setAttribute("aria-label", `发送相同弹幕：${track.description.text}`);
     setRendererMetadata(button, track);
-    button.style.flex = `0 0 ${DOM_ACTION_WIDTH}px`;
-    button.style.width = `${DOM_ACTION_WIDTH}px`;
-    button.style.maxWidth = `${DOM_ACTION_WIDTH}px`;
-    button.style.boxSizing = "border-box";
+
+    const replyButton = createRendererActionItem("回复", "reply");
+    replyButton.setAttribute("aria-label", `回复弹幕：${track.description.text}`);
+    setRendererMetadata(replyButton, track);
+    const favoriteButton = createRendererActionItem("收藏", "favorite");
+    favoriteButton.setAttribute("aria-label", `收藏弹幕：${track.description.text}`);
+    setRendererMetadata(favoriteButton, track);
 
     barrage.appendChild(content);
-    node.append(barrage, button);
+    node.append(barrage, actionBar);
     const state = {
       node,
       barrage,
       content,
+      actionBar,
       button,
+      replyButton,
+      favoriteButton,
       hovered: false,
       sending: false,
       visualLeft: null,
@@ -1255,6 +1173,7 @@
       releaseTimer: 0
     };
     track.renderer = state;
+    renderRendererActionBar(state);
     instance.rendererNodes.set(track.id, node);
     node.addEventListener("pointerenter", () => holdRendererTrack(track));
     node.addEventListener("pointerleave", () => scheduleRendererTrackRelease(track));
@@ -1264,6 +1183,10 @@
       event.stopPropagation();
     });
     button.addEventListener("click", (event) => activateRendererTrack(track, event));
+    replyButton.addEventListener("pointerdown", ignoreRendererPlaceholderAction);
+    replyButton.addEventListener("click", (event) => activateRendererReply(track, event));
+    favoriteButton.addEventListener("pointerdown", ignoreRendererPlaceholderAction);
+    favoriteButton.addEventListener("click", (event) => activateRendererFavorite(track, event));
     layer.appendChild(node);
     debugState.counters.rendererNodesCreated += 1;
     return state;
@@ -1283,11 +1206,13 @@
       state.visualLeft = targetLeft + numberOr(state.resumeOffset, 0);
     }
     if (!state.hovered) {
+      const actionWidth = Math.max(0,
+        numberOr(track.description.actionWidth, rendererActionWidth()));
       const width = Math.max(
-        DOM_ACTION_WIDTH + DOM_ACTION_GAP + DOM_ACTION_TRAILING_SPACE + 1,
+        actionWidth + DOM_ACTION_GAP + DOM_ACTION_TRAILING_SPACE + 1,
         barrageRect.width
       );
-      const height = Math.max(24, barrageRect.height);
+      const height = Math.max(DOM_ACTION_HEIGHT, barrageRect.height);
       if (Math.abs(width - state.visualWidth) > 0.1) {
         state.node.style.width = `${width}px`;
         state.visualWidth = width;
@@ -1325,7 +1250,7 @@
       if (!track.bookedChannel) {
         continue;
       }
-      const barrageRect = trackRect(track, 0, canvasRect);
+      const barrageRect = trackRect(track, canvasRect);
       if (!barrageRect) {
         continue;
       }
@@ -1597,19 +1522,27 @@
       return false;
     }
     const sourcePadding = boxEdges(options.padding);
+    const uniformPadding = Math.min(DOM_BARRAGE_PADDING_MAX, Math.max(
+      DOM_BARRAGE_PADDING,
+      sourcePadding.top,
+      sourcePadding.right,
+      sourcePadding.bottom,
+      sourcePadding.left
+    ));
     description.rendererPadding = [
-      Math.max(DOM_BARRAGE_PADDING_Y, sourcePadding.top),
-      Math.max(DOM_BARRAGE_PADDING_X, sourcePadding.right),
-      Math.max(DOM_BARRAGE_PADDING_Y, sourcePadding.bottom),
-      Math.max(DOM_BARRAGE_PADDING_X, sourcePadding.left)
+      uniformPadding,
+      uniformPadding,
+      uniformPadding,
+      uniformPadding
     ];
     description.width += description.rendererPadding[1] + description.rendererPadding[3]
       - sourcePadding.right - sourcePadding.left;
     description.height += description.rendererPadding[0] + description.rendererPadding[2]
       - sourcePadding.top - sourcePadding.bottom;
     description.contentWidth = description.width;
-    description.width += DOM_ACTION_WIDTH + DOM_ACTION_GAP + DOM_ACTION_TRAILING_SPACE;
-    description.height = Math.max(24, description.height);
+    description.actionWidth = rendererActionWidth();
+    description.width += description.actionWidth + DOM_ACTION_GAP + DOM_ACTION_TRAILING_SPACE;
+    description.height = Math.max(DOM_ACTION_HEIGHT, description.height);
     const maxCount = Math.max(1, numberOr(instance.config.maxCount, 200));
     if (instance.pending.length >= maxCount) {
       debugState.counters.skippedBarrages += 1;
@@ -1622,6 +1555,7 @@
       options,
       description,
       content,
+      sender: extractSenderFromRecord(options),
       own: consumeOwnMessage(description.text),
       deltaXWithoutDpr: 0,
       bookedChannel: null,
@@ -1964,117 +1898,9 @@
     }, "info");
   }
 
-  function hitPayload(track, rect, canvasRect) {
-    const firstText = track.description.firstText || {};
-    return {
-      trackId: track.id,
-      instanceId: track.instance.id,
-      canvasId: track.instance.canvasId,
-      text: track.description.text,
-      imageCount: track.description.imageCount,
-      rect,
-      canvasRect: {
-        left: canvasRect.left,
-        top: canvasRect.top,
-        width: canvasRect.width,
-        height: canvasRect.height
-      },
-      style: {
-        fontSize: firstText.fontSize || 20,
-        fontWeight: firstText.fontWeight || 400,
-        fontFamily: firstText.fontFamily || "Arial",
-        color: safePaint(firstText.color) || "#ffffff",
-        strokeColor: safePaint(firstText.strokeColor) || "rgba(0, 0, 0, 0.8)",
-        strokeWidth: numberOr(firstText.strokeWidth, 1)
-      },
-      content: track.content,
-      model: {
-        channel: track.bookedChannel
-          ? [track.bookedChannel.start, track.bookedChannel.end]
-          : null,
-        observedAt: track.observedAt,
-        startedAt: track.startedAt,
-        recoveredInstance: Boolean(track.instance.recovered)
-      }
-    };
-  }
-
-  function probeAt(x, y) {
-    const candidates = [];
-    for (const instance of instances.values()) {
-      const canvas = instance.canvas;
-      if (!(canvas instanceof HTMLCanvasElement) || !canvas.isConnected) {
-        continue;
-      }
-      const canvasRect = canvas.getBoundingClientRect();
-      if (canvasRect.width < 20 || canvasRect.height < 20
-          || x < canvasRect.left - 8 || x > canvasRect.right + 8
-          || y < canvasRect.top - 8 || y > canvasRect.bottom + 8) {
-        continue;
-      }
-      for (const track of instance.tracks.values()) {
-        const rect = trackRect(track, 0, canvasRect);
-        if (!rect) {
-          continue;
-        }
-        const right = rect.left + rect.width;
-        const bottom = rect.top + rect.height;
-        const visible = right > canvasRect.left && rect.left < canvasRect.right
-          && bottom > canvasRect.top && rect.top < canvasRect.bottom;
-        const strict = x >= rect.left && x <= right && y >= rect.top && y <= bottom;
-        if (!visible || x < rect.left - 3 || x > right + 3 || y < rect.top - 3 || y > bottom + 3) {
-          continue;
-        }
-        const score = Math.abs(x - (rect.left + rect.width / 2))
-          + Math.abs(y - (rect.top + rect.height / 2)) * 2
-          + (strict ? 0 : 100);
-        candidates.push({ track, rect, canvasRect, score, strict });
-      }
-    }
-    candidates.sort((first, second) => first.score - second.score);
-    const best = candidates[0] || null;
-    const second = candidates[1] || null;
-    const ambiguous = Boolean(best && second
-      && best.strict === second.strict
-      && Math.abs(second.score - best.score) < 10);
-    const hit = best && !ambiguous
-      ? hitPayload(best.track, best.rect, best.canvasRect)
-      : null;
-    debugState.counters.probes += 1;
-    if (hit) {
-      debugState.counters.probeHits += 1;
-    } else {
-      debugState.counters.probeMisses += 1;
-    }
-    debugState.lastProbe = {
-      at: Date.now(),
-      x,
-      y,
-      ambiguous,
-      hit: hit ? {
-        trackId: hit.trackId,
-        text: hit.text,
-        rect: hit.rect,
-        model: hit.model
-      } : null,
-      candidates: candidates.slice(0, 5).map((candidate) => ({
-        trackId: candidate.track.id,
-        text: candidate.track.description.text,
-        score: candidate.score,
-        strict: candidate.strict,
-        rect: candidate.rect,
-        channel: candidate.track.bookedChannel
-          ? [candidate.track.bookedChannel.start, candidate.track.bookedChannel.end]
-          : null
-      }))
-    };
-    scheduleDebugMarker();
-    return hit;
-  }
-
   function postReady(requestId) {
     window.postMessage({
-      source: PAGE_SOURCE,
+      source: DOUYIN_PAGE_SOURCE,
       type: "ready",
       requestId: requestId || 0,
       instanceCount: instances.size,
@@ -2086,7 +1912,7 @@
 
   function postRendererReady(requestId) {
     window.postMessage({
-      source: PAGE_SOURCE,
+      source: DOUYIN_PAGE_SOURCE,
       type: "renderer-ready",
       requestId: Number(requestId) || 0,
       enabled: rendererEnabled,
@@ -2099,8 +1925,26 @@
 
   function updateRendererSettings(data) {
     const wasEnabled = rendererEnabled;
+    const nextActions = normalizeRendererActions(data.actions);
+    const actionsChanged = ["plusOne", "reply", "favorite"]
+      .some((key) => nextActions[key] !== rendererActions[key]);
     rendererHeartbeatAt = Date.now();
+    rendererActions = nextActions;
     rendererEnabled = Boolean(data.enabled);
+    if (actionsChanged) {
+      const actionWidth = rendererActionWidth();
+      for (const instance of instances.values()) {
+        for (const track of instance.tracks.values()) {
+          const previousWidth = Math.max(0, numberOr(track.description.actionWidth, actionWidth));
+          track.description.actionWidth = actionWidth;
+          track.description.width += actionWidth - previousWidth;
+          if (track.renderer) {
+            renderRendererActionBar(track.renderer);
+            track.renderer.visualWidth = 0;
+          }
+        }
+      }
+    }
     if (!rendererEnabled) {
       for (const instance of instances.values()) {
         shutdownInstanceRenderer(instance, "settings-disabled");
@@ -2112,9 +1956,10 @@
         }
       }
     }
-    if (rendererEnabled !== wasEnabled) {
+    if (rendererEnabled !== wasEnabled || actionsChanged) {
       debugEvent("renderer-settings", {
         enabled: rendererEnabled,
+        actions: rendererActions,
         instanceCount: instances.size
       }, "info");
     }
@@ -2126,7 +1971,7 @@
   patchMessageSender(globalThis.MessagePort && globalThis.MessagePort.prototype);
 
   window.addEventListener("message", (event) => {
-    if (event.source !== window || !event.data || event.data.source !== CONTENT_SOURCE) {
+    if (event.source !== window || !isDouyinProtocolMessage(event.data, DOUYIN_CONTENT_SOURCE)) {
       return;
     }
     if (event.data.type === "ping") {
@@ -2135,7 +1980,7 @@
     }
     if (event.data.type === "debug-request") {
       window.postMessage({
-        source: PAGE_SOURCE,
+        source: DOUYIN_PAGE_SOURCE,
         type: "debug-snapshot",
         requestId: Number(event.data.requestId) || 0,
         snapshot: debugSnapshot()
@@ -2166,20 +2011,10 @@
       }
       return;
     }
-    if (event.data.type !== "probe") {
+    if (event.data.type === "renderer-favorite-result") {
+      settleRendererFavorite(Number(event.data.requestId) || 0, event.data.ok === true);
       return;
     }
-    const x = Number(event.data.x);
-    const y = Number(event.data.y);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      return;
-    }
-    window.postMessage({
-      source: PAGE_SOURCE,
-      type: "probe-result",
-      requestId: Number(event.data.requestId) || 0,
-      hit: probeAt(x, y)
-    }, "*");
   });
 
   setInterval(() => {

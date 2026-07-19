@@ -1,18 +1,63 @@
-(function bootstrapDanmakuEchoDouyin() {
+import type { DouyinRuntimeRequest } from "../core/types";
+import { DOUYIN_CONTENT_SOURCE, DOUYIN_PAGE_SOURCE } from "../platforms/douyin/protocol";
+
+(() => {
   "use strict";
 
-  if (globalThis.__danmakuEchoDouyinBootstrapLoaded) {
+  interface InjectionResponse {
+    error?: unknown;
+    ok?: boolean;
+  }
+
+  interface InjectionAttempt {
+    at: number;
+    attempt: number;
+    response: InjectionResponse | null;
+    sinceStart: number;
+  }
+
+  interface RouteChange {
+    at: number;
+    href: string;
+    reason: string;
+  }
+
+  interface BootstrapDebug {
+    attempts: InjectionAttempt[];
+    href: string;
+    instanceCount: number;
+    lastError: string;
+    pageReady: boolean;
+    pageVersion: string;
+    routeChanges: RouteChange[];
+    routeGeneration: number;
+    startedAt: string;
+    version: string;
+  }
+
+  interface PageReadyMessage {
+    instanceCount?: unknown;
+    source: string;
+    type: string;
+    version?: unknown;
+  }
+
+  type BootstrapGlobal = typeof globalThis & {
+    __danmakuEchoDouyinBootstrapDebug?: BootstrapDebug;
+    __danmakuEchoDouyinBootstrapLoaded?: boolean;
+  };
+
+  const runtimeGlobal = globalThis as BootstrapGlobal;
+  if (runtimeGlobal.__danmakuEchoDouyinBootstrapLoaded) {
     return;
   }
-  globalThis.__danmakuEchoDouyinBootstrapLoaded = true;
+  runtimeGlobal.__danmakuEchoDouyinBootstrapLoaded = true;
 
-  const CONTENT_SOURCE = "danmaku-echo-douyin-content";
-  const PAGE_SOURCE = "danmaku-echo-douyin-page";
   const LIVE_ROUTE_PATTERN = /^https:\/\/(?:live\.douyin\.com\/|www\.douyin\.com\/follow\/live(?:\/|[?#]|$))/i;
   const startedAt = Date.now();
   let currentHref = location.href;
   let routeGeneration = 0;
-  const debug = {
+  const debug: BootstrapDebug = {
     version: "douyin-bootstrap-v2-spa-entry",
     startedAt: new Date(startedAt).toISOString(),
     href: location.href,
@@ -24,9 +69,23 @@
     routeChanges: [],
     lastError: ""
   };
-  globalThis.__danmakuEchoDouyinBootstrapDebug = debug;
+  runtimeGlobal.__danmakuEchoDouyinBootstrapDebug = debug;
 
-  function syncMarker() {
+  function isPageReadyMessage(value: unknown): value is PageReadyMessage {
+    if (!value || typeof value !== "object") {
+      return false;
+    }
+    const message = value as { source?: unknown; type?: unknown };
+    return message.source === DOUYIN_PAGE_SOURCE && message.type === "ready";
+  }
+
+  function normalizeInjectionResponse(value: unknown): InjectionResponse {
+    return value && typeof value === "object"
+      ? value as InjectionResponse
+      : { ok: false, error: "empty-response" };
+  }
+
+  function syncMarker(): void {
     const root = document.documentElement;
     if (!root) {
       return;
@@ -35,47 +94,48 @@
     if (!marker) {
       marker = document.createElement("script");
       marker.id = "bcp-douyin-bootstrap-debug";
-      marker.type = "application/json";
+      marker.setAttribute("type", "application/json");
       marker.hidden = true;
-      root.appendChild(marker);
+      root.append(marker);
     }
     marker.dataset.pageReady = String(debug.pageReady);
     marker.dataset.pageVersion = debug.pageVersion;
     marker.textContent = JSON.stringify(debug);
   }
 
-  function pingPage(attempt) {
+  function pingPage(attempt: number): void {
     window.postMessage({
-      source: CONTENT_SOURCE,
+      source: DOUYIN_CONTENT_SOURCE,
       type: "ping",
       requestId: 9_000_000 + attempt
     }, "*");
   }
 
-  function requestInjection(attempt) {
+  function requestInjection(attempt: number): void {
     if (!LIVE_ROUTE_PATTERN.test(location.href)) {
       return;
     }
-    const entry = {
+    const entry: InjectionAttempt = {
       attempt,
       at: Date.now(),
       sinceStart: Date.now() - startedAt,
       response: null
     };
     debug.attempts.push(entry);
+    const request: DouyinRuntimeRequest = {
+      type: "danmaku-echo.ensure-douyin-runtime",
+      attempt,
+      href: location.href
+    };
     try {
-      chrome.runtime.sendMessage({
-        type: "danmaku-echo.ensure-douyin-runtime",
-        attempt,
-        href: location.href
-      }, (response) => {
+      chrome.runtime.sendMessage(request, (response: unknown) => {
         const error = chrome.runtime.lastError;
         if (error) {
           debug.lastError = error.message || String(error);
           entry.response = { ok: false, error: debug.lastError };
           console.warn("[Danmaku Echo][Douyin bootstrap] injection request failed", entry.response);
         } else {
-          entry.response = response || { ok: false, error: "empty-response" };
+          entry.response = normalizeInjectionResponse(response);
           if (!entry.response.ok) {
             debug.lastError = String(entry.response.error || "injection-failed");
           }
@@ -84,17 +144,16 @@
         syncMarker();
         pingPage(attempt);
       });
-    } catch (error) {
-      debug.lastError = String(error && error.message || error);
+    } catch (error: unknown) {
+      debug.lastError = String(error instanceof Error ? error.message : error);
       entry.response = { ok: false, error: debug.lastError };
       console.error("[Danmaku Echo][Douyin bootstrap] injection request threw", entry.response);
       syncMarker();
     }
   }
 
-  window.addEventListener("message", (event) => {
-    if (event.source !== window || !event.data || event.data.source !== PAGE_SOURCE
-        || event.data.type !== "ready") {
+  window.addEventListener("message", (event: MessageEvent<unknown>) => {
+    if (event.source !== window || !isPageReadyMessage(event.data)) {
       return;
     }
     debug.pageReady = true;
@@ -116,7 +175,7 @@
     document.addEventListener("readystatechange", syncMarker, { once: true });
   }
 
-  function scheduleLiveRuntime(reason) {
+  function scheduleLiveRuntime(reason: string): void {
     if (!LIVE_ROUTE_PATTERN.test(location.href)) {
       return;
     }
@@ -133,20 +192,20 @@
     if (debug.routeChanges.length > 20) {
       debug.routeChanges.splice(0, debug.routeChanges.length - 20);
     }
-    [0, 80, 300, 900, 2200].forEach((delay, attempt) => {
+    [0, 80, 300, 900, 2200].forEach((delay, index) => {
       setTimeout(() => {
         if (generation !== routeGeneration || !LIVE_ROUTE_PATTERN.test(location.href)) {
           return;
         }
-        if (!debug.pageReady || attempt === 0) {
-          requestInjection(attempt + 1);
+        if (!debug.pageReady || index === 0) {
+          requestInjection(index + 1);
         }
       }, delay);
     });
     syncMarker();
   }
 
-  function checkRoute(reason) {
+  function checkRoute(reason: string): void {
     if (currentHref === location.href) {
       return;
     }

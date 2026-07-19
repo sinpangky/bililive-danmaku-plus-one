@@ -5,7 +5,14 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
-const shared = require("../src/shared.js");
+const sharedSource = fs.readFileSync(
+  path.join(__dirname, "..", "build", "extension", "src", "shared.js"),
+  "utf8"
+);
+const sharedContext = {};
+sharedContext.globalThis = sharedContext;
+vm.runInNewContext(sharedSource, sharedContext, { filename: "shared.js" });
+const shared = sharedContext.BulletPlusOneShared;
 
 test("detects all supported live platforms", () => {
   assert.equal(shared.detectPlatform("www.huya.com"), "huya");
@@ -29,14 +36,39 @@ test("uses the meaningful final line from a decorated chat row", () => {
   assert.equal(shared.parseMessageText("等级 12\n用户甲\n这波漂亮"), "这波漂亮");
 });
 
+test("normalizes reply senders and builds a focused reply draft", () => {
+  assert.equal(shared.normalizeSenderName("  @测试用户： "), "测试用户");
+  assert.equal(shared.normalizeSenderName("点击查看个人信息"), "");
+  assert.equal(shared.replyMention("主播:"), "@主播 ");
+  assert.equal(shared.replyDraftValue("", "测试用户"), "@测试用户 ");
+  assert.equal(shared.replyDraftValue("已有草稿", "测试用户"), "@测试用户 已有草稿");
+  assert.equal(shared.replyDraftValue("@测试用户 已有草稿", "测试用户"), "@测试用户 已有草稿");
+});
+
 test("merges partial settings with safe defaults", () => {
   const settings = shared.mergeSettings({ autoSend: false, platforms: { douyin: false } });
   assert.equal(settings.enabled, true);
   assert.equal(settings.altClick, true);
-  assert.deepEqual(settings.platforms, { huya: true, bilibili: true, douyin: false });
-  assert.deepEqual(settings.colors.huya, Object.fromEntries(
+  assert.deepEqual(JSON.parse(JSON.stringify(settings.actions)), {
+    plusOne: true,
+    reply: true,
+    favorite: true
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(settings.platforms)), { huya: true, bilibili: true, douyin: false });
+  assert.deepEqual(JSON.parse(JSON.stringify(settings.colors.huya)), Object.fromEntries(
     shared.COLOR_SETTING_KEYS.map((key) => [key, ""])
   ));
+});
+
+test("merges independent action visibility settings", () => {
+  const settings = shared.mergeSettings({
+    actions: { plusOne: false, reply: true, favorite: false }
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(settings.actions)), {
+    plusOne: false,
+    reply: true,
+    favorite: false
+  });
 });
 
 test("keeps valid platform colors independent and ignores invalid values", () => {
@@ -73,7 +105,7 @@ test("applies only validated platform color variables", () => {
 
 test("Douyin bootstrap requests the full runtime after an SPA live-route entry", () => {
   const source = fs.readFileSync(
-    path.join(__dirname, "..", "src", "douyin-bootstrap.js"),
+    path.join(__dirname, "..", "build", "extension", "src", "douyin-bootstrap.js"),
     "utf8"
   );
   const sent = [];
@@ -144,4 +176,15 @@ test("Douyin bootstrap requests the full runtime after an SPA live-route entry",
 test("rejects obvious system rows", () => {
   assert.equal(shared.isPlausibleMessage("直播已结束"), false);
   assert.equal(shared.isPlausibleMessage("真精彩"), true);
+});
+
+test("keeps reply errors contextual instead of relabeling them as +1 failures", () => {
+  for (const file of ["content.js", "douyin-content.js"]) {
+    const source = fs.readFileSync(
+      path.join(__dirname, "..", "build", "extension", "src", file),
+      "utf8"
+    );
+    assert.doesNotMatch(source, /\+1失败/);
+    assert.match(source, /未能识别这条弹幕的发送者/);
+  }
 });

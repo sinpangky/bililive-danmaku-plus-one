@@ -14,7 +14,18 @@ const shouldProbeDouyin = process.argv[8] === "--probe-douyin";
 const hostResolverRules = process.argv[9] && process.argv[9] !== "none" ? process.argv[9] : "";
 const injectPlatform = process.argv[10] || "";
 const lateDouyinHook = injectPlatform === "douyin-late";
-const normalizedInjectPlatform = lateDouyinHook ? "douyin" : injectPlatform;
+const extensionOnlyPlatform = injectPlatform.endsWith("-extension")
+  ? injectPlatform.slice(0, -"-extension".length)
+  : "";
+const normalizedInjectPlatform = lateDouyinHook
+  ? "douyin"
+  : extensionOnlyPlatform || injectPlatform;
+const targetParameters = new URL(targetUrl).searchParams;
+const expectedDouyinReplyMention = targetParameters.get("nativefill") === "1"
+  ? "@native用户ID "
+  : targetParameters.get("idonly") === "1"
+    ? "@731234567890 "
+    : "@弹幕用户 ";
 
 if (!edgePath || !targetUrl || !profilePath) {
   throw new Error("Usage: node inspect-live-dom.js <edge> <url> <profile> [port]");
@@ -116,19 +127,59 @@ async function inspect() {
   await send("Runtime.enable");
   await delay(waitMilliseconds);
 
-  if (normalizedInjectPlatform) {
+  if (normalizedInjectPlatform && !extensionOnlyPlatform) {
     const root = path.resolve(__dirname, "..");
-    const sharedSource = readFileSync(path.join(root, "src", "shared.js"), "utf8")
-      .replace("    detectPlatform,", `    detectPlatform: () => ${JSON.stringify(normalizedInjectPlatform)},`);
+    const extensionRoot = path.join(root, "build", "extension");
+    const sharedSource = `${readFileSync(path.join(extensionRoot, "src", "shared.js"), "utf8")}
+;(() => {
+  const shared = globalThis.BulletPlusOneShared;
+  globalThis.BulletPlusOneShared = Object.freeze({
+    ...shared,
+    detectPlatform: () => ${JSON.stringify(normalizedInjectPlatform)}
+  });
+})();`;
     const isDouyinInjection = normalizedInjectPlatform === "douyin";
     const contentFile = isDouyinInjection ? "douyin-content.js" : "content.js";
     const cssFile = isDouyinInjection ? "douyin-content.css" : "content.css";
-    const contentSource = readFileSync(path.join(root, "src", contentFile), "utf8");
-    const cssSource = readFileSync(path.join(root, "src", cssFile), "utf8");
+    const contentSource = readFileSync(path.join(extensionRoot, "src", contentFile), "utf8");
+    const cssSource = readFileSync(path.join(extensionRoot, "src", cssFile), "utf8");
+    const storageMockSource = `(() => {
+      if (globalThis.chrome && globalThis.chrome.storage && globalThis.chrome.storage.local) return;
+      const values = { sync: {}, local: {} };
+      const listeners = new Set();
+      const area = (name) => ({
+        get(keys, callback) {
+          if (keys == null) callback({ ...values[name] });
+          else if (typeof keys === "string") callback({ [keys]: values[name][keys] });
+          else callback({ ...values[name] });
+        },
+        set(update, callback) {
+          const changes = {};
+          Object.entries(update || {}).forEach(([key, value]) => {
+            changes[key] = { oldValue: values[name][key], newValue: value };
+            values[name][key] = value;
+          });
+          callback?.();
+          listeners.forEach((listener) => listener(changes, name));
+        }
+      });
+      globalThis.chrome = {
+        ...(globalThis.chrome || {}),
+        runtime: { getManifest: () => ({ version: "test" }), lastError: null },
+        storage: {
+          local: area("local"),
+          sync: area("sync"),
+          onChanged: {
+            addListener: (listener) => listeners.add(listener),
+            removeListener: (listener) => listeners.delete(listener)
+          }
+        }
+      };
+    })();`;
     await send("Page.enable");
     let pageHookSource = "";
     if (isDouyinInjection) {
-      pageHookSource = readFileSync(path.join(root, "src", "douyin-page-hook.js"), "utf8");
+      pageHookSource = readFileSync(path.join(extensionRoot, "src", "douyin-page-hook.js"), "utf8");
       if (!lateDouyinHook) {
         await send("Page.addScriptToEvaluateOnNewDocument", { source: pageHookSource });
       }
@@ -141,9 +192,19 @@ async function inspect() {
     await send("Runtime.evaluate", {
       expression: `(() => { const style = document.createElement("style"); style.textContent = ${JSON.stringify(cssSource)}; document.documentElement.appendChild(style); })()`
     });
+    await send("Runtime.evaluate", { expression: storageMockSource });
     await send("Runtime.evaluate", { expression: sharedSource });
     await send("Runtime.evaluate", { expression: contentSource });
     await delay(lateDouyinHook ? 3_200 : 2_000);
+  }
+
+  if (extensionOnlyPlatform && targetParameters.get("fullscreen") === "1") {
+    await send("Runtime.evaluate", {
+      expression: `document.querySelector('.bpx-player-container,#player-wrap')?.requestFullscreen?.()`,
+      awaitPromise: true,
+      userGesture: true
+    });
+    await delay(250);
   }
 
   const hasDouyinFixture = (shouldProbeDouyin || normalizedInjectPlatform === "douyin")
@@ -498,7 +559,11 @@ async function inspect() {
         .map((node) => {
           const track = node.closest(".bcp-douyin-dom-track");
           const action = track && track.querySelector(":scope > .bcp-douyin-dom-action");
+          const plusOne = action && action.querySelector('[data-action="plus-one"]');
+          const reply = action && action.querySelector('[data-action="reply"]');
+          const favorite = action && action.querySelector('[data-action="favorite"]');
           const content = node.querySelector(".bcp-douyin-dom-content");
+          const nodeStyle = getComputedStyle(node);
           const contentStyle = content ? getComputedStyle(content) : null;
           return {
             message: node.dataset.message || (action && action.dataset.message)
@@ -507,6 +572,8 @@ async function inspect() {
             instanceId: node.dataset.instanceId || (action && action.dataset.instanceId) || "",
             own: node.dataset.own || "",
             ownFrame: Boolean(contentStyle && contentStyle.boxShadow !== "none"),
+            backgroundColor: nodeStyle.backgroundColor,
+            frameShadow: nodeStyle.boxShadow,
             hovered: track && track.dataset.hovered || "",
             sending: track && track.dataset.sending || "",
             trackRect: rectValue(track),
@@ -514,6 +581,16 @@ async function inspect() {
             rect: rectValue(node),
             contentRect: rectValue(content),
             actionRect: rectValue(action),
+            plusOneRect: rectValue(plusOne),
+            replyRect: rectValue(reply),
+            favoriteRect: rectValue(favorite),
+            actionText: plusOne ? String(plusOne.textContent || "").trim() : "",
+            actionLabels: action ? Array.from(action.querySelectorAll(
+              ".bcp-douyin-dom-action-item"
+            )).map((item) => String(item.textContent || "").trim()) : [],
+            actionDividerCount: action ? action.querySelectorAll(
+              ".bcp-douyin-dom-action-divider"
+            ).length : 0,
             actionGap: action
               ? action.getBoundingClientRect().left - node.getBoundingClientRect().right
               : null,
@@ -549,6 +626,7 @@ async function inspect() {
       return {
         fixture: Boolean(fixtureState),
         delayedMountMode: Boolean(fixtureState && fixtureState.delayedMountMode),
+        fullscreenMode: Boolean(fixtureState && fixtureState.fullscreenMode),
         unsupportedMode: Boolean(fixtureState && fixtureState.unsupportedMode),
         richMode: Boolean(fixtureState && fixtureState.richMode),
         rendererBlocked: Boolean(pageDebug && Array.isArray(pageDebug.instances)
@@ -566,6 +644,9 @@ async function inspect() {
         layerHidden: Boolean(layer && (layer.hidden || getComputedStyle(layer).display === "none")),
         chatRowRect: rectValue(chatRow),
         chatCardVisible: Boolean(chatCard),
+        visibleToastCount: document.querySelectorAll(
+          ".bcp-douyin-toast.is-visible"
+        ).length,
         nodes,
         target: nodes.find((item) => item.message.includes("抖音画面弹幕")) || null,
         other: nodes.find((item) => item.message.includes("其他弹幕继续移动")) || null,
@@ -653,6 +734,9 @@ async function inspect() {
       const clickedMessage = hoverEnd.target ? hoverEnd.target.message : "";
       let gapHover = null;
       let trailingHover = null;
+      let replyResult = null;
+      let favoriteResult = null;
+      let richFavoriteResult = null;
       if (action) {
         const barrage = hoverEnd.target.rect;
         if (barrage && action.left > barrage.right) {
@@ -674,10 +758,73 @@ async function inspect() {
           await delay(280);
           trailingHover = await readTakeoverState();
         }
-        const visibleLeft = Math.max(0, action.left);
-        const visibleRight = Math.min(hoverEnd.viewport.width - 1, action.right);
-        const visibleTop = Math.max(0, action.top);
-        const visibleBottom = Math.min(hoverEnd.viewport.height - 1, action.bottom);
+        const favoriteTarget = hoverEnd.target.favoriteRect;
+        if (favoriteTarget) {
+          const favoriteX = Math.max(1, Math.min(
+            hoverEnd.viewport.width - 1,
+            favoriteTarget.left + favoriteTarget.width / 2
+          ));
+          const favoriteY = Math.max(1, Math.min(
+            hoverEnd.viewport.height - 1,
+            favoriteTarget.top + favoriteTarget.height / 2
+          ));
+          await dispatchMouse("mouseMoved", favoriteX, favoriteY);
+          await dispatchMouse("mousePressed", favoriteX, favoriteY);
+          await dispatchMouse("mouseReleased", favoriteX, favoriteY);
+          await delay(280);
+          richFavoriteResult = await evaluateValue(`(() => {
+            const button = Array.from(document.querySelectorAll(
+              ".bcp-douyin-dom-action-item[data-action='favorite']"
+            )).find((item) => item.dataset.message === ${JSON.stringify(clickedMessage)});
+            const warning = document.querySelector(
+              ".bcp-douyin-toast--warning.is-visible"
+            );
+            return {
+              buttonText: String(button && button.textContent || "").trim(),
+              buttonTitle: String(button && button.title || "").trim(),
+              warningText: String(warning && warning.textContent || "").trim()
+            };
+          })()`);
+        }
+        const replyTarget = hoverEnd.target.replyRect;
+        if (replyTarget) {
+          const replyX = Math.max(1, Math.min(
+            hoverEnd.viewport.width - 1,
+            replyTarget.left + replyTarget.width / 2
+          ));
+          const replyY = Math.max(1, Math.min(
+            hoverEnd.viewport.height - 1,
+            replyTarget.top + replyTarget.height / 2
+          ));
+          await dispatchMouse("mouseMoved", replyX, replyY);
+          await dispatchMouse("mousePressed", replyX, replyY);
+          await dispatchMouse("mouseReleased", replyX, replyY);
+          await delay(650);
+          replyResult = await evaluateValue(`(() => {
+            const active = document.activeElement;
+            const input = active && active.matches(
+              "input,textarea,[contenteditable]:not([contenteditable='false']),[role='textbox']"
+            ) ? active : null;
+            const error = document.querySelector(
+              ".bcp-douyin-toast--error.is-visible"
+            );
+            return {
+              value: input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement
+                ? input.value
+                : input && input.textContent || "",
+              focused: document.activeElement === input,
+              surface: input && input.dataset.fixtureReplySurface || "",
+              sent: document.body.dataset.douyinSent || "",
+              errorText: String(error && error.textContent || "").trim(),
+              nativeFilled: document.body.dataset.douyinNativeReplyFilled || ""
+            };
+          })()`);
+        }
+        const clickTarget = hoverEnd.target.plusOneRect || action;
+        const visibleLeft = Math.max(0, clickTarget.left);
+        const visibleRight = Math.min(hoverEnd.viewport.width - 1, clickTarget.right);
+        const visibleTop = Math.max(0, clickTarget.top);
+        const visibleBottom = Math.min(hoverEnd.viewport.height - 1, clickTarget.bottom);
         const clickX = visibleLeft + Math.max(1, visibleRight - visibleLeft) / 2;
         const clickY = visibleTop + Math.max(1, visibleBottom - visibleTop) / 2;
         await dispatchMouse("mouseMoved", clickX, clickY);
@@ -705,6 +852,71 @@ async function inspect() {
       const afterClick = resumeSamples[resumeSamples.length - 1];
       const ownEcho = afterClick.nodes.find((item) => item.message === clickedMessage
         && item.own === "true");
+
+      // The selected fixture barrage contains an official image asset and must
+      // be rejected by the text-only first version.  Verify a second, plain
+      // barrage separately so rejection is not mistaken for a broken store.
+      const favoriteCandidate = afterClick.other;
+      if (favoriteCandidate && favoriteCandidate.rect) {
+        await dispatchMouse(
+          "mouseMoved",
+          favoriteCandidate.rect.left + favoriteCandidate.rect.width / 2,
+          favoriteCandidate.rect.top + favoriteCandidate.rect.height / 2
+        );
+        await delay(100);
+        const hoveredFavoriteCandidate = await readTakeoverState();
+        const plainFavoriteTarget = hoveredFavoriteCandidate.other
+          && hoveredFavoriteCandidate.other.favoriteRect;
+        if (plainFavoriteTarget) {
+          const favoriteX = Math.max(1, Math.min(
+            hoveredFavoriteCandidate.viewport.width - 1,
+            plainFavoriteTarget.left + plainFavoriteTarget.width / 2
+          ));
+          const favoriteY = Math.max(1, Math.min(
+            hoveredFavoriteCandidate.viewport.height - 1,
+            plainFavoriteTarget.top + plainFavoriteTarget.height / 2
+          ));
+          await dispatchMouse("mouseMoved", favoriteX, favoriteY);
+          await dispatchMouse("mousePressed", favoriteX, favoriteY);
+          await dispatchMouse("mouseReleased", favoriteX, favoriteY);
+          await delay(280);
+          await send("Input.dispatchKeyEvent", {
+            type: "keyDown", modifiers: 1, key: "q", code: "KeyQ",
+            windowsVirtualKeyCode: 81, nativeVirtualKeyCode: 81
+          });
+          await delay(40);
+          await send("Input.dispatchKeyEvent", {
+            type: "keyUp", modifiers: 1, key: "q", code: "KeyQ",
+            windowsVirtualKeyCode: 81, nativeVirtualKeyCode: 81
+          });
+          await delay(120);
+          favoriteResult = await evaluateValue(`(() => {
+            const host = document.querySelector(".bcp-favorites-host");
+            const root = host?.shadowRoot || document;
+            const panel = root.querySelector(".bcp-favorites-panel");
+            const texts = Array.from(panel?.querySelectorAll(".bcp-favorites-text") || [])
+              .map((item) => String(item.textContent || ""));
+            return {
+              panelVisible: Boolean(panel),
+              singleton: document.querySelectorAll(".bcp-favorites-host").length === 1
+                && host?.dataset.bcpFavoritesUiVersion === "2",
+              currentRoomFocused: Boolean(panel
+                && panel.querySelector(".bcp-favorites-tabs .is-active")?.textContent?.includes("本房")),
+              listed: texts.some((text) => text.includes("其他弹幕继续移动")),
+              richAssetAbsent: !texts.some((text) => text.includes(${JSON.stringify(clickedMessage)}))
+            };
+          })()`);
+          await send("Input.dispatchKeyEvent", {
+            type: "keyDown", key: "Escape", code: "Escape",
+            windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27
+          });
+          await send("Input.dispatchKeyEvent", {
+            type: "keyUp", key: "Escape", code: "Escape",
+            windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27
+          });
+          await delay(80);
+        }
+      }
 
       const disableRenderer = () => evaluateValue(String.raw`(() => {
         window.dispatchEvent(new MessageEvent("message", {
@@ -818,6 +1030,12 @@ async function inspect() {
           hoverEnd.target && hoverEnd.target.hovered === "true"
             && hoverEnd.other && hoverEnd.other.hovered !== "true"
         ),
+        hoverUsesTransparentThemeFrame: Boolean(
+          hoverEnd.target
+            && hoverEnd.target.backgroundColor === "rgba(0, 0, 0, 0)"
+            && hoverEnd.target.frameShadow.includes("rgb(253, 129, 1)")
+            && hoverEnd.target.frameShadow.includes("3px")
+        ),
         targetDrift,
         targetPaused: targetDrift != null && targetDrift <= 1.5,
         otherTravel,
@@ -827,6 +1045,20 @@ async function inspect() {
         actionVisible: Boolean(
           hoverEnd.target && hoverEnd.target.actionVisibility !== "hidden"
             && hoverEnd.target.actionPointerEvents !== "none"
+        ),
+        actionFullyRendered: Boolean(
+          hoverEnd.target && hoverEnd.target.trackRect && hoverEnd.target.actionRect
+            && hoverEnd.target.actionRect.width >= 155.5
+            && hoverEnd.target.actionRect.height >= 39.5
+            && hoverEnd.target.actionRect.left >= hoverEnd.target.trackRect.left - 1.5
+            && hoverEnd.target.actionRect.top >= hoverEnd.target.trackRect.top - 1.5
+            && hoverEnd.target.actionRect.right <= hoverEnd.target.trackRect.right + 1.5
+            && hoverEnd.target.actionRect.bottom <= hoverEnd.target.trackRect.bottom + 1.5
+        ),
+        threeActionUi: Boolean(
+          hoverEnd.target
+            && JSON.stringify(hoverEnd.target.actionLabels) === JSON.stringify(["+1", "回复", "收藏"])
+            && hoverEnd.target.actionDividerCount === 2
         ),
         actionBehindMessage: Boolean(
           hoverEnd.target && hoverEnd.target.contentRect && hoverEnd.target.actionRect
@@ -859,6 +1091,37 @@ async function inspect() {
             && hoverEnd.target.contentInset.right >= 7.5
             && hoverEnd.target.contentInset.top >= 3.5
             && hoverEnd.target.contentInset.bottom >= 3.5
+        ),
+        messagePaddingUniform: Boolean(
+          hoverEnd.target && hoverEnd.target.contentInset
+            && Math.max(...Object.values(hoverEnd.target.contentInset))
+              - Math.min(...Object.values(hoverEnd.target.contentInset)) <= 0.5
+        ),
+        replyButtonAvailable: Boolean(hoverEnd.target && hoverEnd.target.replyRect),
+        replyPrefilled: Boolean(replyResult
+          && replyResult.value === expectedDouyinReplyMention),
+        replyInputFocused: Boolean(replyResult && replyResult.focused),
+        replyDidNotSend: Boolean(replyResult && replyResult.sent === initial.sent),
+        replyErrorAbsent: Boolean(replyResult && !replyResult.errorText),
+        replySurfaceCorrect: Boolean(replyResult
+          && replyResult.surface === (initial.fullscreenMode ? "quick" : "side")),
+        replyResult,
+        favoriteButtonAvailable: Boolean(hoverEnd.target && hoverEnd.target.favoriteRect),
+        favoriteRichAssetsRejected: Boolean(
+          richFavoriteResult
+            && richFavoriteResult.buttonText === "收藏"
+            && richFavoriteResult.buttonTitle.includes("暂不支持")
+            && richFavoriteResult.warningText.includes("仅支持收藏普通文字和 Unicode Emoji")
+            && favoriteResult && favoriteResult.richAssetAbsent
+        ),
+        favoriteSavedAndListed: Boolean(favoriteResult && favoriteResult.listed),
+        favoriteUiSingleton: Boolean(favoriteResult && favoriteResult.singleton),
+        favoriteCurrentRoomFocused: Boolean(favoriteResult && favoriteResult.currentRoomFocused),
+        richFavoriteResult,
+        favoriteResult,
+        singleSuccessFeedback: Boolean(
+          afterClick.visibleToastCount === 1
+            && afterClick.target && afterClick.target.actionText === "+1"
         ),
         clickedMessage,
         sentMessage: afterClick.sent,
@@ -921,6 +1184,7 @@ async function inspect() {
   if (normalizedInjectPlatform === "huya" || normalizedInjectPlatform === "bilibili") {
     sideChatRegression = await evaluateValue(`(async () => {
       const platform = ${JSON.stringify(normalizedInjectPlatform)};
+      const fullscreenMode = new URL(location.href).searchParams.get("fullscreen") === "1";
       const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
       const nextPaint = () => new Promise((resolve) => requestAnimationFrame(resolve));
       const root = document.createElement("section");
@@ -938,6 +1202,8 @@ async function inspect() {
       let targetRow = null;
       let targetContent = null;
       let targetUser = null;
+      let advertisementAction = null;
+      let missingSenderContent = null;
       for (let index = 0; index < 24; index += 1) {
         const row = document.createElement("div");
         row.className = platform === "bilibili" ? "danmaku-item" : "J_msg";
@@ -945,9 +1211,10 @@ async function inspect() {
         const user = document.createElement("span");
         user.className = platform === "bilibili" ? "user-name" : "name";
         user.textContent = "测试用户" + index + "：";
+        if (platform === "huya") user.title = "点击查看个人信息";
         const content = document.createElement("span");
         content.className = platform === "bilibili" ? "danmaku-content" : "msg";
-        content.textContent = index === 6 ? "侧边聊天暂停测试" : "填充聊天消息" + index;
+        content.textContent = index === 6 ? "侧边聊天滚动测试" : "填充聊天消息" + index;
         row.append(user, content);
         root.appendChild(row);
         if (index === 6) {
@@ -955,6 +1222,27 @@ async function inspect() {
           targetContent = content;
           targetUser = user;
         }
+      }
+      const missingSenderRow = document.createElement("div");
+      missingSenderRow.className = platform === "bilibili" ? "danmaku-item" : "J_msg";
+      missingSenderRow.style.height = "28px";
+      missingSenderContent = document.createElement("span");
+      missingSenderContent.className = platform === "bilibili" ? "danmaku-content" : "msg";
+      missingSenderContent.textContent = "缺少发送者的测试弹幕";
+      missingSenderRow.appendChild(missingSenderContent);
+      root.appendChild(missingSenderRow);
+      if (platform === "bilibili") {
+        const advertisement = document.createElement("div");
+        advertisement.className = "danmaku-item chat-ad-card";
+        advertisement.dataset.adReport = "fixture-promotion";
+        const label = document.createElement("span");
+        label.className = "ad-label";
+        label.textContent = "广告";
+        advertisementAction = document.createElement("a");
+        advertisementAction.href = "#fixture-ad";
+        advertisementAction.textContent = "直播活动，立即查看";
+        advertisement.append(label, advertisementAction);
+        root.appendChild(advertisement);
       }
       const outside = document.createElement("div");
       outside.style.position = "fixed";
@@ -989,18 +1277,130 @@ async function inspect() {
       await delay(70);
       await nextPaint();
       const button = document.querySelector(".bcp-one-button");
+      const actionBar = document.querySelector(".bcp-one-actions");
       const messagePlusOneAvailable = Boolean(button && !button.hidden
-        && String(button.getAttribute("aria-label") || "").includes("侧边聊天暂停测试"));
-      const pauseMarkerApplied = root.dataset.bcpOneScrollPaused === "true";
-      const pausedStart = root.scrollTop;
+        && String(button.getAttribute("aria-label") || "").includes("侧边聊天滚动测试"));
+      const threeActionUi = Boolean(actionBar
+        && JSON.stringify(Array.from(actionBar.querySelectorAll(".bcp-one-action"))
+          .map((item) => String(item.textContent || "").trim()))
+          === JSON.stringify(["+1", "回复", "收藏"])
+        && actionBar.querySelectorAll(".bcp-one-action-divider").length === 2);
+      const scrollPauseMarkerAbsent = root.dataset.bcpOneScrollPaused !== "true";
+      const scrollStart = root.scrollTop;
       await delay(220);
       await nextPaint();
-      const pausedEnd = root.scrollTop;
-      const scrollPaused = Math.abs(pausedEnd - pausedStart) <= 1;
+      const scrollEnd = root.scrollTop;
+      const scrollingRemainsEnabled = scrollEnd - scrollStart >= 10;
+      clearInterval(autoScroll);
+      const manualScrollTarget = Math.max(0, root.scrollTop - 30);
+      root.scrollTop = manualScrollTarget;
+      root.dispatchEvent(new Event("scroll", { bubbles: false }));
+      await delay(80);
+      const manualScrollPosition = root.scrollTop;
+      const manualScrollPreserved = Math.abs(manualScrollPosition - manualScrollTarget) <= 1;
+
+      targetContent.dispatchEvent(new PointerEvent("pointerover", {
+        bubbles: true,
+        composed: true,
+        pointerType: "mouse"
+      }));
+      await delay(60);
+      const favoriteButton = document.querySelector(
+        ".bcp-one-actions:not([hidden]) .bcp-one-action[data-action='favorite']"
+      );
+      if (favoriteButton) favoriteButton.click();
+      await delay(140);
+      document.dispatchEvent(new KeyboardEvent("keydown", {
+        altKey: true, bubbles: true, code: "KeyQ", key: "q"
+      }));
+      await delay(40);
+      document.dispatchEvent(new KeyboardEvent("keyup", {
+        altKey: true, bubbles: true, code: "KeyQ", key: "q"
+      }));
+      await delay(100);
+      const favoritesPortal = document.querySelector(".bcp-favorites-host");
+      const favoritesRoot = favoritesPortal?.shadowRoot || document;
+      const favoritesPanel = favoritesRoot.querySelector(".bcp-favorites-panel");
+      const favoriteUiSingleton = document.querySelectorAll(".bcp-favorites-host").length === 1
+        && favoritesPortal?.dataset.bcpFavoritesUiVersion === "2";
+      const favoriteSavedAndListed = Boolean(favoriteButton && favoritesPanel
+        && Array.from(favoritesPanel.querySelectorAll(".bcp-favorites-text"))
+          .some((item) => String(item.textContent || "").includes("侧边聊天滚动测试")));
+      const currentRoomFocused = Boolean(favoritesPanel
+        && favoritesPanel.querySelector(".bcp-favorites-tabs .is-active")?.textContent?.includes("本房"));
+      const favoriteSendButton = Array.from(
+        favoritesPanel?.querySelectorAll(".bcp-favorites-send") || []
+      ).find((item) => String(item.textContent || "").includes("侧边聊天滚动测试"));
+      if (favoriteSendButton) favoriteSendButton.click();
+      await delay(760);
+      const favoriteSentValue = platform === "bilibili"
+        ? document.body.dataset.bilibiliSent || ""
+        : document.body.dataset.chatSent || "";
+      const favoriteSendFeedback = String(
+        document.querySelector(".bcp-one-toast.is-visible")?.textContent || ""
+      ).trim();
+      const favoriteRuntimeSendText = favoritesPortal?.dataset.bcpFavoritesLastSend || "";
+      const favoriteRuntimeSendResult = favoritesPortal?.dataset.bcpFavoritesLastSendResult || "";
+      const favoriteQuickSendSucceeded = favoriteRuntimeSendText === "侧边聊天滚动测试"
+        && favoriteRuntimeSendResult === "success";
+      if (favoritesRoot.querySelector(".bcp-favorites-panel")) {
+        document.dispatchEvent(new KeyboardEvent("keydown", {
+          bubbles: true, code: "Escape", key: "Escape"
+        }));
+        await delay(40);
+      }
+      if (favoritesPortal) {
+        favoritesPortal.dataset.bcpFavoritesLastSend = "";
+        favoritesPortal.dataset.bcpFavoritesLastSendResult = "";
+      }
+      document.dispatchEvent(new KeyboardEvent("keydown", {
+        altKey: true, bubbles: true, code: "KeyQ", key: "q"
+      }));
+      await delay(230);
+      const favoritesRadial = favoritesRoot.querySelector(".bcp-favorites-radial");
+      const longPressRadialAvailable = Boolean(favoritesRadial
+        && Array.from(favoritesRadial.querySelectorAll(".bcp-favorites-radial-item"))
+          .some((item) => String(item.textContent || "").includes("侧边聊天")));
+      const favoritesFullscreenHostCorrect = !fullscreenMode || Boolean(
+        document.fullscreenElement
+          && favoritesPortal?.parentElement === document.fullscreenElement
+      );
+      const radialFavorite = favoritesRadial?.querySelector(
+        ".bcp-favorites-radial-item.is-favorite"
+      );
+      if (radialFavorite) {
+        const rect = radialFavorite.getBoundingClientRect();
+        document.dispatchEvent(new PointerEvent("pointermove", {
+          bubbles: true,
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2,
+          pointerType: "mouse"
+        }));
+        await delay(40);
+      }
+      const radialFavoriteSelected = Boolean(
+        radialFavorite && radialFavorite.classList.contains("is-selected")
+      );
+      document.dispatchEvent(new KeyboardEvent("keyup", {
+        altKey: true, bubbles: true, code: "KeyQ", key: "q"
+      }));
+      await delay(760);
+      const radialQuickSendSucceeded = radialFavoriteSelected
+        && favoritesPortal?.dataset.bcpFavoritesLastSend === "侧边聊天滚动测试"
+        && favoritesPortal?.dataset.bcpFavoritesLastSendResult === "success";
 
       let usernameActionRejected = true;
       let userPanelRejected = true;
+      let advertisementRejected = true;
       if (platform === "bilibili") {
+        advertisementAction.dispatchEvent(new PointerEvent("pointerover", {
+          bubbles: true,
+          composed: true,
+          pointerType: "mouse",
+          relatedTarget: targetContent
+        }));
+        await delay(40);
+        advertisementRejected = Boolean(button && button.hidden);
         targetUser.dispatchEvent(new PointerEvent("pointerover", {
           bubbles: true,
           composed: true,
@@ -1027,44 +1427,184 @@ async function inspect() {
         await delay(40);
       }
 
-      const beforeRelease = root.scrollTop;
+      let replyInput = fullscreenMode
+        ? document.querySelector(platform === "bilibili"
+          ? ".bpx-player-dm-input"
+          : ".fixture-huya-quick-input")
+        : document.querySelector(platform === "bilibili"
+          ? "textarea.chat-input"
+          : "#pub_msg_input");
+      const sentBeforeReply = platform === "bilibili"
+        ? document.body.dataset.bilibiliSent || ""
+        : document.body.dataset.chatSent || "";
+      targetContent.dispatchEvent(new PointerEvent("pointerover", {
+        bubbles: true,
+        composed: true,
+        pointerType: "mouse"
+      }));
+      await delay(70);
+      await nextPaint();
+      const replyButton = document.querySelector(
+        ".bcp-one-actions:not([hidden]) .bcp-one-action[data-action='reply']"
+      );
+      if (replyButton) replyButton.click();
+      await delay(platform === "bilibili" && fullscreenMode ? 320 : 120);
+      const activeReplyInput = document.activeElement instanceof Element
+        && document.activeElement.matches(
+          "input,textarea,[contenteditable]:not([contenteditable='false']),[role='textbox']"
+        ) ? document.activeElement : null;
+      if (activeReplyInput && activeReplyInput.dataset.fixtureReplySurface) {
+        replyInput = activeReplyInput;
+      } else if (!replyInput) {
+        replyInput = document.querySelector(
+          ".bpx-player-dm-input,[data-fixture-reply-surface='quick']"
+        );
+      }
+      const replyValue = replyInput instanceof HTMLInputElement
+        || replyInput instanceof HTMLTextAreaElement
+        ? replyInput.value
+        : replyInput && replyInput.textContent || "";
+      const replyPrefilled = replyValue === "@测试用户6 ";
+      const replyInputFocused = Boolean(replyInput
+        && (document.activeElement === replyInput || replyInput.contains(document.activeElement)));
+      const sentAfterReply = platform === "bilibili"
+        ? document.body.dataset.bilibiliSent || ""
+        : document.body.dataset.chatSent || "";
+      const replyDidNotSend = sentAfterReply === sentBeforeReply;
+      const replySurface = replyInput && replyInput.dataset.fixtureReplySurface || "";
+      const replySurfaceCorrect = replySurface === (fullscreenMode ? "quick" : "side");
+      let overlayReplyButtonAvailable = true;
+      let overlayReplyPrefilled = true;
+      let overlayReplyInputFocused = true;
+      let overlayReplyDidNotSend = true;
+      let overlayReplyValue = "";
+      if (platform === "huya" && replyInput) {
+        const setter = Object.getOwnPropertyDescriptor(
+          HTMLTextAreaElement.prototype,
+          "value"
+        ).set;
+        setter.call(replyInput, "");
+        replyInput.dispatchEvent(new InputEvent("input", {
+          bubbles: true,
+          composed: true,
+          data: "",
+          inputType: "deleteContentBackward"
+        }));
+        const overlay = document.querySelector("#player-wrap .danmu-item");
+        const overlaySentBeforeReply = document.body.dataset.overlaySent || "";
+        overlay.dispatchEvent(new PointerEvent("pointerover", {
+          bubbles: true,
+          composed: true,
+          pointerType: "mouse"
+        }));
+        await delay(100);
+        const overlayReplyButton = document.querySelector(
+          ".bcp-one-actions:not([hidden]) .bcp-one-action[data-action='reply']"
+        );
+        overlayReplyButtonAvailable = Boolean(overlayReplyButton);
+        if (overlayReplyButton) overlayReplyButton.click();
+        await delay(120);
+        overlayReplyValue = replyInput.value;
+        overlayReplyPrefilled = overlayReplyValue === "@画面用户 ";
+        overlayReplyInputFocused = document.activeElement === replyInput;
+        overlayReplyDidNotSend = (document.body.dataset.overlaySent || "")
+          === overlaySentBeforeReply;
+      }
+      root.scrollTop = root.scrollHeight;
+      missingSenderContent.dispatchEvent(new PointerEvent("pointerover", {
+        bubbles: true,
+        composed: true,
+        pointerType: "mouse"
+      }));
+      await delay(80);
+      const missingSenderReply = document.querySelector(
+        ".bcp-one-actions:not([hidden]) .bcp-one-action[data-action='reply']"
+      );
+      if (missingSenderReply) missingSenderReply.click();
+      await delay(100);
+      const errorToast = document.querySelector(".bcp-one-toast.is-visible");
+      const errorText = String(errorToast && errorToast.textContent || "").trim();
+      const contextualReplyError = errorText.includes("未能识别这条弹幕的发送者")
+        && !errorText.includes("+1失败");
+
       targetContent.dispatchEvent(new PointerEvent("pointerout", {
         bubbles: true,
         composed: true,
         pointerType: "mouse",
         relatedTarget: outside
       }));
-      await delay(180);
-      const afterRelease = root.scrollTop;
-      const scrollResumed = afterRelease - beforeRelease >= 10;
-      const pauseMarkerReleased = root.dataset.bcpOneScrollPaused !== "true";
-      clearInterval(autoScroll);
       if (panel) panel.remove();
       root.remove();
       outside.remove();
       return {
         platform,
         messagePlusOneAvailable,
-        pauseMarkerApplied,
-        pausedStart,
-        pausedEnd,
-        scrollPaused,
+        threeActionUi,
+        scrollPauseMarkerAbsent,
+        scrollStart,
+        scrollEnd,
+        scrollingRemainsEnabled,
+        manualScrollTarget,
+        manualScrollPosition,
+        manualScrollPreserved,
+        favoriteSavedAndListed,
+        favoriteUiSingleton,
+        currentRoomFocused,
+        favoriteQuickSendSucceeded,
+        favoriteSentValue,
+        favoriteSendFeedback,
+        favoriteRuntimeSendText,
+        favoriteRuntimeSendResult,
+        longPressRadialAvailable,
+        radialFavoriteSelected,
+        radialQuickSendSucceeded,
+        favoritesFullscreenHostCorrect,
+        replyButtonAvailable: Boolean(replyButton),
+        replyPrefilled,
+        replyInputFocused,
+        replyDidNotSend,
+        replyValue,
+        replySurface,
+        replySurfaceCorrect,
+        overlayReplyButtonAvailable,
+        overlayReplyPrefilled,
+        overlayReplyInputFocused,
+        overlayReplyDidNotSend,
+        overlayReplyValue,
+        contextualReplyError,
+        replyErrorText: errorText,
+        advertisementRejected,
         usernameActionRejected,
-        userPanelRejected,
-        beforeRelease,
-        afterRelease,
-        scrollResumed,
-        pauseMarkerReleased
+        userPanelRejected
       };
     })()`);
     sideChatRegression.assertionFailures = [
       "messagePlusOneAvailable",
-      "pauseMarkerApplied",
-      "scrollPaused",
+      "threeActionUi",
+      "scrollPauseMarkerAbsent",
+      "scrollingRemainsEnabled",
+      "manualScrollPreserved",
+      "favoriteSavedAndListed",
+      "favoriteUiSingleton",
+      "currentRoomFocused",
+      "favoriteQuickSendSucceeded",
+      "longPressRadialAvailable",
+      "radialFavoriteSelected",
+      "radialQuickSendSucceeded",
+      "favoritesFullscreenHostCorrect",
+      "replyButtonAvailable",
+      "replyPrefilled",
+      "replyInputFocused",
+      "replyDidNotSend",
+      "replySurfaceCorrect",
+      "overlayReplyButtonAvailable",
+      "overlayReplyPrefilled",
+      "overlayReplyInputFocused",
+      "overlayReplyDidNotSend",
+      "contextualReplyError",
+      "advertisementRejected",
       "usernameActionRejected",
-      "userPanelRejected",
-      "scrollResumed",
-      "pauseMarkerReleased"
+      "userPanelRejected"
     ].filter((key) => sideChatRegression[key] !== true);
   }
 
@@ -1074,6 +1614,23 @@ async function inspect() {
     bilibiliRichRegression = await evaluateValue(`(async () => {
       const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
       const image = document.querySelector(".fixture-video-emote");
+      const fullscreenMode = new URL(location.href).searchParams.get("fullscreen") === "1";
+      const replyInput = document.querySelector(fullscreenMode
+        ? ".bpx-player-dm-input"
+        : "textarea.chat-input");
+      if (replyInput) {
+        const resetSetter = Object.getOwnPropertyDescriptor(
+          HTMLTextAreaElement.prototype,
+          "value"
+        ).set;
+        resetSetter.call(replyInput, "");
+        replyInput.dispatchEvent(new InputEvent("input", {
+          bubbles: true,
+          composed: true,
+          data: "",
+          inputType: "deleteContentBackward"
+        }));
+      }
       image.dispatchEvent(new PointerEvent("pointerover", {
         bubbles: true,
         composed: true,
@@ -1083,7 +1640,65 @@ async function inspect() {
       const plusOne = document.querySelector(".bcp-one-button:not([hidden])");
       const selectedImageMessage = Boolean(plusOne
         && String(plusOne.getAttribute("aria-label") || "").includes("主播挥手"));
-      if (plusOne) plusOne.click();
+      const favoriteButton = document.querySelector(
+        ".bcp-one-actions:not([hidden]) .bcp-one-action[data-action='favorite']"
+      );
+      if (favoriteButton) favoriteButton.click();
+      await delay(100);
+      const favoriteWarning = String(
+        document.querySelector(".bcp-one-toast.is-visible")?.textContent || ""
+      ).trim();
+      document.dispatchEvent(new KeyboardEvent("keydown", {
+        altKey: true, bubbles: true, code: "KeyQ", key: "q"
+      }));
+      await delay(40);
+      document.dispatchEvent(new KeyboardEvent("keyup", {
+        altKey: true, bubbles: true, code: "KeyQ", key: "q"
+      }));
+      await delay(100);
+      const favoritesHost = document.querySelector(".bcp-favorites-host");
+      const favoritesRoot = favoritesHost?.shadowRoot || document;
+      const favoritesPanel = favoritesRoot.querySelector(".bcp-favorites-panel");
+      const favoriteRichAssetsRejected = Boolean(
+        favoriteButton
+          && favoriteWarning.includes("仅支持收藏普通文字和 Unicode Emoji")
+          && favoritesPanel
+          && !Array.from(favoritesPanel.querySelectorAll(".bcp-favorites-text"))
+            .some((item) => String(item.textContent || "").includes("主播挥手"))
+      );
+      document.dispatchEvent(new KeyboardEvent("keydown", {
+        bubbles: true, code: "Escape", key: "Escape"
+      }));
+      await delay(40);
+      const replyButton = document.querySelector(
+        ".bcp-one-actions:not([hidden]) .bcp-one-action[data-action='reply']"
+      );
+      const sentBeforeReply = document.body.dataset.bilibiliSent || "";
+      if (replyButton) replyButton.click();
+      await delay(120);
+      const replyValue = replyInput && replyInput.value || "";
+      const videoReplyInputFocused = document.activeElement === replyInput;
+      if (replyInput) {
+        const setter = Object.getOwnPropertyDescriptor(
+          HTMLTextAreaElement.prototype,
+          "value"
+        ).set;
+        setter.call(replyInput, "");
+        replyInput.dispatchEvent(new InputEvent("input", {
+          bubbles: true,
+          composed: true,
+          data: "",
+          inputType: "deleteContentBackward"
+        }));
+      }
+      image.dispatchEvent(new PointerEvent("pointerover", {
+        bubbles: true,
+        composed: true,
+        pointerType: "mouse"
+      }));
+      await delay(100);
+      const plusOneAfterReply = document.querySelector(".bcp-one-button:not([hidden])");
+      if (plusOneAfterReply) plusOneAfterReply.click();
       for (let attempt = 0; attempt < 30
           && !document.body.dataset.bilibiliEmojiSent; attempt += 1) {
         await delay(60);
@@ -1093,16 +1708,33 @@ async function inspect() {
       return {
         videoImageSelected: Boolean(image && image.closest(".bilibili-live-player-video-danmaku")),
         selectedImageMessage,
+        favoriteButtonAvailable: Boolean(favoriteButton),
+        favoriteRichAssetsRejected,
+        favoriteWarning,
         sentAsImage,
         echoImageRendered: Boolean(echoImage),
-        sentInputText: document.querySelector(".chat-input").value
+        sentInputText: replyInput && replyInput.value || "",
+        videoReplyButtonAvailable: Boolean(replyButton),
+        videoReplyPrefilled: replyValue === "@主播 ",
+        videoReplyInputFocused,
+        videoReplyDidNotSend: (document.body.dataset.bilibiliSent || "") === sentBeforeReply,
+        videoReplySurface: replyInput && replyInput.dataset.fixtureReplySurface || "",
+        videoReplySurfaceCorrect: Boolean(replyInput
+          && replyInput.dataset.fixtureReplySurface === (fullscreenMode ? "quick" : "side"))
       };
     })()`);
     bilibiliRichRegression.assertionFailures = [
       "videoImageSelected",
       "selectedImageMessage",
+      "favoriteButtonAvailable",
+      "favoriteRichAssetsRejected",
       "sentAsImage",
-      "echoImageRendered"
+      "echoImageRendered",
+      "videoReplyButtonAvailable",
+      "videoReplyPrefilled",
+      "videoReplyInputFocused",
+      "videoReplyDidNotSend",
+      "videoReplySurfaceCorrect"
     ].filter((key) => bilibiliRichRegression[key] !== true);
   }
 
@@ -1178,7 +1810,6 @@ async function inspect() {
           instanceCount: parsed.instanceCount,
           orphanCount: parsed.orphanCount,
           counters: parsed.counters || null,
-          lastProbe: parsed.lastProbe || null,
           lastCard: parsed.lastCard || null,
           lastError: parsed.lastError || "",
           instances: Array.isArray(parsed.instances) ? parsed.instances.slice(0, 5) : [],
@@ -1238,10 +1869,13 @@ async function inspect() {
     const failures = [];
     [
       "ready",
+      "hoverUsesTransparentThemeFrame",
       "targetPaused",
       "otherContinued",
       "sizeStable",
       "actionVisible",
+      "actionFullyRendered",
+      "threeActionUi",
       "actionBehindMessage",
       "trackOwnsHover",
       "actionGapReserved",
@@ -1249,6 +1883,19 @@ async function inspect() {
       "gapHoverKeptPaused",
       "trailingHoverKeptPaused",
       "messagePaddingExpanded",
+      "messagePaddingUniform",
+      "favoriteButtonAvailable",
+      "favoriteRichAssetsRejected",
+      "favoriteSavedAndListed",
+      "favoriteUiSingleton",
+      "favoriteCurrentRoomFocused",
+      "replyButtonAvailable",
+      "replyPrefilled",
+      "replyInputFocused",
+      "replyDidNotSend",
+      "replyErrorAbsent",
+      "replySurfaceCorrect",
+      "singleSuccessFeedback",
       "clickSentMatchingMessage",
       "ownMessageFramed",
       "noReleaseSpring",

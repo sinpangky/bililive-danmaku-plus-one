@@ -17,13 +17,13 @@
  */
 .bcp-douyin-dom-layer {
   all: initial;
-  contain: strict;
+  contain: layout style;
   display: block;
   isolation: isolate;
-  overflow: hidden;
+  overflow: visible;
   pointer-events: none !important;
   position: fixed;
-  z-index: 2147483645;
+  z-index: 2147483646;
 }
 
 .bcp-douyin-dom-layer[hidden] {
@@ -31,13 +31,13 @@
 }
 
 .bcp-douyin-dom-track {
-  --bcp-douyin-action-space: 50px;
+  --bcp-douyin-action-space: 38.4px;
   --bcp-douyin-action-gap: 8px;
   --bcp-douyin-hover-trailing-space: 12px;
   align-items: center;
   backface-visibility: hidden;
   box-sizing: border-box;
-  contain: layout style paint;
+  contain: layout style;
   column-gap: var(--bcp-douyin-action-gap);
   display: inline-flex;
   left: 0;
@@ -52,6 +52,7 @@
   user-select: none;
   white-space: nowrap;
   will-change: transform;
+  overflow: visible;
 }
 
 .bcp-douyin-dom-barrage {
@@ -63,7 +64,7 @@
   box-sizing: border-box;
   cursor: default;
   display: inline-flex;
-  flex: 1 1 auto;
+  flex: 1 0 auto;
   margin: 0;
   min-width: 0;
   padding: 0;
@@ -73,9 +74,8 @@
 
 .bcp-douyin-dom-track[data-hovered='true'] > .bcp-douyin-dom-barrage,
 .bcp-douyin-dom-track:focus-within > .bcp-douyin-dom-barrage {
-  background: color-mix(in srgb,
-    var(--bcp-panel-background, #191b20) 76%, transparent);
-  box-shadow: 0 2px 9px rgb(0 0 0 / 24%);
+  background: transparent;
+  box-shadow: 0 0 0 3px var(--bcp-selection, #fd8101);
 }
 
 .bcp-douyin-dom-track[data-hovered='true'],
@@ -100,10 +100,10 @@
 /* A layout-neutral frame makes the user's echoed barrage easy to spot. */
 .bcp-douyin-dom-barrage[data-own='true'] .bcp-douyin-dom-content {
   background: color-mix(in srgb,
-    var(--bcp-selection, #ff7c39) 18%, transparent);
+    var(--bcp-selection, #fd8101) 18%, transparent);
   border-radius: 5px;
   box-shadow: inset 0 0 0 2px color-mix(in srgb,
-    var(--bcp-selection, #ff7c39) 96%, transparent);
+    var(--bcp-selection, #fd8101) 96%, transparent);
 }
 
 /* The side chat keeps native interactions, but sent messages get a layout-neutral frame. */
@@ -119,78 +119,116 @@
  */
 .bcp-douyin-dom-action {
   align-items: center;
-  appearance: none;
-  background: linear-gradient(135deg,
-    color-mix(in srgb, var(--bcp-action-start, #ff8a34) 96%, transparent),
-    color-mix(in srgb, var(--bcp-action-end, #ff5f3d) 96%, transparent));
-  border: 1px solid color-mix(in srgb,
-    var(--bcp-action-text, #fff) 38%, transparent);
-  border-radius: 999px;
-  box-shadow: 0 2px 7px rgb(0 0 0 / 24%);
+  background: linear-gradient(0deg,
+    var(--bcp-action-start, #fd8101),
+    var(--bcp-action-end, #fd8101));
+  border-radius: 16px;
   box-sizing: border-box;
-  color: var(--bcp-action-text, #fff);
-  cursor: pointer;
   display: inline-flex;
   flex: 0 0 var(--bcp-douyin-action-space);
-  font: 700 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  height: 30px;
-  justify-content: center;
+  flex-shrink: 0;
+  height: 40px;
   margin: 0;
   opacity: 0;
-  outline: 0;
+  overflow: hidden;
   padding: 0;
   pointer-events: none;
-  touch-action: manipulation;
-  transition: background-color 90ms ease, border-color 90ms ease,
-    color 90ms ease, opacity 90ms ease;
+  position: relative;
+  transition: opacity 90ms ease;
   visibility: hidden;
   width: var(--bcp-douyin-action-space);
+  z-index: 3;
 }
 
 .bcp-douyin-dom-track[data-hovered='true'] > .bcp-douyin-dom-action,
 .bcp-douyin-dom-track:focus-within > .bcp-douyin-dom-action,
-.bcp-douyin-dom-track[data-sending='true'] > .bcp-douyin-dom-action,
-.bcp-douyin-dom-track[data-send-ok='true'] > .bcp-douyin-dom-action {
+.bcp-douyin-dom-track[data-sending='true'] > .bcp-douyin-dom-action {
   opacity: 1;
   pointer-events: auto;
   visibility: visible;
 }
 
-.bcp-douyin-dom-action:hover,
-.bcp-douyin-dom-action:focus-visible {
-  filter: brightness(1.08);
-  border-color: color-mix(in srgb,
-    var(--bcp-action-text, #fff) 72%, transparent);
+.bcp-douyin-dom-action[hidden] {
+  display: none !important;
 }
 
-.bcp-douyin-dom-action:focus-visible {
+.bcp-douyin-dom-action-item {
+  align-items: center;
+  align-self: stretch;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  box-sizing: border-box;
+  color: var(--bcp-action-text, #fff);
+  cursor: pointer;
+  display: inline-flex;
+  font: 600 16px/22px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-feature-settings: "ss01" on, "cv01" on;
+  justify-content: center;
+  padding: 0 12px;
+  touch-action: manipulation;
+  transition: background-color 140ms ease, transform 140ms ease;
+  white-space: nowrap;
+}
+
+.bcp-douyin-dom-action-item[data-action="plus-one"] {
+  font-size: 14.4px;
+  min-width: 38.4px;
+  padding-right: 9.6px;
+  padding-left: 9.6px;
+}
+
+.bcp-douyin-dom-action-item[data-action="reply"],
+.bcp-douyin-dom-action-item[data-action="favorite"] {
+  min-width: 56px;
+}
+
+.bcp-douyin-dom-action-item:hover {
+  background: rgb(255 255 255 / 12%);
+}
+
+.bcp-douyin-dom-action-item:active {
+  transform: scale(.96);
+}
+
+.bcp-douyin-dom-action-item:focus-visible {
   outline: 3px solid color-mix(in srgb,
-    var(--bcp-focus-ring, #ffb35e) 62%, transparent);
-  outline-offset: 2px;
+    var(--bcp-focus-ring, #fd8101) 55%, transparent);
+  outline-offset: -3px;
 }
 
-.bcp-douyin-dom-track[data-sending='true'] > .bcp-douyin-dom-action {
-  color: color-mix(in srgb,
-    var(--bcp-action-text, #fff) 72%, transparent);
+.bcp-douyin-dom-action-divider {
+  align-self: center;
+  background: #fff;
+  border-radius: 999px;
+  flex: 0 0 3px;
+  height: 24px;
+  pointer-events: none;
+}
+
+.bcp-douyin-dom-track[data-sending='true']
+  > .bcp-douyin-dom-action
+  > .bcp-douyin-dom-action-item[data-action="plus-one"] {
+  color: color-mix(in srgb, var(--bcp-action-text, #fff) 55%, transparent);
   cursor: wait;
-}
-
-.bcp-douyin-dom-track[data-send-ok='true'] > .bcp-douyin-dom-action {
-  background: color-mix(in srgb,
-    var(--bcp-success, #4fd38e) 96%, transparent);
-  border-color: color-mix(in srgb,
-    var(--bcp-success, #4fd38e) 72%, #fff);
-  cursor: default;
 }
 
 .bcp-douyin-card {
   align-items: center;
-  background: color-mix(in srgb,
-    var(--bcp-panel-background, #191b20) 96%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  background:
+    linear-gradient(145deg,
+      color-mix(in srgb, var(--bcp-panel-text, #fff) 12%, transparent),
+      transparent 50%),
+    color-mix(in srgb, var(--bcp-panel-background, #fd8101) 58%, transparent);
   border: 1px solid color-mix(in srgb,
-    var(--bcp-selection, #ff7c39) 72%, transparent);
-  border-radius: 11px;
-  box-shadow: 0 8px 24px rgb(0 0 0 / 34%);
+    var(--bcp-panel-text, #fff) 20%, transparent);
+  border-radius: 16px;
+  box-shadow:
+    0 12px 36px rgb(0 0 0 / 28%),
+    inset 0 1px 0 rgb(255 255 255 / 24%),
+    inset 0 -1px 0 rgb(0 0 0 / 10%);
   box-sizing: border-box;
   color: var(--bcp-panel-text, #fff);
   display: flex;
@@ -267,88 +305,130 @@
   width: 20px;
 }
 
-.bcp-douyin-button {
+.bcp-douyin-actions {
   align-items: center;
+  background: linear-gradient(0deg,
+    var(--bcp-action-start, #fd8101),
+    var(--bcp-action-end, #fd8101));
+  border-radius: 16px;
+  box-sizing: border-box;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 40px;
+  overflow: hidden;
+  padding: 0;
+  pointer-events: auto !important;
+  width: max-content;
+}
+
+.bcp-douyin-actions[hidden] {
+  display: none !important;
+}
+
+.bcp-douyin-action-item {
   appearance: none;
-  background: linear-gradient(135deg,
-    var(--bcp-action-start, #ff8a34),
-    var(--bcp-action-end, #ff5f3d));
-  border: 1px solid color-mix(in srgb,
-    var(--bcp-action-text, #fff) 28%, transparent);
-  border-radius: 999px;
+  align-items: center;
+  align-self: stretch;
+  background: transparent;
+  border: 0;
   box-sizing: border-box;
   color: var(--bcp-action-text, #fff);
   cursor: pointer;
   display: inline-flex;
-  flex: 0 0 auto;
-  font: 700 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  height: 28px;
+  font: 600 16px/22px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-feature-settings: "ss01" on, "cv01" on;
   justify-content: center;
-  min-width: 42px;
-  padding: 0 10px;
+  padding: 0 12px;
   pointer-events: auto !important;
+  transition: background-color 140ms ease, transform 140ms ease;
+  white-space: nowrap;
 }
 
-.bcp-douyin-button:hover {
-  filter: brightness(1.08);
+.bcp-douyin-action-item[data-action="plus-one"] {
+  font-size: 14.4px;
+  min-width: 38.4px;
+  padding-right: 9.6px;
+  padding-left: 9.6px;
 }
 
-.bcp-douyin-button:active {
+.bcp-douyin-action-item[data-action="reply"],
+.bcp-douyin-action-item[data-action="favorite"] {
+  min-width: 56px;
+}
+
+.bcp-douyin-action-item:hover {
+  background: rgb(255 255 255 / 12%);
+}
+
+.bcp-douyin-action-item:active {
   transform: scale(.96);
 }
 
-.bcp-douyin-button:focus-visible {
+.bcp-douyin-action-item:focus-visible {
   outline: 3px solid color-mix(in srgb,
-    var(--bcp-focus-ring, #ffb35e) 55%, transparent);
-  outline-offset: 2px;
+    var(--bcp-focus-ring, #fd8101) 55%, transparent);
+  outline-offset: -3px;
 }
 
-.bcp-douyin-button:disabled {
+.bcp-douyin-action-item:disabled {
   cursor: wait;
   filter: grayscale(.2);
   opacity: .65;
 }
 
+.bcp-douyin-action-divider {
+  align-self: center;
+  background: #fff;
+  border-radius: 999px;
+  flex: 0 0 3px;
+  height: 24px;
+  pointer-events: none;
+}
+
 .bcp-douyin-toast {
-  background: color-mix(in srgb,
-    var(--bcp-panel-background, #191b20) 96%, transparent);
-  border: 1px solid color-mix(in srgb,
-    var(--bcp-panel-text, #fff) 12%, transparent);
-  border-radius: 10px;
-  box-shadow: 0 10px 30px rgb(0 0 0 / 30%);
+  align-items: center;
+  background: var(--bcp-panel-background, #fd8101);
+  border: 0;
+  border-radius: 16px;
   box-sizing: border-box;
-  color: var(--bcp-panel-text, #fff);
-  font: 500 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--bcp-action-text, #fff);
+  display: flex;
+  font: 600 16px/22px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-feature-settings: "ss01" on, "cv01" on;
+  height: 40px;
+  justify-content: center;
   left: 50%;
+  min-height: 36px;
+  min-width: 84px;
   max-width: min(420px, calc(100vw - 32px));
   opacity: 0;
-  padding: 10px 15px;
+  overflow: hidden;
+  padding: 0 16px;
   pointer-events: none;
   position: fixed;
   top: 28px;
-  transform: translate(-50%, -8px);
-  transition: opacity 160ms ease, transform 160ms ease;
+  transform: translate(-50%, -8px) scale(.96);
+  transition: opacity 180ms ease, transform 180ms ease;
+  white-space: nowrap;
+  width: max-content;
   z-index: 2147483647;
 }
 
 .bcp-douyin-toast.is-visible {
   opacity: 1;
-  transform: translate(-50%, 0);
+  transform: translate(-50%, 0) scale(1);
 }
 
 .bcp-douyin-toast--success {
-  border-color: color-mix(in srgb,
-    var(--bcp-success, #4fd38e) 48%, transparent);
+  background: var(--bcp-success, #27ae60);
 }
 
 .bcp-douyin-toast--warning {
-  border-color: color-mix(in srgb,
-    var(--bcp-warning, #ffbf52) 52%, transparent);
+  background: var(--bcp-warning, #e6a000);
 }
 
 .bcp-douyin-toast--error {
-  border-color: color-mix(in srgb,
-    var(--bcp-error, #ff5c5c) 55%, transparent);
+  background: var(--bcp-error, #ff4747);
 }
 
 @media (prefers-reduced-motion: reduce) {

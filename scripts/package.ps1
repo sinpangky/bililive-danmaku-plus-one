@@ -1,7 +1,13 @@
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
-$manifest = Get-Content -LiteralPath (Join-Path $root "manifest.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+$extensionRoot = Join-Path $root "build\extension"
+
+if (-not (Test-Path -LiteralPath (Join-Path $extensionRoot "manifest.json"))) {
+    throw "Build output is missing. Run npm run build first."
+}
+
+$manifest = Get-Content -LiteralPath (Join-Path $extensionRoot "manifest.json") -Raw -Encoding UTF8 | ConvertFrom-Json
 $dist = Join-Path $root "dist"
 $destination = Join-Path $dist "danmaku-echo-v$($manifest.version).zip"
 
@@ -21,17 +27,17 @@ $archive = [System.IO.Compression.ZipFile]::Open(
 
 try {
     $files = @(
-        Get-Item -LiteralPath (Join-Path $root "manifest.json")
-        Get-Item -LiteralPath (Join-Path $root "README.md")
-        Get-Item -LiteralPath (Join-Path $root "LICENSE")
-        Get-ChildItem -LiteralPath (Join-Path $root "assets") -File -Recurse
-        Get-ChildItem -LiteralPath (Join-Path $root "background") -File -Recurse
-        Get-ChildItem -LiteralPath (Join-Path $root "src") -File -Recurse
-        Get-ChildItem -LiteralPath (Join-Path $root "popup") -File -Recurse
+        Get-Item -LiteralPath (Join-Path $extensionRoot "manifest.json")
+        Get-Item -LiteralPath (Join-Path $extensionRoot "README.md")
+        Get-Item -LiteralPath (Join-Path $extensionRoot "LICENSE")
+        Get-ChildItem -LiteralPath (Join-Path $extensionRoot "assets") -File -Recurse
+        Get-ChildItem -LiteralPath (Join-Path $extensionRoot "background") -File -Recurse
+        Get-ChildItem -LiteralPath (Join-Path $extensionRoot "src") -File -Recurse
+        Get-ChildItem -LiteralPath (Join-Path $extensionRoot "popup") -File -Recurse
     )
 
     foreach ($file in $files) {
-        $relativePath = $file.FullName.Substring($root.Length + 1).Replace("\", "/")
+        $relativePath = $file.FullName.Substring($extensionRoot.Length + 1).Replace("\", "/")
         [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
             $archive,
             $file.FullName,

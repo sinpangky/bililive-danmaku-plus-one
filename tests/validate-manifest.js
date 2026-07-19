@@ -4,7 +4,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
-const manifestPath = path.join(root, "manifest.json");
+const extensionRoot = process.argv[2]
+  ? path.resolve(root, process.argv[2])
+  : root;
+const manifestPath = path.join(extensionRoot, "manifest.json");
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 
@@ -33,6 +36,7 @@ if (manifest.manifest_version !== 3) {
 
 const referencedFiles = [
   manifest.action && manifest.action.default_popup,
+  manifest.options_ui && manifest.options_ui.page,
   manifest.background && manifest.background.service_worker,
   ...Object.values(manifest.icons || {}),
   ...Object.values((manifest.action && manifest.action.default_icon) || {}),
@@ -40,7 +44,7 @@ const referencedFiles = [
 ].filter(Boolean);
 
 for (const relativePath of referencedFiles) {
-  if (!fs.existsSync(path.join(root, relativePath))) {
+  if (!fs.existsSync(path.join(extensionRoot, relativePath))) {
     throw new Error(`Manifest references missing file: ${relativePath}`);
   }
 }
@@ -49,6 +53,33 @@ const matches = manifest.content_scripts.flatMap((entry) => entry.matches);
 for (const required of ["huya.com", "bilibili.com", "douyin.com"]) {
   if (!matches.some((match) => match.includes(required))) {
     throw new Error(`Missing host match for ${required}`);
+  }
+}
+
+const favoriteRuntimeEntries = manifest.content_scripts.filter((entry) =>
+  (entry.js || []).includes("src/content.js")
+  || (entry.js || []).includes("src/douyin-content.js")
+);
+if (favoriteRuntimeEntries.length !== 3
+    || favoriteRuntimeEntries.some((entry) => (entry.css || []).includes("src/favorites.css"))) {
+  throw new Error("Favorites styles must stay encapsulated in the Shadow DOM runtime");
+}
+
+const contentCss = fs.readFileSync(path.join(extensionRoot, "src", "content.css"), "utf8");
+const douyinContentCss = fs.readFileSync(
+  path.join(extensionRoot, "src", "douyin-content.css"),
+  "utf8"
+);
+for (const [label, css] of [["shared", contentCss], ["Douyin", douyinContentCss]]) {
+  for (const color of ["#27ae60", "#ff4747", "#e6a000"]) {
+    if (!css.includes(color)) {
+      throw new Error(`${label} feedback styles are missing ${color}`);
+    }
+  }
+  if (!css.includes('data-action="plus-one"')
+      || !css.includes("font-size: 14.4px")
+      || !css.includes("min-width: 38.4px")) {
+    throw new Error(`${label} +1 action must retain its 80% visual scale`);
   }
 }
 
@@ -94,13 +125,24 @@ if (!(manifest.host_permissions || []).includes("*://live.douyin.com/*")
 }
 
 const serviceWorkerSource = fs.readFileSync(
-  path.join(root, "background", "service-worker.js"),
+  path.join(extensionRoot, "background", "service-worker.js"),
   "utf8"
 );
 if (!serviceWorkerSource.includes("src/douyin-content.js")
     || !serviceWorkerSource.includes("src/douyin-content.css")
+    || serviceWorkerSource.includes("src/favorites.css")
     || !serviceWorkerSource.includes("chrome.tabs.onUpdated")) {
   throw new Error("Douyin SPA recovery must inject the complete runtime on history URL changes");
 }
 
-console.log(`Manifest OK (${referencedFiles.length} referenced files, ${matches.length} host matches)`);
+const popupSource = fs.readFileSync(path.join(extensionRoot, "popup", "popup.js"), "utf8");
+if (/\bprocess\.env\b/.test(popupSource)) {
+  throw new Error("Popup bundle contains an unresolved Node.js process.env reference");
+}
+const popupHtml = fs.readFileSync(path.join(extensionRoot, "popup", "popup.html"), "utf8");
+if (popupHtml.includes("\0") || !popupHtml.includes('id="app"')
+    || !popupHtml.includes('src="popup.js"')) {
+  throw new Error("Popup HTML is empty or malformed");
+}
+
+console.log(`Manifest OK (${referencedFiles.length} referenced files, ${matches.length} host matches): ${extensionRoot}`);

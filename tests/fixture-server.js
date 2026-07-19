@@ -17,14 +17,24 @@ const html = String.raw`<!doctype html>
       <div class="quality-option" style="position:absolute;left:20px;top:20px;color:white">高清</div>
       <div class="danmu-item" style="position:absolute;left:220px;top:120px;color:white">全屏弹幕也能复读</div>
       <div class="danmu-item second-danmu" style="position:absolute;left:280px;top:120px;color:white">后一个弹幕不能抢占</div>
+      <div class="player-fullscreen-danmu-input fixture-huya-quick-reply"
+        style="display:none;position:absolute;left:20px;bottom:20px;z-index:5">
+        <textarea class="player-danmu-input fixture-huya-quick-input"
+          data-fixture-reply-surface="quick" placeholder="发送弹幕"></textarea>
+        <button class="btn-send fixture-huya-quick-send" type="button">发送</button>
+      </div>
     </section>
     <section id="chat-room__list">
       <div class="J_msg">
-        <span class="name">测试用户：</span>
+        <span class="name" title="点击查看个人信息">测试用户：</span>
         <span class="msg">这波操作漂亮</span>
       </div>
+      <div class="J_msg fixture-overlay-source-row">
+        <span class="name" title="点击查看个人信息">画面用户：</span>
+        <span class="msg">全屏弹幕也能复读</span>
+      </div>
     </section>
-    <textarea id="pub_msg_input" aria-label="弹幕输入框"></textarea>
+    <textarea id="pub_msg_input" data-fixture-reply-surface="side" aria-label="弹幕输入框"></textarea>
     <button id="msg_send_bt" type="button">发送</button>
     <script>
       const message = document.querySelector(".msg");
@@ -34,6 +44,18 @@ const html = String.raw`<!doctype html>
       const player = document.querySelector("#player-wrap");
       const input = document.querySelector("#pub_msg_input");
       const send = document.querySelector("#msg_send_bt");
+      const quickControls = document.querySelector(".fixture-huya-quick-reply");
+      const quickInput = document.querySelector(".fixture-huya-quick-input");
+      const quickSend = document.querySelector(".fixture-huya-quick-send");
+      const parameters = new URLSearchParams(location.search);
+      if (parameters.get("fullscreen") === "1") {
+        Object.defineProperty(document, "fullscreenElement", {
+          configurable: true,
+          get: () => player
+        });
+        quickControls.style.display = "flex";
+        document.body.dataset.huyaFullscreenSimulated = "true";
+      }
       send.addEventListener("click", () => {
         if (input.value === "这波操作漂亮") {
           document.body.dataset.chatSent = input.value;
@@ -45,6 +67,18 @@ const html = String.raw`<!doctype html>
           input.value = "";
           clearInterval(timer);
         }
+      });
+      quickSend.addEventListener("click", () => {
+        document.body.dataset.huyaQuickSent = quickInput.value;
+        if (quickInput.value === "这波操作漂亮") {
+          document.body.dataset.chatSent = quickInput.value;
+          document.body.dataset.chatSentAt = String(Date.now());
+        }
+        if (quickInput.value === "全屏弹幕也能复读") {
+          document.body.dataset.overlaySent = quickInput.value;
+          clearInterval(timer);
+        }
+        quickInput.value = "";
       });
 
       const timer = setInterval(() => {
@@ -163,7 +197,8 @@ const bilibiliHtml = String.raw`<!doctype html>
         </div>
       </div>
       <div class="bili-danmaku-x-dm bpx-player-ctrl-dm-input" style="display:none;position:absolute;left:20px;top:auto;bottom:20px;z-index:2">
-        <textarea class="bpx-player-dm-input" placeholder="发送弹幕" aria-label="全屏快捷弹幕输入框"></textarea>
+        <textarea class="bpx-player-dm-input" data-fixture-reply-surface="quick"
+          placeholder="发送弹幕" aria-label="全屏快捷弹幕输入框"></textarea>
         <button class="bpx-player-dm-btn" type="button">发送</button>
       </div>
     </section>
@@ -179,7 +214,7 @@ const bilibiliHtml = String.raw`<!doctype html>
       </div>
     </div>
     <div class="chat-input-ctnr">
-      <textarea class="chat-input" aria-label="弹幕输入框"></textarea>
+      <textarea class="chat-input" data-fixture-reply-surface="side" aria-label="弹幕输入框"></textarea>
       <button class="bl-button--primary" type="button">发送</button>
       <button class="fixture-emoji-toggle" aria-label="表情" type="button">表情</button>
       <div class="emoji-panel fixture-emoji-panel" hidden>
@@ -196,13 +231,14 @@ const bilibiliHtml = String.raw`<!doctype html>
       const input = document.querySelector(".chat-input");
       const send = document.querySelector(".bl-button--primary");
       const quickControls = document.querySelector(".bpx-player-ctrl-dm-input");
-      const quickInput = document.querySelector(".bpx-player-dm-input");
-      const quickSend = document.querySelector(".bpx-player-dm-btn");
+      let quickInput = document.querySelector(".bpx-player-dm-input");
+      let quickSend = document.querySelector(".bpx-player-dm-btn");
       const emojiToggle = document.querySelector(".fixture-emoji-toggle");
       const emojiPanel = document.querySelector(".fixture-emoji-panel");
       const emojiItem = document.querySelector(".fixture-emoji-item");
       const richChat = document.querySelector("#chat-history-list");
       const parameters = new URLSearchParams(location.search);
+      const lazyQuickMode = parameters.get("lazyquick") === "1";
       if (parameters.get("rich") === "1") {
         document.querySelector(".fixture-video-emote-row").style.display = "block";
       }
@@ -221,7 +257,7 @@ const bilibiliHtml = String.raw`<!doctype html>
         document.body.dataset.bilibiliEmojiSent = image.getAttribute("data-emoticon") || "";
         emojiPanel.hidden = true;
       });
-      if (parameters.get("hashed") === "1") {
+      if (parameters.get("hashed") === "1" && !lazyQuickMode) {
         quickControls.className = "x7Qk2m";
         quickInput.className = "p9Lm4n";
         quickSend.className = "s3Nd8v";
@@ -249,13 +285,23 @@ const bilibiliHtml = String.raw`<!doctype html>
         document.body.dataset.bilibiliSent = input.value;
         input.value = "";
       });
-      quickSend.addEventListener("click", () => {
-        if (quickInput.value === "全屏快捷栏手动发送") {
-          document.body.dataset.bilibiliManualQuickSent = quickInput.value;
+      const editorValue = (editor) => editor instanceof HTMLInputElement
+        || editor instanceof HTMLTextAreaElement ? editor.value : editor.textContent || "";
+      const clearEditor = (editor) => {
+        if (editor instanceof HTMLInputElement || editor instanceof HTMLTextAreaElement) {
+          editor.value = "";
+        } else {
+          editor.textContent = "";
+        }
+      };
+      const bindQuickSend = (button) => button.addEventListener("click", () => {
+        const value = editorValue(quickInput);
+        if (value === "全屏快捷栏手动发送") {
+          document.body.dataset.bilibiliManualQuickSent = value;
         }
         document.body.dataset.bilibiliSendMethod = "quick-button";
-        document.body.dataset.bilibiliSent = quickInput.value;
-        quickInput.value = "";
+        document.body.dataset.bilibiliSent = value;
+        clearEditor(quickInput);
         setTimeout(() => {
           quickControls.style.display = "flex";
           quickControls.style.removeProperty("visibility");
@@ -265,6 +311,41 @@ const bilibiliHtml = String.raw`<!doctype html>
           document.body.dataset.bilibiliQuickRefocused = String(document.activeElement === quickInput);
         }, parameters.get("late") === "1" ? 800 : 120);
       });
+      if (lazyQuickMode) {
+        quickInput.remove();
+        quickSend.remove();
+        quickInput = null;
+        quickSend = null;
+        const opener = document.createElement("button");
+        opener.type = "button";
+        opener.className = "fixture-bilibili-quick-opener";
+        opener.setAttribute("aria-expanded", "false");
+        opener.setAttribute("aria-label", "打开弹幕输入框");
+        opener.textContent = "输入弹幕";
+        opener.addEventListener("click", () => {
+          if (quickInput) return;
+          opener.setAttribute("aria-expanded", "true");
+          setTimeout(() => {
+            quickInput = document.createElement("div");
+            quickInput.className = "bpx-player-dm-input fixture-lazy-quick-input";
+            quickInput.setAttribute("contenteditable", "plaintext-only");
+            quickInput.setAttribute("role", "textbox");
+            quickInput.dataset.fixtureReplySurface = "quick";
+            quickInput.setAttribute("aria-label", "全屏快捷弹幕输入框");
+            quickInput.style.cssText = "width:260px;min-height:28px;background:#fff;color:#111";
+            quickSend = document.createElement("button");
+            quickSend.type = "button";
+            quickSend.className = "bpx-player-dm-btn";
+            quickSend.textContent = "发送";
+            bindQuickSend(quickSend);
+            opener.replaceWith(quickInput, quickSend);
+            document.body.dataset.bilibiliLazyQuickMounted = "true";
+          }, 60);
+        });
+        quickControls.appendChild(opener);
+      } else {
+        bindQuickSend(quickSend);
+      }
       document.addEventListener("pointerdown", (event) => {
         if (parameters.get("outsideFails") === "1"
           || quickControls.contains(event.target)
@@ -296,7 +377,8 @@ const bilibiliHtml = String.raw`<!doctype html>
           return;
         }
 
-        if (parameters.get("fullscreen") === "1" && !document.body.dataset.quickInputCheckStartedAt) {
+        if (parameters.get("fullscreen") === "1" && !lazyQuickMode
+            && !document.body.dataset.quickInputCheckStartedAt) {
           const rect = quickInput.getBoundingClientRect();
           quickInput.dispatchEvent(new PointerEvent("pointerover", {
             bubbles: true,
@@ -307,7 +389,8 @@ const bilibiliHtml = String.raw`<!doctype html>
           return;
         }
 
-        if (parameters.get("fullscreen") === "1" && !document.body.dataset.quickInputRejected) {
+        if (parameters.get("fullscreen") === "1" && !lazyQuickMode
+            && !document.body.dataset.quickInputRejected) {
           if (Date.now() - Number(document.body.dataset.quickInputCheckStartedAt) < 200) {
             return;
           }
@@ -418,15 +501,26 @@ const douyinHtml = String.raw`<!doctype html>
       <div id="DanmakuLayout">
         <div class="CanvasDanmakuPlugin"><canvas width="800" height="450"></canvas></div>
       </div>
+      <div class="danmaku-input fixture-douyin-quick-reply"
+        style="display:none;position:absolute;left:20px;bottom:20px;z-index:5">
+        <textarea class="fixture-douyin-quick-input" data-fixture-reply-surface="quick"
+          placeholder="发送弹幕"></textarea>
+        <button class="fixture-douyin-quick-send" type="button">发送</button>
+      </div>
     </section>
     <div id="douyin-chat-scroller" data-e2e="chat-message-list"
       style="position:fixed;left:500px;top:250px;width:260px;height:180px;overflow:auto;z-index:2">
+      <div data-e2e="chat-message" class="fixture-reply-source-row" style="height:36px">
+        <span data-e2e="chat-message-user-name">弹幕用户：</span>
+        <span data-e2e="message-content">抖音画面弹幕</span>
+      </div>
       <div data-e2e="chat-message" style="height:36px">
         <span data-e2e="message-content">右侧聊天栏不应出现 +1</span>
       </div>
       <div style="height:240px">聊天区自动滚动夹具</div>
     </div>
-    <textarea placeholder="说点什么" aria-label="弹幕输入框"></textarea>
+    <textarea class="fixture-douyin-side-input" data-fixture-reply-surface="side"
+      placeholder="说点什么" aria-label="弹幕输入框"></textarea>
     <button class="sendButton" type="button">发送</button>
     <button class="fixture-douyin-emoji-toggle" data-e2e="emoji-toggle"
       aria-label="表情" type="button">表情</button>
@@ -444,12 +538,60 @@ const douyinHtml = String.raw`<!doctype html>
       const delayedMountMode = parameters.get("delayedmount") === "1";
       const unsupportedMode = parameters.get("unsupported") === "1";
       const richMode = parameters.get("rich") === "1";
+      const fullscreenMode = parameters.get("fullscreen") === "1";
+      const cacheOnlyReplyMode = parameters.get("cacheonly") === "1";
+      const senderIdOnlyMode = parameters.get("idonly") === "1";
+      const nativeReplyFillMode = parameters.get("nativefill") === "1";
       const barrageDuration = lateHookMode ? 15_000 : 10_000;
       const canvasHost = document.querySelector(".CanvasDanmakuPlugin");
       const chatScroller = document.querySelector("#douyin-chat-scroller");
       const emojiToggle = document.querySelector(".fixture-douyin-emoji-toggle");
       const emojiPanel = document.querySelector(".fixture-douyin-emoji-panel");
       const emojiItem = document.querySelector(".fixture-douyin-emoji-item");
+      const player = document.querySelector("#douyin-player");
+      const sideInput = document.querySelector(".fixture-douyin-side-input");
+      const quickControls = document.querySelector(".fixture-douyin-quick-reply");
+      const quickInput = document.querySelector(".fixture-douyin-quick-input");
+      const quickSend = document.querySelector(".fixture-douyin-quick-send");
+      if (fullscreenMode) {
+        Object.defineProperty(document, "fullscreenElement", {
+          configurable: true,
+          get: () => player
+        });
+        quickControls.style.display = "flex";
+        document.body.dataset.douyinFullscreenSimulated = "true";
+      }
+      if (senderIdOnlyMode || nativeReplyFillMode) {
+        const sourceRow = document.querySelector(".fixture-reply-source-row");
+        if (sourceRow) sourceRow.remove();
+        document.body.dataset.douyinReplySourceUnmounted = "true";
+      } else if (cacheOnlyReplyMode) {
+        setTimeout(() => {
+          const sourceRow = document.querySelector(".fixture-reply-source-row");
+          if (sourceRow) sourceRow.remove();
+          document.body.dataset.douyinReplySourceUnmounted = "true";
+        }, 1_100);
+      }
+      if (nativeReplyFillMode) {
+        document.addEventListener("click", (event) => {
+          const reply = event.target instanceof Element
+            && event.target.closest(".bcp-douyin-dom-action-item[data-action='reply']");
+          if (!reply) return;
+          const editor = fullscreenMode ? quickInput : sideInput;
+          const setter = Object.getOwnPropertyDescriptor(
+            HTMLTextAreaElement.prototype, "value"
+          ).set;
+          setter.call(editor, "@native用户ID ");
+          editor.dispatchEvent(new InputEvent("input", {
+            bubbles: true,
+            composed: true,
+            data: "@native用户ID ",
+            inputType: "insertText"
+          }));
+          editor.focus();
+          document.body.dataset.douyinNativeReplyFilled = "true";
+        }, true);
+      }
       let canvas = canvasHost.querySelector("canvas");
       let transferResult = "not-called";
 
@@ -457,6 +599,9 @@ const douyinHtml = String.raw`<!doctype html>
         const row = document.createElement("div");
         row.dataset.e2e = "chat-message";
         row.className = own ? "fixture-own-chat-row" : "fixture-rich-source-row";
+        const user = document.createElement("span");
+        user.dataset.e2e = "chat-message-user-name";
+        user.textContent = own ? "我：" : "弹幕用户：";
         const content = document.createElement("span");
         content.dataset.e2e = "message-content";
         if (manualText) {
@@ -467,7 +612,7 @@ const douyinHtml = String.raw`<!doctype html>
           content.appendChild(image);
           content.appendChild(document.createTextNode("画面弹幕"));
         }
-        row.appendChild(content);
+        row.append(user, content);
         chatScroller.insertBefore(row, chatScroller.lastElementChild);
         return row;
       };
@@ -478,7 +623,7 @@ const douyinHtml = String.raw`<!doctype html>
         emojiPanel.hidden = false;
       });
       emojiItem.addEventListener("click", () => {
-        const editor = document.querySelector("textarea");
+        const editor = fullscreenMode ? quickInput : sideInput;
         editor.value += "😀";
         editor.dispatchEvent(new InputEvent("input", {
           bubbles: true,
@@ -532,6 +677,11 @@ const douyinHtml = String.raw`<!doctype html>
       };
       const barrage = (id, text, withImage) => ({
         id,
+        user: cacheOnlyReplyMode || nativeReplyFillMode
+          ? undefined
+          : senderIdOnlyMode
+            ? { id_str: "731234567890" }
+            : { nickname: "弹幕用户" },
         startTime: Date.now(),
         reserveDuration: 5_000,
         padding: [4, 8, 4, 8],
@@ -644,16 +794,17 @@ const douyinHtml = String.raw`<!doctype html>
         }, 1_600);
       }
 
-      const input = document.querySelector("textarea");
+      const input = sideInput;
       const send = document.querySelector(".sendButton");
-      send.addEventListener("click", (event) => {
-        const sentMessage = input.value;
+      const handleFixtureSend = (editor, event) => {
+        const sentMessage = editor.value;
         const plainMessage = sentMessage.replace(/😀/g, "");
         const manual = richMode && sentMessage === "我自己发送的侧边消息";
         document.body.dataset.douyinSent = plainMessage;
         document.body.dataset.douyinSentRich = sentMessage;
         document.body.dataset.douyinNativeSendTrusted = String(event.isTrusted);
-        input.value = "";
+        document.body.dataset.douyinSendSurface = editor.dataset.fixtureReplySurface || "";
+        editor.value = "";
         if (richMode) {
           const ownRow = appendRichChatRow(true, manual ? sentMessage : "");
           ownRow.dataset.fixtureSentKind = manual ? "manual" : "emoji";
@@ -662,7 +813,9 @@ const douyinHtml = String.raw`<!doctype html>
           "addBarrage",
           barrage("fixture-own-echo-" + Date.now(), plainMessage, richMode && !manual)
         ), 80);
-      });
+      };
+      send.addEventListener("click", (event) => handleFixtureSend(input, event));
+      quickSend.addEventListener("click", (event) => handleFixtureSend(quickInput, event));
 
       window.__douyinDomFixture = {
         canvas,
@@ -671,6 +824,7 @@ const douyinHtml = String.raw`<!doctype html>
         post,
         postPair,
         delayedMountMode,
+        fullscreenMode,
         unsupportedMode,
         richMode
       };

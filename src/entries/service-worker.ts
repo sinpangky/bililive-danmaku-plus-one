@@ -1,19 +1,21 @@
-"use strict";
+import type { DouyinRuntimeRequest } from "../core/types";
 
 const DOUYIN_LIVE_PATTERN = /^https:\/\/(?:live\.douyin\.com\/|www\.douyin\.com\/follow\/live(?:\/|[?#]|$))/i;
-const recentRouteInjections = new Map();
+const recentRouteInjections = new Map<number, { at: number; url: string }>();
 
-function isDouyinLiveUrl(value) {
+function isDouyinLiveUrl(value: unknown): boolean {
   return DOUYIN_LIVE_PATTERN.test(String(value || ""));
 }
 
-async function ensureDouyinContentRuntime(tabId, frameId) {
-  const target = { tabId, frameIds: [frameId] };
+async function ensureDouyinContentRuntime(tabId: number, frameId: number): Promise<boolean> {
+  const target: chrome.scripting.InjectionTarget = { tabId, frameIds: [frameId] };
   const [probe] = await chrome.scripting.executeScript({
     target,
-    func: () => Boolean(globalThis.__danmakuEchoDouyinLoaded)
+    func: () => Boolean((globalThis as typeof globalThis & {
+      __danmakuEchoDouyinLoaded?: boolean;
+    }).__danmakuEchoDouyinLoaded)
   });
-  if (probe && probe.result) {
+  if (probe?.result) {
     return false;
   }
 
@@ -32,8 +34,14 @@ async function ensureDouyinContentRuntime(tabId, frameId) {
   return true;
 }
 
-async function ensureDouyinRuntime({ tabId, frameId, attempt, reason }) {
-  const target = { tabId, frameIds: [frameId] };
+async function ensureDouyinRuntime(options: {
+  attempt?: number;
+  frameId: number;
+  reason: string;
+  tabId: number;
+}): Promise<{ contentInjected: boolean }> {
+  const { attempt, frameId, reason, tabId } = options;
+  const target: chrome.scripting.InjectionTarget = { tabId, frameIds: [frameId] };
   const [pageResult, contentInjected] = await Promise.all([
     chrome.scripting.executeScript({
       target,
@@ -48,24 +56,32 @@ async function ensureDouyinRuntime({ tabId, frameId, attempt, reason }) {
     tabId,
     frameId,
     attempt: Number(attempt) || 0,
-    reason: reason || "unknown",
+    reason,
     contentInjected,
     pageResultCount: pageResult.length
   });
   return { contentInjected };
 }
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!message || ![
-    "danmaku-echo.ensure-douyin-runtime",
-    "danmaku-echo.ensure-douyin-page-hook"
-  ].includes(message.type)) {
+function isDouyinRuntimeRequest(value: unknown): value is DouyinRuntimeRequest {
+  if (!value || typeof value !== "object") {
     return false;
   }
-  const tabId = sender.tab && sender.tab.id;
-  const frameId = Number.isInteger(sender.frameId) ? sender.frameId : 0;
-  const requestedUrl = String(message.href || sender.tab && sender.tab.url || sender.url || "");
-  if (!Number.isInteger(tabId) || !isDouyinLiveUrl(requestedUrl)) {
+  const type = (value as { type?: unknown }).type;
+  return type === "danmaku-echo.ensure-douyin-runtime"
+    || type === "danmaku-echo.ensure-douyin-page-hook";
+}
+
+chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+  if (!isDouyinRuntimeRequest(message)) {
+    return false;
+  }
+  const tabId = sender.tab?.id;
+  const frameId = typeof sender.frameId === "number" && Number.isInteger(sender.frameId)
+    ? sender.frameId
+    : 0;
+  const requestedUrl = String(message.href || sender.tab?.url || sender.url || "");
+  if (typeof tabId !== "number" || !Number.isInteger(tabId) || !isDouyinLiveUrl(requestedUrl)) {
     sendResponse({ ok: false, error: "invalid-douyin-sender" });
     return false;
   }
@@ -77,8 +93,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     reason: "bootstrap-request"
   }).then(({ contentInjected }) => {
     sendResponse({ ok: true, tabId, frameId, contentInjected });
-  }).catch((error) => {
-    const text = String(error && error.message || error);
+  }).catch((error: unknown) => {
+    const text = String(error instanceof Error ? error.message : error);
     console.error("[Danmaku Echo][background] Douyin runtime injection failed", {
       tabId,
       frameId,
@@ -90,7 +106,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  const url = String(changeInfo.url || tab && tab.url || "");
+  const url = String(changeInfo.url || tab.url || "");
   if (!changeInfo.url || !isDouyinLiveUrl(url)) {
     return;
   }
@@ -105,11 +121,11 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     frameId: 0,
     attempt: 0,
     reason: "tab-url-updated"
-  }).catch((error) => {
+  }).catch((error: unknown) => {
     console.warn("[Danmaku Echo][background] SPA route injection failed", {
       tabId,
       url,
-      error: String(error && error.message || error)
+      error: String(error instanceof Error ? error.message : error)
     });
   });
 });

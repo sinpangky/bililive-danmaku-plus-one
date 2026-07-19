@@ -1,8 +1,8 @@
 {
   "name": "danmaku-echo",
-  "version": "1.1.3",
+  "version": "2.0.0",
   "private": true,
-  "description": "One-click danmaku echoing for Huya Live, Bilibili Live, and Douyin Live",
+  "description": "Danmaku echoing, replies, and local favorites for Huya, Bilibili, and Douyin Live",
   "license": "GPL-3.0-or-later",
   "keywords": [
     "danmaku",
@@ -12,11 +12,25 @@
     "douyin-live"
   ],
   "engines": {
-    "node": ">=18"
+    "node": "^20.19.0 || >=22.12.0"
   },
   "scripts": {
-    "test": "node --test tests/shared.test.js",
-    "check": "node tests/validate-manifest.js && node --check background/service-worker.js && node --check src/shared.js && node --check src/content.js && node --check src/douyin-bootstrap.js && node --check src/douyin-page-hook.js && node --check src/douyin-content.js && node --check popup/popup.js && node --check tests/fixture-server.js && node --check tests/inspect-live-dom.js && npm test",
+    "dev": "vite",
+    "build": "node scripts/build-extension.mjs",
+    "typecheck": "tsc --noEmit && vue-tsc --noEmit",
+    "test": "npm run build && node --test tests/shared.test.js tests/reply.test.mjs tests/douyin-barrage-model.test.mjs tests/bilibili-dom-config.test.mjs tests/favorites.test.mjs",
+    "check": "npm run typecheck && npm run build && node tests/validate-manifest.js build/extension && node tests/validate-vue-architecture.js && node --check build/extension/src/content.js && node --check build/extension/src/douyin-page-hook.js && node --check build/extension/src/douyin-content.js && node --check tests/fixture-server.js && node --check tests/inspect-live-dom.js && node --check tests/inspect-popup.mjs && npm test",
     "package": "node scripts/sync-version.js && npm run check && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.2.2",
+    "@types/node": "^26.1.1",
+    "@vitejs/plugin-vue": "^6.0.8",
+    "typescript": "^5.9.3",
+    "vite": "^8.1.5",
+    "vue-tsc": "^3.3.7"
+  },
+  "dependencies": {
+    "vue": "^3.5.40"
   }
 }

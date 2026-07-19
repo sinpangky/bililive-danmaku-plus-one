@@ -1,0 +1,197 @@
+const DIRECT_SENDER_KEYS = [
+  "nickname",
+  "nickName",
+  "nick_name",
+  "userName",
+  "username",
+  "user_name",
+  "displayName",
+  "display_name",
+  "screenName",
+  "screen_name",
+  "uname",
+  "displayId",
+  "display_id"
+] as const;
+
+const DIRECT_SENDER_ID_KEYS = [
+  "authorId",
+  "author_id",
+  "senderId",
+  "sender_id",
+  "shortId",
+  "short_id",
+  "uniqueId",
+  "unique_id",
+  "userId",
+  "user_id"
+] as const;
+
+const CONTAINED_SENDER_ID_KEYS = [
+  ...DIRECT_SENDER_ID_KEYS,
+  "idStr",
+  "id_str",
+  "secUid",
+  "sec_uid",
+  "uid"
+] as const;
+
+const SENDER_CONTAINER_KEYS = [
+  "author",
+  "fromUser",
+  "from_user",
+  "owner",
+  "sender",
+  "user",
+  "userInfo",
+  "user_info"
+] as const;
+
+const SENDER_WRAPPER_KEYS = [
+  "data",
+  "bizData",
+  "biz_data",
+  "body",
+  "businessData",
+  "business_data",
+  "comment",
+  "common",
+  "context",
+  "danmaku",
+  "danmakuData",
+  "danmaku_data",
+  "detail",
+  "entity",
+  "event",
+  "extra",
+  "extension",
+  "item",
+  "meta",
+  "message",
+  "messageData",
+  "message_data",
+  "options",
+  "params",
+  "payload",
+  "rawData",
+  "raw_data",
+  "record"
+] as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+export function normalizeSenderName(value: unknown): string {
+  const normalized = String(value == null ? "" : value)
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
+    .replace(/\u00A0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^@+\s*/, "")
+    .replace(/[：:]\s*$/, "")
+    .trim();
+  if (!normalized
+      || /^(?:https?|ftp):\/\//i.test(normalized)
+      || /^(?:(?:点击)?(?:查看|打开)(?:用户|个人)?(?:信息|资料|主页)|(?:用户|个人)(?:信息|资料|主页))$/u
+        .test(normalized)) {
+    return "";
+  }
+  const characters = Array.from(normalized);
+  if (characters.length > 64) {
+    return "";
+  }
+  return characters.join("");
+}
+
+export function replyMention(sender: unknown): string {
+  const name = normalizeSenderName(sender);
+  return name ? `@${name} ` : "";
+}
+
+export function replyDraftValue(currentValue: unknown, sender: unknown): string {
+  const mention = replyMention(sender);
+  if (!mention) {
+    return String(currentValue == null ? "" : currentValue);
+  }
+  const current = String(currentValue == null ? "" : currentValue);
+  if (!current.trim()) {
+    return mention;
+  }
+  if (current.startsWith(mention) || current.trimStart().startsWith(mention.trimEnd())) {
+    return current;
+  }
+  return `${mention}${current}`;
+}
+
+export function extractSenderFromRecord(value: unknown): string {
+  if (typeof value === "string") {
+    return normalizeSenderName(value);
+  }
+  if (!isRecord(value) && !Array.isArray(value)) {
+    return "";
+  }
+
+  const visited = new WeakSet<object>();
+  let visitedCount = 0;
+  const scalarSender = (candidate: unknown) => {
+    if (typeof candidate === "string") return normalizeSenderName(candidate);
+    if (typeof candidate === "number" && Number.isSafeInteger(candidate) && candidate >= 0) {
+      return normalizeSenderName(String(candidate));
+    }
+    if (typeof candidate === "bigint" && candidate >= 0n) {
+      return normalizeSenderName(String(candidate));
+    }
+    return "";
+  };
+
+  const inspect = (candidate: unknown, depth: number, senderContainer: boolean): string => {
+    if (typeof candidate === "string") {
+      return senderContainer ? normalizeSenderName(candidate) : "";
+    }
+    if ((!isRecord(candidate) && !Array.isArray(candidate))
+        || depth > 6
+        || visitedCount >= 96
+        || visited.has(candidate)) {
+      return "";
+    }
+    visited.add(candidate);
+    visitedCount += 1;
+
+    if (Array.isArray(candidate)) {
+      for (const item of candidate.slice(0, 24)) {
+        const sender = inspect(item, depth + 1, senderContainer);
+        if (sender) return sender;
+      }
+      return "";
+    }
+
+    for (const key of DIRECT_SENDER_KEYS) {
+      const sender = scalarSender(candidate[key]);
+      if (sender) return sender;
+    }
+    for (const key of senderContainer ? CONTAINED_SENDER_ID_KEYS : DIRECT_SENDER_ID_KEYS) {
+      const sender = scalarSender(candidate[key]);
+      if (sender) return sender;
+    }
+    if (senderContainer) {
+      const sender = scalarSender(candidate.name);
+      if (sender) return sender;
+    }
+
+    // User-like containers are inspected before generic payload wrappers so a
+    // renderer's own `name`/`title` metadata cannot be mistaken for a sender.
+    for (const key of SENDER_CONTAINER_KEYS) {
+      const sender = inspect(candidate[key], depth + 1, true);
+      if (sender) return sender;
+    }
+    for (const key of SENDER_WRAPPER_KEYS) {
+      const sender = inspect(candidate[key], depth + 1, senderContainer);
+      if (sender) return sender;
+    }
+
+    return "";
+  };
+
+  return inspect(value, 0, false);
+}

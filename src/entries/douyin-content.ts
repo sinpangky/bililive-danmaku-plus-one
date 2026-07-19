@@ -1,3 +1,22 @@
+// @ts-nocheck -- legacy Douyin adapter; types are being introduced module by module.
+import {
+  DOUYIN_CONTENT_SOURCE,
+  DOUYIN_PAGE_SOURCE,
+  isDouyinProtocolMessage
+} from "../platforms/douyin/protocol";
+import {
+  comparableText,
+  normalizedAssetKeys,
+  serializedEmojiAssets
+} from "../platforms/douyin/rich-data";
+import {
+  assetsMatch,
+  normalizeRichPayload as normalizeOwnMessagePayload,
+  payloadSignature as ownMessagePayloadSignature
+} from "../platforms/douyin/own-message";
+import { createFavoritesRuntime } from "../features/favorites/launcher";
+import { createDouyinOverlay } from "../ui/douyin-overlay";
+
 (function initDanmakuEchoDouyin() {
   "use strict";
 
@@ -8,16 +27,20 @@
   }
   globalThis.__danmakuEchoDouyinLoaded = true;
 
-  const CONTENT_SOURCE = "danmaku-echo-douyin-content";
-  const PAGE_SOURCE = "danmaku-echo-douyin-page";
   const MAX_LENGTH = 1000;
   const CARD_LOCK_TIME = 2500;
   const CARD_STICKY_TIME = 8000;
   const CARD_HIDE_DELAY = 650;
-  const DEBUG_VERSION = "douyin-content-v7-rich-emoji-own-chat";
+  const DEBUG_VERSION = "douyin-content-v8-reply-coordinator";
   const RENDERER_HEARTBEAT_INTERVAL = 5000;
   const TRUSTED_ACTION_WINDOW = 1500;
   const OWN_CHAT_MESSAGE_TTL = 12_000;
+  const SENDER_CACHE_TTL = 10 * 60_000;
+  const SENDER_CACHE_LIMIT = 320;
+  const SENDER_HISTORY_LIMIT = 480;
+  const REPLY_RESOLVE_ATTEMPTS = 7;
+  const REPLY_RESOLVE_INTERVAL = 70;
+  const REPLY_READY_WINDOW = 2_000;
   const DOM_DANMAKU_SELECTORS = [
     "[data-e2e='danmaku-item']",
     "[class*='webcast-danmaku___item']",
@@ -60,21 +83,44 @@
   ];
   const USER_NAME_SELECTORS = [
     "[data-e2e='chat-message-user-name']",
+    "[data-e2e='message-user-name']",
+    "[data-e2e*='user-name']",
+    "[data-e2e*='nickname']",
+    "[data-e2e*='author-name']",
+    "[data-testid*='user-name']",
+    "[data-testid*='nickname']",
     "[class*='nickname']",
+    "[class~='name']",
     "[class*='user-name']",
-    "[class*='userName']"
+    "[class*='userName']",
+    "[class*='username']",
+    "a[href*='/user/']"
   ];
   const INPUT_SELECTORS = [
     "[data-e2e='chat-room-input']",
+    "[data-e2e*='danmaku-input']",
     "textarea[data-e2e*='chat']",
     "textarea[placeholder*='弹幕']",
     "textarea[placeholder*='说点什么']",
     "[contenteditable='true'][data-placeholder*='弹幕']",
     "[contenteditable='true'][data-placeholder*='说点什么']",
     "[class*='webcast-chatroom___input'] [contenteditable='true']",
+    "[class*='danmaku-input'] textarea",
+    "[class*='danmaku-input'] input",
+    "[class*='danmaku-input'] [contenteditable='true']",
+    "[class*='LivePlayer'] textarea[placeholder*='弹幕']",
+    "[class*='player-container'] textarea[placeholder*='弹幕']",
     "[class*='chat-input'] [contenteditable='true']",
     "[class*='ChatInput'] [contenteditable='true']"
   ];
+  const TEXT_EDITOR_SELECTOR = [
+    "textarea",
+    "input:not([type])",
+    "input[type='text']",
+    "input[type='search']",
+    "[contenteditable]:not([contenteditable='false'])",
+    "[role='textbox']"
+  ].join(",");
   const SEND_BUTTON_SELECTORS = [
     "[data-e2e='chat-room-send']",
     "[data-e2e*='send' i]",
@@ -113,10 +159,14 @@
 
   const state = {
     settings: shared.mergeSettings(),
+    ui: null,
     portal: null,
     card: null,
     preview: null,
+    actionBar: null,
     button: null,
+    replyButton: null,
+    favoriteButton: null,
     toast: null,
     candidate: null,
     hideTimer: 0,
@@ -128,9 +178,7 @@
     lockedUntil: 0,
     pointerX: 0,
     pointerY: 0,
-    probeFrame: 0,
-    nextProbeId: 1,
-    pendingProbe: null,
+    nextRequestId: 1,
     pageReady: false,
     pageVersion: "",
     pageSnapshot: null,
@@ -141,6 +189,12 @@
     ownChatIntents: [],
     ownChatScanTimer: 0,
     ownChatObserver: null,
+    senderCache: new Map(),
+    senderIdCache: new Map(),
+    senderHistory: [],
+    senderRowSignatures: new WeakMap(),
+    senderCacheTimer: 0,
+    replyRequests: new Map(),
     lastUrl: location.href
   };
 
@@ -154,8 +208,6 @@
     settingsEnabled: false,
     counters: {
       pings: 0,
-      probesSent: 0,
-      probeResults: 0,
       cardsShown: 0,
       cardsHidden: 0,
       cardPointerEnters: 0,
@@ -168,7 +220,6 @@
       ownChatIntents: 0,
       ownChatMessagesMarked: 0
     },
-    lastProbe: null,
     lastCard: null,
     lastError: "",
     events: []
@@ -209,7 +260,6 @@
       pageVersion: state.pageVersion,
       settingsEnabled: enabled(),
       counters: Object.assign({}, debugState.counters),
-      lastProbe: debugState.lastProbe,
       lastCard: debugState.lastCard,
       lastError: debugState.lastError,
       card: state.card ? {
@@ -293,7 +343,12 @@
   }
 
   function enabled() {
-    return Boolean(state.settings.enabled && state.settings.platforms.douyin);
+    return Boolean(state.settings.enabled && state.settings.platforms.douyin
+      && Object.values(state.settings.actions).some(Boolean));
+  }
+
+  function plusOneEnabled() {
+    return Boolean(enabled() && state.settings.actions.plusOne);
   }
 
   function isVisible(element) {
@@ -362,20 +417,22 @@
 
   function ensurePortal() {
     const host = fullscreenElement() || document.documentElement;
-    if (!state.portal) {
-      const portal = document.createElement("div");
-      portal.className = "bcp-douyin-portal";
-      portal.dataset.bcpDouyinOwned = "true";
-      state.portal = portal;
+    if (!state.ui) {
+      state.ui = createDouyinOverlay({
+        onCardEnter,
+        onCardLeave,
+        onCardMove,
+        onFavorite: onFavoriteActionClick,
+        onPlaceholder: onPlaceholderActionClick,
+        onPlusOne: onPlusOneClick,
+        onPointerDown(event) {
+          event.stopPropagation();
+          cancelHide();
+        }
+      });
+      state.portal = state.ui.portal;
     }
-    if (state.portal.parentNode !== host) {
-      try {
-        host.appendChild(state.portal);
-      } catch (_error) {
-        document.documentElement.appendChild(state.portal);
-      }
-    }
-    return state.portal;
+    return state.ui.ensureHost(host);
   }
 
   function cancelHide() {
@@ -417,21 +474,7 @@
     state.selectionPhase = "idle";
     state.selectedAt = 0;
     state.lockedUntil = 0;
-    state.pendingProbe = null;
-    if (!state.card) {
-      return;
-    }
-    state.card.hidden = true;
-    state.card.classList.remove("is-visible");
-    state.card.removeAttribute("data-track-id");
-    state.card.removeAttribute("data-kind");
-    state.card.removeAttribute("data-message");
-    state.card.removeAttribute("data-selection-id");
-    state.card.removeAttribute("data-selection-phase");
-    state.card.removeAttribute("data-side");
-    if (state.preview) {
-      state.preview.replaceChildren();
-    }
+    if (state.ui) state.ui.hideCard();
     if (previous) {
       debugState.counters.cardsHidden += 1;
       debugEvent("card-hidden", {
@@ -456,89 +499,82 @@
     }, Number.isFinite(delay) ? delay : CARD_HIDE_DELAY);
   }
 
-  function ensureCard() {
-    const portal = ensurePortal();
-    if (state.card && state.card.isConnected) {
-      if (state.card.parentNode !== portal) {
-        portal.appendChild(state.card);
-      }
-      return state.card;
-    }
+  function onCardEnter() {
+    state.cardHovered = true;
+    state.selectionPhase = "engaged";
+    state.ui.setSelectionPhase(state.selectionPhase);
+    debugState.counters.cardPointerEnters += 1;
+    debugEvent("card-pointer-enter", {
+      trackId: state.candidate && state.candidate.trackId,
+      message: state.candidate && state.candidate.message
+    }, "info");
+    cancelHide();
+    armExpiry();
+  }
 
-    const card = document.createElement("div");
-    card.className = "bcp-douyin-card";
-    card.dataset.bcpDouyinOwned = "true";
-    card.dataset.bcpDouyinInteractionCard = "true";
-    card.hidden = true;
-    card.setAttribute("role", "group");
+  function onCardMove() {
+    state.cardHovered = true;
+    state.selectionPhase = "engaged";
+    state.ui.setSelectionPhase(state.selectionPhase);
+    cancelHide();
+  }
 
-    const preview = document.createElement("div");
-    preview.className = "bcp-douyin-preview";
-    preview.dataset.bcpDouyinOwned = "true";
+  function onCardLeave() {
+    state.cardHovered = false;
+    state.selectionPhase = "grace";
+    state.ui.setSelectionPhase(state.selectionPhase);
+    scheduleHide("card-pointerleave", CARD_HIDE_DELAY);
+  }
 
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "bcp-douyin-button";
-    button.textContent = "+1";
-    button.dataset.bcpDouyinOwned = "true";
-    button.addEventListener("click", onPlusOneClick);
-    ["pointerdown", "mousedown"].forEach((type) => {
-      button.addEventListener(type, (event) => {
-        event.stopPropagation();
-        cancelHide();
-      }, true);
-    });
-
-    card.append(preview, button);
-    card.addEventListener("pointerenter", () => {
-      state.cardHovered = true;
-      state.selectionPhase = "engaged";
-      card.dataset.selectionPhase = state.selectionPhase;
-      debugState.counters.cardPointerEnters += 1;
-      debugEvent("card-pointer-enter", {
-        trackId: state.candidate && state.candidate.trackId,
-        message: state.candidate && state.candidate.message
-      }, "info");
-      cancelHide();
+  function onPlaceholderActionClick(event, action) {
+    event.preventDefault();
+    event.stopPropagation();
+    cancelHide();
+    if (action === "reply") {
+      prepareReply(state.candidate, "card-reply");
+    } else {
       armExpiry();
+    }
+  }
+
+  function serializedContentHasImages(content) {
+    if (!Array.isArray(content)) return false;
+    return content.some((raw) => {
+      if (!raw || typeof raw !== "object") return false;
+      if (raw.type === "image" && raw.src) return true;
+      return serializedContentHasImages(raw.content);
     });
-    card.addEventListener("pointermove", () => {
-      state.cardHovered = true;
-      state.selectionPhase = "engaged";
-      card.dataset.selectionPhase = state.selectionPhase;
-      cancelHide();
-    });
-    card.addEventListener("pointerleave", () => {
-      state.cardHovered = false;
-      state.selectionPhase = "grace";
-      card.dataset.selectionPhase = state.selectionPhase;
-      scheduleHide("card-pointerleave", CARD_HIDE_DELAY);
-    });
-    portal.appendChild(card);
-    state.card = card;
-    state.preview = preview;
-    state.button = button;
-    return card;
+  }
+
+  function candidateHasRichAssets(candidate) {
+    return Boolean(candidate && (
+      candidate.richPayload && Array.isArray(candidate.richPayload.assets)
+        && candidate.richPayload.assets.length
+      || serializedContentHasImages(candidate.content)
+    ));
+  }
+
+  function onFavoriteActionClick(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    cancelHide();
+    if (!state.settings.actions.favorite || !state.candidate || !state.favoritesRuntime) {
+      return;
+    }
+    void state.favoritesRuntime.favoriteText(
+      state.candidate.message,
+      candidateHasRichAssets(state.candidate)
+    );
+    armExpiry();
+  }
+
+  function renderActionBar() {
+    if (state.ui) state.ui.setActions(state.settings.actions);
   }
 
   function showToast(message, kind) {
-    if (state.toast) {
-      state.toast.remove();
-    }
-    const toast = document.createElement("div");
-    toast.className = `bcp-douyin-toast bcp-douyin-toast--${kind || "info"}`;
-    toast.dataset.bcpDouyinOwned = "true";
-    toast.textContent = message;
-    ensurePortal().appendChild(toast);
-    state.toast = toast;
-    requestAnimationFrame(() => toast.classList.add("is-visible"));
-    setTimeout(() => {
-      toast.classList.remove("is-visible");
-      setTimeout(() => toast.remove(), 160);
-      if (state.toast === toast) {
-        state.toast = null;
-      }
-    }, 1800);
+    ensurePortal();
+    state.ui.showToast(message, kind || "info");
   }
 
   function emojiTokenFromImage(image) {
@@ -566,34 +602,6 @@
       return `[${value}]`;
     }
     return "";
-  }
-
-  function normalizedAssetKeys(value) {
-    const raw = shared.normalizeWhitespace(value);
-    if (!raw) {
-      return [];
-    }
-    const keys = new Set([`raw:${raw.toLowerCase().slice(0, 512)}`]);
-    const unwrapped = raw.replace(/^\[|\]$/g, "").trim().toLowerCase();
-    if (unwrapped) {
-      keys.add(`name:${unwrapped.slice(0, 120)}`);
-    }
-    try {
-      const url = new URL(raw, location.href);
-      const pathname = decodeURIComponent(url.pathname).toLowerCase();
-      if (pathname) {
-        keys.add(`path:${pathname}`);
-        const segments = pathname.split("/").filter(Boolean);
-        if (segments.length) {
-          const file = segments[segments.length - 1];
-          keys.add(`file:${file}`);
-          keys.add(`stem:${file.split(/[@~!]/, 1)[0]}`);
-        }
-      }
-    } catch (_error) {
-      // Emoji tokens and internal ids are not necessarily URLs.
-    }
-    return Array.from(keys);
   }
 
   function assetDescriptorFromElement(element) {
@@ -631,7 +639,7 @@
     ].filter(Boolean);
     const keys = new Set();
     sources.concat(names).forEach((value) => {
-      normalizedAssetKeys(value).forEach((key) => keys.add(key));
+      normalizedAssetKeys(value, location.href).forEach((key) => keys.add(key));
     });
     if (!keys.size) {
       return null;
@@ -641,32 +649,6 @@
       token: shared.normalizeWhitespace(names[0] || "").slice(0, 120),
       keys: Array.from(keys).slice(0, 24)
     };
-  }
-
-  function assetDescriptorFromSerialized(item) {
-    if (!item || item.type !== "image" || typeof item.src !== "string" || !item.src) {
-      return null;
-    }
-    return {
-      src: item.src.slice(0, 4096),
-      token: "",
-      keys: normalizedAssetKeys(item.src).slice(0, 24)
-    };
-  }
-
-  function serializedEmojiAssets(content) {
-    const assets = [];
-    const visit = (item) => {
-      const asset = assetDescriptorFromSerialized(item);
-      if (asset) {
-        assets.push(asset);
-      }
-      if (item && Array.isArray(item.content)) {
-        item.content.forEach(visit);
-      }
-    };
-    (Array.isArray(content) ? content : []).forEach(visit);
-    return assets.slice(0, 8);
   }
 
   function messageContentElement(row) {
@@ -784,24 +766,271 @@
     return { text, plainText, assets, parts: richPartsFromElement(element) };
   }
 
+  function senderFromChatRow(row) {
+    if (!(row instanceof Element)) {
+      return "";
+    }
+    for (const selector of USER_NAME_SELECTORS) {
+      let element = null;
+      try {
+        element = row.matches(selector) ? row : row.querySelector(selector);
+      } catch (_error) {
+        element = null;
+      }
+      if (!element) {
+        continue;
+      }
+      const values = [
+        element.getAttribute("data-username"),
+        element.getAttribute("data-user-name"),
+        element.getAttribute("data-name"),
+        element.getAttribute("data-nickname"),
+        element.getAttribute("data-display-id"),
+        element.getAttribute("data-user-id"),
+        element.getAttribute("data-uid"),
+        element.textContent,
+        element.getAttribute("aria-label"),
+        element.getAttribute("title")
+      ];
+      for (const value of values) {
+        const sender = shared.normalizeSenderName(value);
+        if (sender) {
+          return sender;
+        }
+      }
+      if (element instanceof HTMLAnchorElement) {
+        try {
+          const parts = new URL(element.href, location.href).pathname.split("/").filter(Boolean);
+          const userIndex = parts.indexOf("user");
+          const sender = shared.normalizeSenderName(
+            userIndex >= 0 ? decodeURIComponent(parts[userIndex + 1] || "") : ""
+          );
+          if (sender) return sender;
+        } catch (_error) {
+          // User links can contain site-internal, non-URL identifiers.
+        }
+      }
+    }
+    for (const attribute of [
+      "data-username",
+      "data-user-name",
+      "data-nickname",
+      "data-sender-name",
+      "data-display-id",
+      "data-user-id",
+      "data-sender-id",
+      "data-author-id",
+      "data-uid"
+    ]) {
+      const sender = shared.normalizeSenderName(row.getAttribute(attribute));
+      if (sender) {
+        return sender;
+      }
+    }
+    const rowText = shared.normalizeWhitespace(row.innerText || row.textContent);
+    const prefix = rowText.match(/^([^：:\n]{1,64})[：:]\s*/u);
+    return shared.normalizeSenderName(prefix && prefix[1]);
+  }
+
   function richPayloadFromChatRow(row) {
-    return richPayloadFromElement(messageContentElement(row));
+    return {
+      ...richPayloadFromElement(messageContentElement(row)),
+      sender: senderFromChatRow(row)
+    };
   }
 
-  function messageFromChatRow(row) {
-    return richPayloadFromChatRow(row).text;
+  function replyMessageKeys(message) {
+    const keys = new Set();
+    const add = (value) => {
+      const key = comparableText(value);
+      if (key) keys.add(key);
+    };
+    add(message);
+    add(shared.parseMessageText(message, MAX_LENGTH));
+    return Array.from(keys);
   }
 
-  function comparableText(value) {
-    return shared.normalizeWhitespace(value)
-      .replace(/\[[^\]\n]{1,40}\]/g, "")
-      .replace(/\p{Extended_Pictographic}/gu, "")
-      .replace(/\s+/g, "");
+  function messageIdsFromRow(row) {
+    if (!(row instanceof Element)) return [];
+    const ids = new Set();
+    const elements = [row, messageContentElement(row)].filter(Boolean);
+    const attributes = [
+      "data-message-id",
+      "data-msg-id",
+      "data-item-id",
+      "data-log-id",
+      "data-id"
+    ];
+    for (const element of elements) {
+      for (const attribute of attributes) {
+        const value = String(element.getAttribute(attribute) || "").trim();
+        if (value && value.length <= 160) ids.add(value);
+      }
+    }
+    return Array.from(ids);
+  }
+
+  function rememberMessageSender(message, sender, at, ids, row) {
+    const keys = replyMessageKeys(message);
+    const normalizedSender = shared.normalizeSenderName(sender);
+    const messageIds = (Array.isArray(ids) ? ids : [ids])
+      .map((value) => String(value || "").trim())
+      .filter((value) => value && value.length <= 160);
+    if ((!keys.length && !messageIds.length) || !normalizedSender) {
+      return;
+    }
+    const observedAt = Number(at) || Date.now();
+    const signature = `${keys.join("|")}::${messageIds.join("|")}::${normalizedSender}`;
+    if (row instanceof Element && state.senderRowSignatures.get(row) === signature) {
+      return;
+    }
+    if (row instanceof Element) state.senderRowSignatures.set(row, signature);
+
+    // Refresh insertion order so pruning removes the least recently observed
+    // messages first, including rows recycled by Douyin's virtual chat list.
+    for (const key of keys) {
+      state.senderCache.delete(key);
+      state.senderCache.set(key, { sender: normalizedSender, at: observedAt });
+    }
+    for (const id of messageIds) {
+      state.senderIdCache.delete(id);
+      state.senderIdCache.set(id, { sender: normalizedSender, at: observedAt });
+    }
+    state.senderHistory.push({
+      keys,
+      ids: messageIds,
+      sender: normalizedSender,
+      at: observedAt
+    });
+    if (state.senderHistory.length > SENDER_HISTORY_LIMIT) {
+      state.senderHistory.splice(0, state.senderHistory.length - SENDER_HISTORY_LIMIT);
+    }
+    while (state.senderCache.size > SENDER_CACHE_LIMIT) {
+      state.senderCache.delete(state.senderCache.keys().next().value);
+    }
+    while (state.senderIdCache.size > SENDER_CACHE_LIMIT) {
+      state.senderIdCache.delete(state.senderIdCache.keys().next().value);
+    }
+  }
+
+  function pruneSenderCache(now) {
+    for (const cache of [state.senderCache, state.senderIdCache]) {
+      for (const [key, entry] of cache) {
+        if (!entry || now - entry.at > SENDER_CACHE_TTL) {
+          cache.delete(key);
+        }
+      }
+    }
+    state.senderHistory = state.senderHistory
+      .filter((entry) => entry && now - entry.at <= SENDER_CACHE_TTL)
+      .slice(-SENDER_HISTORY_LIMIT);
+  }
+
+  function scanSenderCache() {
+    if (state.senderCacheTimer) {
+      clearTimeout(state.senderCacheTimer);
+    }
+    state.senderCacheTimer = 0;
+    const now = Date.now();
+    pruneSenderCache(now);
+    const rows = queryAll(CHAT_MESSAGE_SELECTORS).slice(-160);
+    for (const row of rows) {
+      if (isOwned(row) || row.dataset.bcpDouyinOwnChat === "true") {
+        continue;
+      }
+      const payload = richPayloadFromChatRow(row);
+      const ids = messageIdsFromRow(row);
+      rememberMessageSender(payload.plainText || payload.text, payload.sender, now, ids, row);
+      if (payload.text && payload.text !== payload.plainText) {
+        rememberMessageSender(payload.text, payload.sender, now, ids);
+      }
+    }
+  }
+
+  function scheduleSenderCacheScan(delay) {
+    if (state.senderCacheTimer) {
+      return;
+    }
+    state.senderCacheTimer = setTimeout(scanSenderCache, Number(delay) || 0);
+  }
+
+  function senderForMessage(message, hints) {
+    const expectedKeys = replyMessageKeys(message);
+    const expectedIds = [hints && hints.messageId]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+    if (!expectedKeys.length && !expectedIds.length) return "";
+    scanSenderCache();
+
+    for (const id of expectedIds) {
+      const cachedById = state.senderIdCache.get(id);
+      if (cachedById && Date.now() - cachedById.at <= SENDER_CACHE_TTL) {
+        return cachedById.sender;
+      }
+    }
+    const rows = queryAll(CHAT_MESSAGE_SELECTORS).slice(-120).reverse();
+    for (const row of rows) {
+      if (isOwned(row) || row.dataset.bcpDouyinOwnChat === "true") {
+        continue;
+      }
+      const payload = richPayloadFromChatRow(row);
+      const rowKeys = replyMessageKeys(payload.plainText || payload.text);
+      const rowIds = messageIdsFromRow(row);
+      const idMatches = expectedIds.some((id) => rowIds.includes(id));
+      const textMatches = expectedKeys.some((key) => rowKeys.includes(key));
+      if ((idMatches || textMatches) && payload.sender) {
+        rememberMessageSender(message, payload.sender, Date.now(), rowIds, row);
+        return payload.sender;
+      }
+    }
+
+    for (const key of expectedKeys) {
+      const cached = state.senderCache.get(key);
+      if (cached && Date.now() - cached.at <= SENDER_CACHE_TTL) {
+        return cached.sender;
+      }
+      if (cached) state.senderCache.delete(key);
+    }
+
+    const observedAt = Number(hints && hints.observedAt) || 0;
+    let best = null;
+    let bestScore = -Infinity;
+    for (let index = state.senderHistory.length - 1; index >= 0; index -= 1) {
+      const entry = state.senderHistory[index];
+      let score = -Infinity;
+      if (expectedIds.some((id) => entry.ids.includes(id))) {
+        score = 1400;
+      } else if (expectedKeys.some((key) => entry.keys.includes(key))) {
+        score = 1000;
+      } else {
+        for (const expected of expectedKeys) {
+          for (const actual of entry.keys) {
+            if (Math.min(expected.length, actual.length) >= 4
+                && (expected.includes(actual) || actual.includes(expected))) {
+              score = Math.max(score, 650
+                + Math.min(expected.length, actual.length) / Math.max(expected.length, actual.length) * 200);
+            }
+          }
+        }
+      }
+      if (!Number.isFinite(score)) continue;
+      if (observedAt) {
+        const distance = Math.abs(entry.at - observedAt);
+        score += Math.max(-300, 300 - distance / 10);
+      } else {
+        score += Math.max(0, 120 - (Date.now() - entry.at) / 100);
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        best = entry;
+      }
+    }
+    return best && bestScore >= 620 ? best.sender : "";
   }
 
   function resolveRichPayload(canvasText, rendererContent) {
     const key = comparableText(canvasText);
-    const rendererAssets = serializedEmojiAssets(rendererContent);
+    const rendererAssets = serializedEmojiAssets(rendererContent, location.href);
     const matches = [];
     const rows = queryAll(CHAT_MESSAGE_SELECTORS).slice(-100).reverse();
     for (const row of rows) {
@@ -831,13 +1060,14 @@
       // Worker images can also be badges or decorative resources. Only a
       // matching side-chat message is strong enough evidence that an image is
       // an emoji the user can resend.
-      assets: []
+      assets: [],
+      sender: senderForMessage(canvasText)
     };
   }
 
   async function resolveRichPayloadWithRetry(canvasText, rendererContent) {
     let payload = resolveRichPayload(canvasText, rendererContent);
-    if (payload.assets.length || !serializedEmojiAssets(rendererContent).length) {
+    if (payload.assets.length || !serializedEmojiAssets(rendererContent, location.href).length) {
       return payload;
     }
     for (let attempt = 0; attempt < 6; attempt += 1) {
@@ -850,60 +1080,6 @@
     return payload;
   }
 
-  function solidPaint(value, fallback) {
-    if (typeof value === "string" && value) {
-      return value;
-    }
-    const first = value && Array.isArray(value.gradientPieces)
-      ? value.gradientPieces.find((piece) => Array.isArray(piece) && typeof piece[1] === "string")
-      : null;
-    return first ? first[1] : fallback;
-  }
-
-  function renderPreviewItem(item, parent, inherited) {
-    if (!item || typeof item !== "object") {
-      return;
-    }
-    const style = Object.assign({}, inherited, item);
-    if (item.type === "text") {
-      const span = document.createElement("span");
-      span.className = "bcp-douyin-preview-text";
-      span.textContent = item.text == null ? "" : String(item.text);
-      span.style.setProperty("color", solidPaint(style.color, "#ffffff"));
-      span.style.setProperty("font-family", style.fontFamily || "inherit");
-      span.style.setProperty("font-weight", String(style.fontWeight || 600));
-      parent.appendChild(span);
-      return;
-    }
-    if (item.type === "image") {
-      if (typeof item.src === "string" && item.src) {
-        const image = document.createElement("img");
-        image.className = "bcp-douyin-preview-image";
-        image.src = item.src;
-        image.alt = "";
-        image.draggable = false;
-        image.addEventListener("error", () => image.remove(), { once: true });
-        parent.appendChild(image);
-      }
-      return;
-    }
-    const content = Array.isArray(item.content) ? item.content : [];
-    content.forEach((child) => renderPreviewItem(child, parent, style));
-  }
-
-  function renderPreview(candidate) {
-    state.preview.replaceChildren();
-    const content = Array.isArray(candidate.content) ? candidate.content : [];
-    content.forEach((item) => renderPreviewItem(item, state.preview, candidate.style || {}));
-    if (!state.preview.childNodes.length) {
-      const text = document.createElement("span");
-      text.className = "bcp-douyin-preview-text";
-      text.textContent = candidate.message;
-      state.preview.appendChild(text);
-    }
-    state.preview.title = candidate.message;
-  }
-
   function pointInside(rect, x, y, padding) {
     const extra = padding || 0;
     return Boolean(rect
@@ -914,16 +1090,18 @@
   }
 
   function positionCard(candidate) {
-    const card = state.card;
-    card.style.setProperty("visibility", "hidden");
-    card.hidden = false;
+    const card = state.ui.card();
+    if (!card) {
+      return;
+    }
+    state.card = card;
+    state.button = state.ui.plusOneButton();
     const measured = card.getBoundingClientRect();
     const width = Math.max(120, measured.width);
     const height = Math.max(36, measured.height);
     const anchor = candidate.rect;
-    const bounds = candidate.canvasRect || { left: 0, top: 0, width: innerWidth, height: innerHeight };
-    const boundsRight = Math.min(innerWidth - 8, bounds.left + bounds.width - 8);
-    const boundsLeft = Math.max(8, bounds.left + 8);
+    const boundsRight = innerWidth - 8;
+    const boundsLeft = 8;
     const pointerX = Number.isFinite(candidate.pointerX)
       ? candidate.pointerX
       : anchor.left + anchor.width / 2;
@@ -937,15 +1115,11 @@
       left = pointerX - width - 8;
     }
     left = Math.max(boundsLeft, Math.min(left, boundsRight - width));
-    const boundsBottom = Math.min(innerHeight - 8, bounds.top + bounds.height - 8);
-    const boundsTop = Math.max(8, bounds.top + 8);
+    const boundsBottom = innerHeight - 8;
+    const boundsTop = 8;
     let top = pointerY - height / 2;
     top = Math.max(boundsTop, Math.min(top, boundsBottom - height));
-    card.style.setProperty("left", `${Math.round(left)}px`);
-    card.style.setProperty("top", `${Math.round(top)}px`);
-    card.dataset.side = side;
-    card.style.removeProperty("visibility");
-    requestAnimationFrame(() => card.classList.add("is-visible"));
+    state.ui.positionCard(left, top, side);
   }
 
   function showCard(candidate) {
@@ -954,23 +1128,22 @@
     }
     cancelHide();
     clearExpiry();
-    const card = ensureCard();
+    ensurePortal();
+    renderActionBar();
     state.selectionId += 1;
     state.candidate = candidate;
     state.cardHovered = false;
     state.selectionPhase = "armed";
     state.selectedAt = Date.now();
     state.lockedUntil = performance.now() + CARD_LOCK_TIME;
-    state.button.disabled = false;
-    state.button.setAttribute("aria-label", `弹幕加一：${candidate.message}`);
-    card.dataset.trackId = String(candidate.trackId || "dom");
-    card.dataset.kind = candidate.kind || "unknown";
-    card.dataset.message = candidate.message.slice(0, 240);
-    card.dataset.selectionId = String(state.selectionId);
-    card.dataset.selectionPhase = state.selectionPhase;
-    card.classList.remove("is-visible");
-    renderPreview(candidate);
-    positionCard(candidate);
+    state.ui.prepareCard(candidate, {
+      trackId: String(candidate.trackId || "dom"),
+      kind: candidate.kind || "unknown",
+      message: candidate.message.slice(0, 240),
+      selectionId: String(state.selectionId),
+      selectionPhase: state.selectionPhase
+    });
+    requestAnimationFrame(() => positionCard(candidate));
     armExpiry();
     debugState.counters.cardsShown += 1;
     debugState.lastCard = {
@@ -978,12 +1151,10 @@
       selectionId: state.selectionId,
       selectionPhase: state.selectionPhase,
       trackId: candidate.trackId,
-      instanceId: candidate.instanceId || "",
       message: candidate.message,
       kind: candidate.kind,
       rect: candidate.rect,
-      pointer: [candidate.pointerX, candidate.pointerY],
-      model: candidate.model || null
+      pointer: [candidate.pointerX, candidate.pointerY]
     };
     debugEvent("card-shown", debugState.lastCard, "info");
   }
@@ -993,32 +1164,6 @@
       && [rect.left, rect.top, rect.width, rect.height].every(Number.isFinite)
       && rect.width >= 2 && rect.width <= innerWidth * 2
       && rect.height >= 4 && rect.height <= 300;
-  }
-
-  function candidateFromProbe(hit, pending) {
-    if (!hit || !saneRect(hit.rect)) {
-      return null;
-    }
-    const canvasText = shared.parseMessageText(hit.text, MAX_LENGTH);
-    if (!shared.isPlausibleMessage(canvasText, MAX_LENGTH)) {
-      return null;
-    }
-    const content = Array.isArray(hit.content) ? hit.content : [];
-    const richPayload = resolveRichPayload(canvasText, content);
-    return {
-      trackId: hit.trackId,
-      instanceId: hit.instanceId,
-      rect: hit.rect,
-      canvasRect: saneRect(hit.canvasRect) ? hit.canvasRect : null,
-      message: richPayload.text,
-      richPayload,
-      content,
-      style: hit.style && typeof hit.style === "object" ? hit.style : {},
-      model: hit.model && typeof hit.model === "object" ? hit.model : null,
-      pointerX: pending && pending.x,
-      pointerY: pending && pending.y,
-      kind: "canvas"
-    };
   }
 
   function domCandidateFromElement(element, kind) {
@@ -1039,8 +1184,8 @@
     return {
       trackId: `dom-${Date.now()}`,
       rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
-      canvasRect: null,
       message,
+      sender: richPayload.sender || senderForMessage(message),
       richPayload,
       content: [],
       style: {},
@@ -1069,42 +1214,6 @@
         || (closestAny(item, CHAT_MESSAGE_SELECTORS)
           && !closestAny(item, VIDEO_ROOT_SELECTORS))
     ));
-  }
-
-  function sendProbe() {
-    state.probeFrame = 0;
-    if (!enabled() || state.candidate) {
-      return;
-    }
-    const requestId = state.nextProbeId;
-    state.nextProbeId += 1;
-    state.pendingProbe = {
-      requestId,
-      x: state.pointerX,
-      y: state.pointerY,
-      sentAt: performance.now()
-    };
-    debugState.counters.probesSent += 1;
-    debugState.lastProbe = {
-      requestId,
-      sentAt: Date.now(),
-      x: state.pointerX,
-      y: state.pointerY,
-      status: "pending"
-    };
-    window.postMessage({
-      source: CONTENT_SOURCE,
-      type: "probe",
-      requestId,
-      x: state.pointerX,
-      y: state.pointerY
-    }, "*");
-  }
-
-  function scheduleProbe() {
-    if (!state.probeFrame) {
-      state.probeFrame = requestAnimationFrame(sendProbe);
-    }
   }
 
   function onPointerMove(event) {
@@ -1164,13 +1273,59 @@
     return richPayloadFromElement(input);
   }
 
-  function findInput() {
-    return queryAll(INPUT_SELECTORS).find((element) => {
+  function inputSurfaceScore(element, index) {
+    const fullscreen = fullscreenElement();
+    const insideFullscreen = Boolean(fullscreen && (fullscreen === element || fullscreen.contains(element)));
+    const insideVideo = Boolean(closestAny(element, VIDEO_ROOT_SELECTORS));
+    const insideChat = Boolean(closestAny(element, CHAT_ROOT_SELECTORS));
+    let score = 1000 - index;
+    if (fullscreen) {
+      if (insideFullscreen) score += 1400;
+      if (insideVideo) score += 800;
+      if (insideChat && !insideFullscreen) score -= 1200;
+    } else {
+      if (insideChat) score += 700;
+      if (!insideVideo) score += 300;
+      if (insideVideo) score -= 900;
+    }
+    return score;
+  }
+
+  function findInput(options) {
+    const candidates = queryAll(INPUT_SELECTORS);
+    const seen = new Set(candidates);
+    const addEditors = (root) => {
+      if (!(root instanceof Element || root instanceof Document || root instanceof ShadowRoot)) {
+        return;
+      }
+      let editors = [];
+      try {
+        editors = root.querySelectorAll(TEXT_EDITOR_SELECTOR);
+      } catch (_error) {
+        editors = [];
+      }
+      for (const editor of editors) {
+        if (!seen.has(editor)) {
+          seen.add(editor);
+          candidates.push(editor);
+        }
+      }
+    };
+    const fullscreen = fullscreenElement();
+    if (fullscreen) {
+      addEditors(fullscreen);
+    } else {
+      queryAll(CHAT_ROOT_SELECTORS).forEach(addEditors);
+    }
+    const usable = candidates.filter((element) => {
       const disabled = element.matches(":disabled")
         || element.getAttribute("aria-disabled") === "true"
         || element.getAttribute("contenteditable") === "false";
       return !disabled && isVisible(element);
-    }) || null;
+    });
+    usable.sort((left, right) => inputSurfaceScore(right, candidates.indexOf(right))
+      - inputSurfaceScore(left, candidates.indexOf(left)));
+    return usable[0] || null;
   }
 
   function setInputValue(input, value) {
@@ -1194,7 +1349,9 @@
       input.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
       return;
     }
-    if (input.isContentEditable || input.getAttribute("contenteditable") === "true") {
+    if (input.isContentEditable
+        || (input.hasAttribute("contenteditable")
+          && input.getAttribute("contenteditable") !== "false")) {
       input.dispatchEvent(new InputEvent("beforeinput", {
         bubbles: true,
         cancelable: true,
@@ -1219,6 +1376,176 @@
         inputType: "insertText"
       }));
     }
+  }
+
+  function placeCaretAtEnd(input) {
+    if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
+      const length = input.value.length;
+      if (typeof input.setSelectionRange === "function") {
+        input.setSelectionRange(length, length);
+      }
+      return;
+    }
+    if (input.isContentEditable
+        || (input.hasAttribute("contenteditable")
+          && input.getAttribute("contenteditable") !== "false")) {
+      const selection = getSelection();
+      if (!selection) {
+        return;
+      }
+      const range = document.createRange();
+      range.selectNodeContents(input);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  }
+
+  function focusReplyInput(input, expectedValue) {
+    const focus = () => {
+      const editor = input.isConnected ? input : findInput({ reply: true });
+      if (!editor || inputText(editor) !== expectedValue) {
+        return;
+      }
+      editor.focus({ preventScroll: true });
+      placeCaretAtEnd(editor);
+    };
+    focus();
+    requestAnimationFrame(focus);
+    setTimeout(focus, 50);
+  }
+
+  function replyRequestKey(candidate) {
+    const requestId = String(candidate && candidate.requestId || "").trim();
+    if (requestId) return `request:${requestId}`;
+    return [
+      String(candidate && candidate.instanceId || "dom"),
+      String(candidate && candidate.trackId || "unknown"),
+      comparableText(candidate && candidate.message)
+    ].join(":");
+  }
+
+  function mentionFromInput(input) {
+    if (!input) return "";
+    const match = String(inputText(input) || "")
+      .match(/^\s*@\s*([^\s：:,，]{1,64})(?:\s|$)/u);
+    return shared.normalizeSenderName(match && match[1]);
+  }
+
+  function markReplyReady(candidate, sender) {
+    const root = document.documentElement;
+    if (root) {
+      root.dataset.bcpDouyinReplyReadyAt = String(Date.now());
+      root.dataset.bcpDouyinReplyReadyMessage = comparableText(candidate && candidate.message).slice(0, 240);
+      root.dataset.bcpDouyinReplyReadySender = shared.normalizeSenderName(sender).slice(0, 64);
+    }
+    if (state.ui && typeof state.ui.dismissToast === "function") {
+      state.ui.dismissToast();
+    }
+  }
+
+  function recentReplyReady(candidate) {
+    const root = document.documentElement;
+    const readyAt = Number(root && root.dataset.bcpDouyinReplyReadyAt) || 0;
+    if (!readyAt || Date.now() - readyAt > REPLY_READY_WINDOW) return false;
+    const readyMessage = String(root.dataset.bcpDouyinReplyReadyMessage || "");
+    const message = comparableText(candidate && candidate.message);
+    return !readyMessage || !message || readyMessage === message;
+  }
+
+  function finishPreparedReply(candidate, input, sender, reason, requestKey, alreadyFilled) {
+    const normalizedSender = shared.normalizeSenderName(sender) || mentionFromInput(input);
+    const currentValue = inputText(input);
+    const nextValue = alreadyFilled
+      ? currentValue
+      : shared.replyDraftValue(currentValue, normalizedSender);
+    if (!alreadyFilled) setInputValue(input, nextValue);
+    markReplyReady(candidate, normalizedSender);
+    state.replyRequests.set(requestKey, { status: "ready", at: Date.now() });
+    hideCard(reason || "reply-ready");
+    focusReplyInput(input, nextValue);
+    debugEvent(alreadyFilled ? "reply-already-ready" : "reply-ready", {
+      message: candidate.message,
+      sender: normalizedSender,
+      requestKey
+    }, "info");
+    return true;
+  }
+
+  async function prepareReply(candidate, reason) {
+    if (!state.settings.actions.reply || !candidate) {
+      return false;
+    }
+    const requestKey = replyRequestKey(candidate);
+    const previous = state.replyRequests.get(requestKey);
+    if (previous && Date.now() - previous.at <= REPLY_READY_WINDOW
+        && (previous.status === "pending" || previous.status === "ready")) {
+      return previous.status === "ready";
+    }
+    state.replyRequests.set(requestKey, { status: "pending", at: Date.now() });
+    if (state.replyRequests.size > 80) {
+      const staleKeys = Array.from(state.replyRequests.keys())
+        .slice(0, state.replyRequests.size - 80);
+      staleKeys.forEach((key) => state.replyRequests.delete(key));
+    }
+
+    let input = null;
+    let sender = "";
+    for (let attempt = 0; attempt < REPLY_RESOLVE_ATTEMPTS; attempt += 1) {
+      input = findInput({ reply: true });
+      const existingMention = mentionFromInput(input);
+      if (existingMention) {
+        return finishPreparedReply(
+          candidate, input, existingMention, reason, requestKey, true
+        );
+      }
+      if (recentReplyReady(candidate)) {
+        state.replyRequests.set(requestKey, { status: "ready", at: Date.now() });
+        return true;
+      }
+      sender = shared.normalizeSenderName(
+        candidate.sender
+          || (candidate.richPayload && candidate.richPayload.sender)
+          || senderForMessage(candidate.message, {
+            messageId: candidate.messageId,
+            observedAt: candidate.observedAt
+          })
+      );
+      if (sender) break;
+      if (attempt + 1 < REPLY_RESOLVE_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, REPLY_RESOLVE_INTERVAL));
+      }
+    }
+
+    input = input && input.isConnected ? input : findInput({ reply: true });
+    const finalMention = mentionFromInput(input);
+    if (finalMention) {
+      return finishPreparedReply(candidate, input, finalMention, reason, requestKey, true);
+    }
+    if (!sender) {
+      // Give another content-script context or Douyin's native quick-reply
+      // handler one final frame to publish its successful result. A success is
+      // authoritative and must never be overwritten by a late error toast.
+      await new Promise((resolve) => setTimeout(resolve, REPLY_RESOLVE_INTERVAL));
+      input = findInput({ reply: true });
+      const delayedMention = mentionFromInput(input);
+      if (delayedMention) {
+        return finishPreparedReply(candidate, input, delayedMention, reason, requestKey, true);
+      }
+      if (recentReplyReady(candidate)) {
+        state.replyRequests.set(requestKey, { status: "ready", at: Date.now() });
+        return true;
+      }
+      state.replyRequests.set(requestKey, { status: "failed", at: Date.now() });
+      showToast("未能识别这条弹幕的发送者", "error");
+      return false;
+    }
+    if (!input) {
+      state.replyRequests.set(requestKey, { status: "failed", at: Date.now() });
+      showToast("未找到抖音弹幕输入框，请确认已登录并展开聊天区", "error");
+      return false;
+    }
+    return finishPreparedReply(candidate, input, sender, reason, requestKey, false);
   }
 
   function buttonScore(button, input, selectorIndex, scopeBonus) {
@@ -1523,56 +1850,11 @@
   }
 
   function normalizeRichPayload(value) {
-    if (typeof value === "string") {
-      const text = shared.parseMessageText(value, MAX_LENGTH);
-      return { text, plainText: text, assets: [], parts: [{ type: "text", text }] };
-    }
-    const text = shared.parseMessageText(value && value.text, MAX_LENGTH);
-    const hasPlainText = Boolean(value && Object.prototype.hasOwnProperty.call(value, "plainText"));
-    const plainText = hasPlainText
-      ? shared.parseMessageText(value.plainText, MAX_LENGTH)
-      : text;
-    const sanitizeAsset = (asset) => asset && Array.isArray(asset.keys) && asset.keys.length
-      ? {
-        src: String(asset.src || "").slice(0, 4096),
-        token: String(asset.token || "").slice(0, 120),
-        keys: asset.keys.map((key) => String(key).slice(0, 520)).slice(0, 24)
-      }
-      : null;
-    const assets = Array.isArray(value && value.assets)
-      ? value.assets.map(sanitizeAsset).filter(Boolean).slice(0, 8)
-      : [];
-    const parts = Array.isArray(value && value.parts)
-      ? value.parts.slice(0, 40).map((part) => {
-        if (part && part.type === "emoji") {
-          const asset = sanitizeAsset(part.asset);
-          return asset ? { type: "emoji", asset } : null;
-        }
-        if (part && part.type === "text") {
-          return { type: "text", text: String(part.text || "").slice(0, MAX_LENGTH) };
-        }
-        return null;
-      }).filter(Boolean)
-      : [{ type: "text", text: plainText }].concat(
-        assets.map((asset) => ({ type: "emoji", asset }))
-      );
-    return { text, plainText, assets, parts };
-  }
-
-  function assetsMatch(first, second) {
-    if (!first || !second || !Array.isArray(first.keys) || !Array.isArray(second.keys)) {
-      return false;
-    }
-    const expected = new Set(first.keys);
-    return second.keys.some((key) => expected.has(key));
+    return normalizeOwnMessagePayload(value, (text) => shared.parseMessageText(text, MAX_LENGTH), MAX_LENGTH);
   }
 
   function payloadSignature(payload) {
-    const normalized = normalizeRichPayload(payload);
-    const textKey = comparableText(normalized.plainText || normalized.text);
-    const assetKey = normalized.assets.map((asset) => asset.keys.slice().sort()[0] || "")
-      .filter(Boolean).join("|");
-    return `${textKey}::${assetKey}`.slice(0, 1000);
+    return ownMessagePayloadSignature(normalizeRichPayload(payload), comparableText);
   }
 
   function payloadMatchesIntent(payload, intent) {
@@ -1685,7 +1967,7 @@
     const intentId = `${Date.now()}-${state.nextOwnAnnouncementId}`;
     state.nextOwnAnnouncementId += 1;
     window.postMessage({
-      source: CONTENT_SOURCE,
+      source: DOUYIN_CONTENT_SOURCE,
       type: "own-message-intent",
       intentId,
       sourceType: String(sourceType || "unknown").slice(0, 40),
@@ -1705,7 +1987,7 @@
       return;
     }
     window.postMessage({
-      source: CONTENT_SOURCE,
+      source: DOUYIN_CONTENT_SOURCE,
       type: "own-message-cancel",
       intentId
     }, "*");
@@ -1821,10 +2103,13 @@
   async function onPlusOneClick(event) {
     event.preventDefault();
     event.stopPropagation();
-    if (!state.candidate || state.button.disabled) {
+    const clickedButton = event.currentTarget instanceof HTMLButtonElement
+      ? event.currentTarget
+      : state.button;
+    if (!plusOneEnabled() || !state.candidate || (clickedButton && clickedButton.disabled)) {
       return;
     }
-    state.button.disabled = true;
+    state.ui.setSending(true);
     const richPayload = await resolveRichPayloadWithRetry(
       state.candidate.message,
       state.candidate.content
@@ -1832,13 +2117,13 @@
     const success = await repeatMessage(richPayload.text, richPayload);
     if (success) {
       hideCard("send-succeeded");
-    } else if (state.button) {
-      state.button.disabled = false;
+    } else if (state.ui) {
+      state.ui.setSending(false);
     }
   }
 
   function onAltClick(event) {
-    if (!enabled() || !state.settings.altClick || !event.altKey
+    if (!plusOneEnabled() || !state.settings.altClick || !event.altKey
         || !event.isTrusted || actionFromEvent(event)) {
       return;
     }
@@ -1860,9 +2145,10 @@
   function postRendererSettings(reason, overrideEnabled) {
     const rendererEnabled = typeof overrideEnabled === "boolean" ? overrideEnabled : enabled();
     window.postMessage({
-      source: CONTENT_SOURCE,
+      source: DOUYIN_CONTENT_SOURCE,
       type: "renderer-settings",
       enabled: rendererEnabled,
+      actions: state.settings.actions,
       reason: String(reason || "sync").slice(0, 80),
       version: DEBUG_VERSION,
       sentAt: Date.now()
@@ -1875,7 +2161,7 @@
 
   function postRendererResult(data, ok, reason) {
     window.postMessage({
-      source: CONTENT_SOURCE,
+      source: DOUYIN_CONTENT_SOURCE,
       type: "renderer-result",
       requestId: data.requestId,
       instanceId: String(data.instanceId || ""),
@@ -1891,29 +2177,39 @@
       && item.matches(".bcp-douyin-dom-action")) || null;
   }
 
+  function actionItemFromEvent(event) {
+    const path = typeof event.composedPath === "function" ? event.composedPath() : [event.target];
+    return path.find((item) => item instanceof Element
+      && item.matches(".bcp-douyin-dom-action-item")) || null;
+  }
+
   function rememberTrustedRendererAction(event) {
     const action = actionFromEvent(event);
-    if (!action || !event.isTrusted) {
+    const item = actionItemFromEvent(event);
+    if (!action || !item || !event.isTrusted) {
       return;
     }
     state.trustedAction = {
+      action: String(item.dataset.action || ""),
       at: performance.now(),
       instanceId: String(action.dataset.instanceId || ""),
       trackId: String(action.dataset.trackId || ""),
       message: shared.parseMessageText(action.dataset.message || "", MAX_LENGTH)
     };
     debugEvent("renderer-action-trusted", {
+      action: state.trustedAction.action,
       instanceId: state.trustedAction.instanceId,
       trackId: state.trustedAction.trackId,
       message: state.trustedAction.message
     });
   }
 
-  function matchesTrustedAction(data, message) {
+  function matchesTrustedAction(data, message, action) {
     const trusted = state.trustedAction;
     state.trustedAction = null;
     return Boolean(trusted
       && performance.now() - trusted.at <= TRUSTED_ACTION_WINDOW
+      && trusted.action === action
       && trusted.instanceId === String(data.instanceId || "")
       && trusted.trackId === String(data.trackId || "")
       && trusted.message === message);
@@ -1934,7 +2230,7 @@
       postRendererResult(data, false, "invalid-or-duplicate");
       return;
     }
-    if (!matchesTrustedAction(data, message)) {
+    if (!matchesTrustedAction(data, message, "plus-one")) {
       debugState.counters.rendererActivationsRejected += 1;
       debugEvent("renderer-activation-rejected", {
         requestId,
@@ -1970,9 +2266,76 @@
     }
   }
 
+  function handleRendererReply(data) {
+    const message = shared.parseMessageText(data.text, MAX_LENGTH);
+    if (!enabled() || !state.settings.actions.reply
+        || !shared.isPlausibleMessage(message, MAX_LENGTH)) {
+      debugEvent("renderer-reply-rejected", {
+        instanceId: data.instanceId,
+        trackId: data.trackId,
+        reason: "invalid-or-disabled"
+      }, "warn");
+      return;
+    }
+    if (!matchesTrustedAction(data, message, "reply")) {
+      debugEvent("renderer-reply-rejected", {
+        instanceId: data.instanceId,
+        trackId: data.trackId,
+        reason: "missing-trusted-click"
+      }, "warn");
+      return;
+    }
+    const richPayload = resolveRichPayload(message, data.content);
+    const candidate = {
+      requestId: String(data.requestId || ""),
+      trackId: String(data.trackId || "renderer"),
+      instanceId: String(data.instanceId || ""),
+      messageId: String(data.messageId || ""),
+      observedAt: Number(data.observedAt) || 0,
+      message: richPayload.text || message,
+      sender: shared.normalizeSenderName(data.sender)
+        || richPayload.sender
+        || senderForMessage(message, {
+          messageId: data.messageId,
+          observedAt: data.observedAt
+        }),
+      richPayload,
+      content: Array.isArray(data.content) ? data.content : [],
+      kind: "renderer"
+    };
+    prepareReply(candidate, "renderer-reply");
+  }
+
+  async function handleRendererFavorite(data) {
+    const message = shared.parseMessageText(data.text, MAX_LENGTH);
+    if (!enabled() || !state.settings.actions.favorite || !state.favoritesRuntime
+        || !shared.isPlausibleMessage(message, MAX_LENGTH)
+        || !matchesTrustedAction(data, message, "favorite")) {
+      window.postMessage({
+        source: DOUYIN_CONTENT_SOURCE,
+        type: "renderer-favorite-result",
+        requestId: data.requestId,
+        ok: false
+      }, "*");
+      return;
+    }
+    const ok = await state.favoritesRuntime.favoriteText(
+      message,
+      serializedContentHasImages(data.content)
+    );
+    if (ok === null) return;
+    window.postMessage({
+      source: DOUYIN_CONTENT_SOURCE,
+      type: "renderer-favorite-result",
+      requestId: data.requestId,
+      ok
+    }, "*");
+  }
+
   function applySettings(saved) {
     state.settings = shared.mergeSettings(saved);
     shared.applyPlatformColors(document.documentElement, state.settings.colors.douyin);
+    renderActionBar();
     debugState.settingsEnabled = enabled();
     debugEvent("settings-applied", {
       enabled: state.settings.enabled,
@@ -1994,11 +2357,19 @@
   }
 
   window.addEventListener("message", (event) => {
-    if (event.source !== window || !event.data || event.data.source !== PAGE_SOURCE) {
+    if (event.source !== window || !isDouyinProtocolMessage(event.data, DOUYIN_PAGE_SOURCE)) {
       return;
     }
     if (event.data.type === "renderer-activate") {
       handleRendererActivation(event.data);
+      return;
+    }
+    if (event.data.type === "renderer-reply") {
+      handleRendererReply(event.data);
+      return;
+    }
+    if (event.data.type === "renderer-favorite") {
+      void handleRendererFavorite(event.data);
       return;
     }
     if (event.data.type === "ready") {
@@ -2024,43 +2395,15 @@
       console.info("[Danmaku Echo][Douyin diagnostics]", contentDebugSnapshot());
       return;
     }
-    if (event.data.type !== "probe-result" || !state.pendingProbe
-        || Number(event.data.requestId) !== state.pendingProbe.requestId) {
-      return;
-    }
-    const pending = state.pendingProbe;
-    state.pendingProbe = null;
-    debugState.counters.probeResults += 1;
-    debugState.lastProbe = {
-      requestId: pending.requestId,
-      sentAt: Date.now() - Math.max(0, performance.now() - pending.sentAt),
-      receivedAt: Date.now(),
-      latency: performance.now() - pending.sentAt,
-      x: pending.x,
-      y: pending.y,
-      status: event.data.hit ? "hit" : "miss",
-      hit: event.data.hit ? {
-        trackId: event.data.hit.trackId,
-        text: event.data.hit.text,
-        rect: event.data.hit.rect,
-        model: event.data.hit.model || null
-      } : null
-    };
-    if (state.candidate || performance.now() - pending.sentAt > 250
-        || Math.hypot(state.pointerX - pending.x, state.pointerY - pending.y) > 14) {
-      debugState.lastProbe.status = "discarded-stale";
-      scheduleDebugMarker();
-      return;
-    }
-    const candidate = candidateFromProbe(event.data.hit, pending);
-    if (candidate) {
-      showCard(candidate);
-    } else {
-      scheduleDebugMarker();
-    }
   });
 
   storageGet().then(applySettings);
+  state.favoritesRuntime = createFavoritesRuntime({
+    enabled: () => enabled() && state.settings.actions.favorite,
+    platform: "douyin",
+    sendText: (message) => repeatMessage(message, message),
+    showToast
+  });
   document.addEventListener("pointermove", onPointerMove, true);
   document.addEventListener("pointerdown", (event) => {
     if (state.candidate && !isOwned(event.target)
@@ -2093,10 +2436,10 @@
     }
     if (event.ctrlKey && event.altKey && String(event.key).toLowerCase() === "d") {
       event.preventDefault();
-      const requestId = state.nextProbeId++;
+      const requestId = state.nextRequestId++;
       debugEvent("diagnostics-requested", { requestId }, "info");
       window.postMessage({
-        source: CONTENT_SOURCE,
+        source: DOUYIN_CONTENT_SOURCE,
         type: "debug-request",
         requestId
       }, "*");
@@ -2105,14 +2448,16 @@
   }, true);
   window.addEventListener("blur", () => scheduleHide("window-blur", 120));
   // Douyin auto-scrolls its virtual chat list whenever messages arrive. A captured
-  // scroll listener would clear a valid Canvas selection even while the pointer is
+  // scroll listener would clear a valid DOM selection even while the pointer is
   // already over the card, so scrolling is deliberately not a dismissal signal.
   window.addEventListener("resize", () => hideCard("resize"), { passive: true });
   document.addEventListener("fullscreenchange", () => {
+    scheduleSenderCacheScan(0);
     hideCard("fullscreen-change");
     ensurePortal();
   }, true);
   document.addEventListener("webkitfullscreenchange", () => {
+    scheduleSenderCacheScan(0);
     hideCard("webkit-fullscreen-change");
     ensurePortal();
   }, true);
@@ -2145,9 +2490,12 @@
             || matchesAny(node, CHAT_MESSAGE_SELECTORS)
             || Boolean(node.querySelector(CHAT_MESSAGE_SELECTORS.join(",")))));
       });
-      if (relevant && (state.ownChatIntents.length
-          || document.querySelector("[data-bcp-douyin-own-chat='true']"))) {
-        scheduleOwnChatScan(40);
+      if (relevant) {
+        scheduleSenderCacheScan(40);
+        if (state.ownChatIntents.length
+            || document.querySelector("[data-bcp-douyin-own-chat='true']")) {
+          scheduleOwnChatScan(40);
+        }
       }
     });
     state.ownChatObserver.observe(document.documentElement, {
@@ -2155,6 +2503,7 @@
       subtree: true,
       characterData: true
     });
+    scheduleSenderCacheScan(0);
   }
   if (document.documentElement) {
     startOwnChatObserver();
@@ -2171,11 +2520,11 @@
   }
 
   const ping = () => {
-    const requestId = state.nextProbeId++;
+    const requestId = state.nextRequestId++;
     debugState.counters.pings += 1;
     debugEvent("page-ping", { requestId, href: location.href });
     window.postMessage({
-      source: CONTENT_SOURCE,
+      source: DOUYIN_CONTENT_SOURCE,
       type: "ping",
       requestId
     }, "*");
