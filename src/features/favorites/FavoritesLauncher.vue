@@ -79,7 +79,7 @@
             ref="searchRef"
             :value="state.search"
             type="search"
-            placeholder="搜索文字或 Emoji"
+            :placeholder="selectedRoom ? '搜索这个直播间的弹幕' : '搜索文字或 Emoji'"
             autocomplete="off"
             @input="emit('search', ($event.target as HTMLInputElement).value)"
           >
@@ -98,7 +98,17 @@
 
       <div class="bcp-favorites-list-heading">
         <span class="bcp-favorites-list-title">
-          <strong>{{ activeTab.label }}</strong>
+          <button
+            v-if="selectedRoom"
+            type="button"
+            class="bcp-favorites-room-back"
+            aria-label="返回直播间列表"
+            title="返回直播间列表（Esc）"
+            @click="emit('backToRooms')"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+          </button>
+          <strong :title="selectedRoom?.roomName">{{ selectedRoom?.roomName || activeTab.label }}</strong>
           <small>{{ listSummary }}</small>
         </span>
         <label class="bcp-favorites-sort">
@@ -151,22 +161,18 @@
         />
       </ol>
 
-      <ul v-else class="bcp-favorites-groups" role="tabpanel">
+      <ul v-else-if="!selectedRoom" class="bcp-favorites-groups" role="tabpanel">
         <li
-          v-for="group in state.groups"
+          v-for="group in visibleGroups"
           :key="group.roomKey"
-          :class="['bcp-favorites-group', { 'is-expanded': isGroupExpanded(group.roomKey) }]"
+          class="bcp-favorites-group"
         >
           <button
             type="button"
             class="bcp-favorites-group-toggle"
-            :aria-expanded="isGroupExpanded(group.roomKey)"
-            :aria-controls="groupPanelId(group.roomKey)"
-            @click="emit('toggleGroup', group.roomKey)"
+            :aria-label="`进入${group.roomName}的收藏弹幕`"
+            @click="emit('selectRoom', group.roomKey)"
           >
-            <span class="bcp-favorites-group-chevron" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" /></svg>
-            </span>
             <span class="bcp-favorites-group-copy">
               <strong :title="group.roomName">{{ group.roomName }}</strong>
               <small>
@@ -176,31 +182,31 @@
               </small>
             </span>
             <span class="bcp-favorites-group-count">{{ group.items.length }}</span>
+            <span class="bcp-favorites-group-chevron" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" /></svg>
+            </span>
           </button>
-          <ol
-            v-if="isGroupExpanded(group.roomKey)"
-            :id="groupPanelId(group.roomKey)"
-            class="bcp-favorites-list bcp-favorites-group-items"
-          >
-            <FavoriteItemRow
-              v-for="(item, index) in group.items"
-              :key="`${group.roomKey}:${item.id}`"
-              :item="item"
-              :pending-remove-id="pendingRemoveId"
-              :shortcut-index="groupedShortcutIndex(group.roomKey, index)"
-              @add-to-room="emit('addToRoom', $event)"
-              @request-remove="confirmRemove"
-              @send="emit('send', $event)"
-            />
-          </ol>
         </li>
       </ul>
+
+      <ol v-else class="bcp-favorites-list bcp-favorites-room-items" role="tabpanel">
+        <FavoriteItemRow
+          v-for="(item, index) in selectedItems"
+          :key="`${selectedRoom.roomKey}:${item.id}`"
+          :item="item"
+          :pending-remove-id="pendingRemoveId"
+          :shortcut-index="index"
+          @add-to-room="emit('addToRoom', $event)"
+          @request-remove="confirmRemove"
+          @send="emit('send', $event)"
+        />
+      </ol>
 
       <footer class="bcp-favorites-footer">
         <span><kbd>Alt</kbd><kbd>Q</kbd> 短按打开</span>
         <span><kbd>Alt</kbd><kbd>Q</kbd> 长按轮盘</span>
         <span><kbd>1–9</kbd> 快速发送</span>
-        <span><kbd>Esc</kbd> 关闭</span>
+        <span><kbd>Esc</kbd> {{ selectedRoom ? '返回直播间' : '关闭' }}</span>
       </footer>
     </section>
 
@@ -233,18 +239,6 @@
         }"
         tabindex="-1"
       >
-        <span class="bcp-favorites-radial-item-icon" aria-hidden="true">
-          <svg v-if="option.kind === 'favorite'" viewBox="0 0 24 24">
-            <path d="m5 6 14 6-14 6 2-6zM7 12h7" />
-          </svg>
-          <svg v-else-if="option.kind === 'other'" viewBox="0 0 24 24">
-            <circle cx="8" cy="9" r="3" /><circle cx="16.5" cy="8" r="2.5" />
-            <path d="M3.75 18c.35-3 1.9-4.5 4.25-4.5s3.9 1.5 4.25 4.5M13 13c2.8-.7 5.7.65 6.5 4" />
-          </svg>
-          <svg v-else viewBox="0 0 24 24">
-            <circle cx="6" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="18" cy="12" r="1" />
-          </svg>
-        </span>
         <span>{{ option.label }}</span>
         <small>{{ option.detail }}</small>
       </button>
@@ -267,8 +261,9 @@ const emit = defineEmits<{
   remove: [id: string];
   search: [value: string];
   send: [id: string];
+  selectRoom: [roomKey: string];
   sort: [sort: FavoriteSort];
-  toggleGroup: [roomKey: string];
+  backToRooms: [];
 }>();
 
 const panelRef = ref<HTMLElement | null>(null);
@@ -281,6 +276,22 @@ const tabs: Array<{ key: FavoriteView; label: string }> = [
 ];
 
 const activeTab = computed(() => tabs.find((tab) => tab.key === props.state.view) || tabs[0]);
+const selectedRoom = computed(() => props.state.groups
+  .find((group) => group.roomKey === props.state.selectedRoomKey));
+const normalizedSearch = computed(() => props.state.search.replace(/\s+/g, " ").trim().toLowerCase());
+const visibleGroups = computed(() => {
+  if (!normalizedSearch.value) return props.state.groups;
+  return props.state.groups.filter((group) => group.roomName.toLowerCase().includes(normalizedSearch.value)
+    || group.items.some((item) => item.normalizedText.includes(normalizedSearch.value)));
+});
+const selectedItems = computed(() => {
+  const group = selectedRoom.value;
+  if (!group) return [];
+  if (!normalizedSearch.value || group.roomName.toLowerCase().includes(normalizedSearch.value)) {
+    return group.items;
+  }
+  return group.items.filter((item) => item.normalizedText.includes(normalizedSearch.value));
+});
 const selectedOption = computed(() => props.state.radialOptions
   .find((option) => option.key === props.state.selectedRadialKey));
 const selectionHint = computed(() => selectedOption.value?.kind === "favorite"
@@ -288,21 +299,29 @@ const selectionHint = computed(() => selectedOption.value?.kind === "favorite"
   : "松开 Q 打开列表");
 const hasResults = computed(() => props.state.view === "current"
   ? Boolean(props.state.items.length)
-  : Boolean(props.state.groups.length));
+  : selectedRoom.value
+    ? Boolean(selectedItems.value.length)
+    : Boolean(visibleGroups.value.length));
 const listSummary = computed(() => props.state.search
   ? props.state.view === "current"
     ? `找到 ${props.state.items.length} 条匹配收藏`
-    : `找到 ${props.state.groups.length} 个相关直播间`
+    : selectedRoom.value
+      ? `找到 ${selectedItems.value.length} 条匹配收藏`
+      : `找到 ${visibleGroups.value.length} 个相关直播间`
   : props.state.view === "current"
     ? "按所选顺序展示当前直播间内容"
+    : selectedRoom.value
+      ? `${selectedRoom.value.items.length} 条收藏，按所选顺序展示`
     : props.state.view === "other"
-      ? `共 ${props.state.groups.length} 个直播间，展开后选择弹幕`
-      : `共 ${props.state.groups.length} 个直播间、${props.state.totalCount} 条收藏`);
+      ? `共 ${props.state.groups.length} 个直播间，先选择直播间`
+      : `共 ${props.state.groups.length} 个直播间，选择后查看弹幕`);
 const emptyState = computed(() => {
   if (props.state.search) {
     return {
       title: "没有找到匹配内容",
-      detail: "试试更短的关键词，或清空搜索查看全部收藏。",
+      detail: selectedRoom.value
+        ? "试试更短的关键词，或清空搜索查看这个直播间的全部收藏。"
+        : "试试更短的关键词，或清空搜索查看全部直播间。",
       action: null
     };
   }
@@ -344,26 +363,6 @@ function confirmRemove(id: string): void {
   pendingRemoveId.value = id;
 }
 
-function isGroupExpanded(roomKey: string): boolean {
-  return props.state.expandedRoomKeys.includes(roomKey);
-}
-
-function groupPanelId(roomKey: string): string {
-  return `bcp-favorites-group-${Array.from(roomKey)
-    .map((character) => character.codePointAt(0)?.toString(36) || "0")
-    .join("-")}`;
-}
-
-function groupedShortcutIndex(roomKey: string, itemIndex: number): number {
-  let offset = 0;
-  for (const group of props.state.groups) {
-    if (!isGroupExpanded(group.roomKey)) continue;
-    if (group.roomKey === roomKey) return offset + itemIndex;
-    offset += group.items.length;
-  }
-  return -1;
-}
-
 function platformLabel(platform: PlatformId): string {
   if (platform === "bilibili") return "Bilibili";
   if (platform === "douyin") return "抖音";
@@ -374,7 +373,8 @@ function focusSearch(): void {
   searchRef.value?.focus({ preventScroll: true });
 }
 
-watch(() => [props.state.mode, props.state.view, props.state.search, props.state.sort], () => {
+watch(() => [props.state.mode, props.state.view, props.state.search,
+  props.state.sort, props.state.selectedRoomKey], () => {
   pendingRemoveId.value = "";
 });
 

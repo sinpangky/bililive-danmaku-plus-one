@@ -15,6 +15,18 @@ function walk(directory) {
 }
 
 const sourceFiles = walk(sourceRoot);
+const favoritesLauncherSource = fs.readFileSync(
+  path.join(root, "src", "features", "favorites", "launcher.ts"),
+  "utf8"
+);
+const favoritesComponentSource = fs.readFileSync(
+  path.join(root, "src", "features", "favorites", "FavoritesLauncher.vue"),
+  "utf8"
+);
+const favoritesCssSource = fs.readFileSync(
+  path.join(root, "src", "styles", "favorites.css"),
+  "utf8"
+);
 const javascriptSources = sourceFiles.filter((file) => file.endsWith(".js"));
 if (javascriptSources.length) {
   throw new Error(`Legacy JavaScript remains under src: ${javascriptSources.join(", ")}`);
@@ -36,6 +48,21 @@ requiredVueComponents.forEach((relativePath) => {
     throw new Error(`Missing Vue component: ${relativePath}`);
   }
 });
+
+if (!favoritesLauncherSource.includes("selectedRoomKey")
+    || !favoritesComponentSource.includes("emit('selectRoom', group.roomKey)")
+    || !favoritesComponentSource.includes("emit('backToRooms')")) {
+  throw new Error("Favorites must use room-list to message-page navigation");
+}
+if (favoritesLauncherSource.includes("expandedRoomKeys")
+    || favoritesComponentSource.includes("toggleGroup")
+    || favoritesComponentSource.includes("bcp-favorites-group-items")) {
+  throw new Error("Legacy inline room expansion remains in favorites UI");
+}
+if (favoritesComponentSource.includes("bcp-favorites-radial-item-icon")
+    || !/\.bcp-favorites-radial-item\s*\{[\s\S]*?border-radius:\s*50%/.test(favoritesCssSource)) {
+  throw new Error("Favorites radial choices must be circular and icon-free");
+}
 
 if (fs.existsSync(path.join(root, "src", "popup", "popup.ts"))) {
   throw new Error("The popup still contains the legacy imperative DOM controller");

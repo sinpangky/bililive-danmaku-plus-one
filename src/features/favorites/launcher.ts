@@ -27,7 +27,6 @@ export interface FavoritesLauncherState {
   centerX: number;
   centerY: number;
   currentCount: number;
-  expandedRoomKeys: string[];
   groups: FavoriteRoomGroup[];
   items: FavoriteDisplayItem[];
   loading: boolean;
@@ -37,6 +36,7 @@ export interface FavoritesLauncherState {
   room: RoomContext;
   search: string;
   selectedRadialKey: string;
+  selectedRoomKey: string;
   sort: FavoriteSort;
   totalCount: number;
   view: FavoriteView;
@@ -173,7 +173,6 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
     centerX: innerWidth / 2,
     centerY: innerHeight / 2,
     currentCount: 0,
-    expandedRoomKeys: [],
     groups: [],
     items: [],
     loading: true,
@@ -183,6 +182,7 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
     room: initialRoom,
     search: "",
     selectedRadialKey: "",
+    selectedRoomKey: "",
     sort: "send-count",
     totalCount: 0,
     view: "current"
@@ -208,6 +208,7 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
   const app = createApp(FavoritesLauncher, {
     state,
     onAddToRoom: (id: string) => void addToRoom(id),
+    onBackToRooms: () => backToRooms(),
     onChangeView: (view: FavoriteView) => changeView(view),
     onClose: close,
     onRemove: (id: string) => void remove(id),
@@ -216,8 +217,8 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
       refresh();
     },
     onSend: (id: string) => void sendById(id),
+    onSelectRoom: (roomKey: string) => selectRoom(roomKey),
     onSort: (sort: FavoriteSort) => changeSort(sort),
-    onToggleGroup: (roomKey: string) => toggleGroup(roomKey)
   });
   app.mount(mountPoint);
 
@@ -286,9 +287,11 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
       : [];
     state.groups = state.view === "current"
       ? []
-      : groupedFavorites(repository.database.items, state.room, state.view, state.search, state.sort);
-    const availableGroups = new Set(state.groups.map((group) => group.roomKey));
-    state.expandedRoomKeys = state.expandedRoomKeys.filter((key) => availableGroups.has(key));
+      : groupedFavorites(repository.database.items, state.room, state.view, "", state.sort);
+    if (state.selectedRoomKey
+        && !state.groups.some((group) => group.roomKey === state.selectedRoomKey)) {
+      state.selectedRoomKey = "";
+    }
   }
 
   function radialOptions(): RadialOption[] {
@@ -328,7 +331,7 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
     ensureHost();
     state.view = view;
     state.search = "";
-    state.expandedRoomKeys = [];
+    state.selectedRoomKey = "";
     state.mode = "panel";
     refresh();
   }
@@ -388,7 +391,7 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
 
   function changeView(view: FavoriteView): void {
     state.view = view;
-    state.expandedRoomKeys = [];
+    state.selectedRoomKey = "";
     refresh();
   }
 
@@ -397,18 +400,24 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
     refresh();
   }
 
-  function toggleGroup(roomKey: string): void {
-    state.expandedRoomKeys = state.expandedRoomKeys.includes(roomKey)
-      ? state.expandedRoomKeys.filter((key) => key !== roomKey)
-      : [...state.expandedRoomKeys, roomKey];
+  function selectRoom(roomKey: string): void {
+    if (state.view === "current" || !state.groups.some((group) => group.roomKey === roomKey)) return;
+    state.selectedRoomKey = roomKey;
+    state.search = "";
+  }
+
+  function backToRooms(): void {
+    state.selectedRoomKey = "";
+    state.search = "";
   }
 
   function visiblePanelItems(): FavoriteDisplayItem[] {
     if (state.view === "current") return state.items;
-    const expanded = new Set(state.expandedRoomKeys);
-    return state.groups
-      .filter((group) => expanded.has(group.roomKey))
-      .flatMap((group) => group.items);
+    const group = state.groups.find((entry) => entry.roomKey === state.selectedRoomKey);
+    if (!group) return [];
+    const query = state.search.replace(/\s+/g, " ").trim().toLowerCase();
+    if (!query || group.roomName.toLowerCase().includes(query)) return group.items;
+    return group.items.filter((item) => item.normalizedText.includes(query));
   }
 
   function onPointerMove(event: PointerEvent): void {
@@ -421,7 +430,8 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
     if (event.key === "Escape" && state.mode !== "closed") {
       event.preventDefault();
       event.stopImmediatePropagation();
-      close();
+      if (state.mode === "panel" && state.selectedRoomKey) backToRooms();
+      else close();
       return;
     }
     if (state.mode === "panel" && !editableTarget(event.target)

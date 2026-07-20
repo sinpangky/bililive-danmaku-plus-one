@@ -386,6 +386,30 @@ input[role="switch"]:focus-visible {
   overflow: hidden;
 }
 
+.platform-feature-heading {
+  align-items: flex-start;
+  background: #f7f7f5;
+  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 13px 16px;
+}
+
+.platform-feature-heading strong {
+  color: #1f1f1f;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.platform-feature-heading small {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
 .platform-row {
   align-items: center;
   cursor: pointer;
@@ -849,8 +873,8 @@ input[role="switch"]:focus-visible {
 
 .favorites-guide-preview {
   align-self: stretch;
-  background: #f6f6f4;
-  border-left: 1px solid #dedfdd;
+  background: #fffaf5;
+  border-left: 1px solid rgb(253 129 1 / 22%);
   min-width: 0;
   padding: 35px 30px 26px;
 }
@@ -858,8 +882,7 @@ input[role="switch"]:focus-visible {
 .favorites-preview-head,
 .favorites-preview-tabs,
 .favorites-preview-sort,
-.favorites-preview-group,
-.favorites-preview-item {
+.favorites-preview-group {
   align-items: center;
   display: flex;
 }
@@ -947,10 +970,6 @@ input[role="switch"]:focus-visible {
   width: 0;
 }
 
-.favorites-preview-group.is-expanded > b {
-  transform: rotate(90deg);
-}
-
 .favorites-preview-group > span {
   display: flex;
   flex: 1;
@@ -981,65 +1000,6 @@ input[role="switch"]:focus-visible {
   height: 19px;
   justify-content: center;
   width: 25px;
-}
-
-.favorites-preview-item {
-  border-bottom: 1px solid #dedfdd;
-  gap: 9px;
-  margin: 0;
-  min-height: 62px;
-  padding: 8px 0;
-}
-
-.favorites-preview-item.is-nested {
-  margin-left: 14px;
-}
-
-.favorites-preview-item > kbd {
-  align-items: center;
-  background: transparent;
-  border: 0;
-  color: #fd8101;
-  display: flex;
-  font-family: Bahnschrift, "Segoe UI", sans-serif;
-  font-size: 10px;
-  height: 26px;
-  justify-content: center;
-  width: 26px;
-}
-
-.favorites-preview-item > span {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.favorites-preview-item strong {
-  color: #222;
-  font-size: 10px;
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.favorites-preview-item span small {
-  color: #888;
-  font-size: 7px;
-  margin-top: 2px;
-}
-
-.favorites-preview-item > i {
-  background: #fd8101;
-  border-radius: 16px;
-  color: #fff;
-  font-size: 8px;
-  font-style: normal;
-  font-weight: 600;
-  line-height: 30px;
-  padding: 0 11px;
-  white-space: nowrap;
 }
 
 .favorites-guide-flow {

@@ -1,13 +1,11 @@
 <template>
   <li :class="{ 'is-current-room': item.belongsToCurrentRoom }">
     <span
+      v-if="shortcutIndex >= 0 && shortcutIndex < 9"
       class="bcp-favorites-shortcut"
-      :aria-label="shortcutIndex >= 0 && shortcutIndex < 9 ? `快捷键 ${shortcutIndex + 1}` : undefined"
+      :aria-label="`快捷键 ${shortcutIndex + 1}`"
     >
-      <kbd v-if="shortcutIndex >= 0 && shortcutIndex < 9">{{ shortcutIndex + 1 }}</kbd>
-      <svg v-else viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M7.5 4.25h9a1 1 0 0 1 1 1v14.1l-5.5-3.2-5.5 3.2V5.25a1 1 0 0 1 1-1Z" />
-      </svg>
+      <kbd>{{ shortcutIndex + 1 }}</kbd>
     </span>
 
     <span class="bcp-favorites-item-copy">

@@ -138,6 +138,26 @@
                 :label="platform.label"
                 @change="save"
               />
+              <div class="platform-feature-heading">
+                <strong>侧边聊天栏弹幕胶囊</strong>
+                <small>弹幕胶囊包含 +1、回复和收藏；默认关闭，视频画面弹幕不受影响。</small>
+              </div>
+              <SettingSwitch
+                id="side-chat-capsule-bilibili"
+                v-model="settings.sideChatCapsule.bilibili"
+                title="Bilibili 显示弹幕胶囊"
+                description="开启后，悬停侧边聊天消息时显示 +1、回复和收藏按钮。"
+                aria-label="在 Bilibili 侧边聊天栏显示弹幕胶囊"
+                @change="save"
+              />
+              <SettingSwitch
+                id="side-chat-capsule-huya"
+                v-model="settings.sideChatCapsule.huya"
+                title="虎牙显示弹幕胶囊"
+                description="开启后，悬停侧边聊天消息时显示 +1、回复和收藏按钮。"
+                aria-label="在虎牙侧边聊天栏显示弹幕胶囊"
+                @change="save"
+              />
             </div>
           </section>
 
@@ -178,7 +198,7 @@
                 <div class="favorites-guide-statement">
                   <span class="favorites-guide-plus" aria-hidden="true">+1</span>
                   <h3>收藏一次，<br>到哪都能发。</h3>
-                  <p>进入直播间时先显示本房收藏；“其他直播间”和“全部”按直播间归类，展开后再选择弹幕。</p>
+                  <p>进入直播间时先显示本房收藏；“其他直播间”和“全部”先选直播间，再进入独立的弹幕选择页。</p>
                   <ul aria-label="当前支持的收藏内容">
                     <li>普通文字</li>
                     <li>Unicode Emoji</li>
@@ -200,20 +220,20 @@
                     <span>其他直播间</span>
                     <small>排序：发送次数</small>
                   </div>
-                  <div class="favorites-preview-group is-expanded">
-                    <b aria-hidden="true" />
+                  <div class="favorites-preview-group">
                     <span><strong>阿橙的直播间</strong><small>2 条收藏 · 已发送 11 次</small></span>
                     <em>2</em>
-                  </div>
-                  <div class="favorites-preview-item is-nested">
-                    <kbd>1</kbd>
-                    <span><strong>今天也要开心 😀</strong><small>跨房 · 已发送 8 次</small></span>
-                    <i>发送</i>
+                    <b aria-hidden="true" />
                   </div>
                   <div class="favorites-preview-group">
-                    <b aria-hidden="true" />
                     <span><strong>小北的直播间</strong><small>4 条收藏 · 已发送 6 次</small></span>
                     <em>4</em>
+                    <b aria-hidden="true" />
+                  </div>
+                  <div class="favorites-preview-group">
+                    <span><strong>橘子汽水直播间</strong><small>6 条收藏 · 已发送 4 次</small></span>
+                    <em>6</em>
+                    <b aria-hidden="true" />
                   </div>
                 </div>
               </div>

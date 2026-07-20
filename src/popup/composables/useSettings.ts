@@ -20,6 +20,7 @@ export function useSettings() {
     settings.altClick = next.altClick;
     settings.actions = next.actions;
     settings.platforms = next.platforms;
+    settings.sideChatCapsule = next.sideChatCapsule;
     settings.colors = next.colors;
   }
 

@@ -29,11 +29,11 @@ Danmaku Echo（弹幕回声）是一个适用于 Chrome 和 Edge 的 Manifest V3
 
 ### v1.1.4 版本说明
 
-本版本加入弹幕收藏第一版。收藏只保存在 `chrome.storage.local`，不会上传或跨设备同步；相同文字在全局只保留一份，但会记录它来自哪些平台和直播间。打开收藏时默认聚焦本房内容；“其他直播间”和“全部”先按直播间分组，展开直播间后再选择弹幕发送或加入当前房间。
+本版本加入弹幕收藏第一版。收藏只保存在 `chrome.storage.local`，不会上传或跨设备同步；相同文字在全局只保留一份，但会记录它来自哪些平台和直播间。打开收藏时默认聚焦本房内容；“其他直播间”和“全部”先显示直播间列表，点击任意直播间后进入独立的弹幕选择页，再发送或加入当前房间。
 
 第一版仅收藏普通文字、Unicode Emoji 和常规标点。Bilibili 主播图片表情、抖音平台图片 Emoji、贴纸等富媒体会被明确拒绝，避免把替代文字误当作原资源收藏。
 
-在直播间短按 `Alt + Q` 会打开固定收藏面板，可搜索、按发送次数或收藏时间排序，并使用数字键 `1–9` 发送已展开的弹幕；长按 `Alt + Q` 会在鼠标位置打开轮盘，本房常用收藏可直接指向并松开发送，“其他收藏”和“更多”会进入对应列表。原生全屏时界面会挂载到 `document.fullscreenElement` 内，因此全屏状态也可操作。
+在直播间短按 `Alt + Q` 会打开固定收藏面板，可搜索、按发送次数或收藏时间排序，并使用数字键 `1–9` 发送当前页弹幕；长按 `Alt + Q` 会在鼠标位置打开圆形轮盘，本房常用收藏以无前置图标的圆形选项显示，可直接指向并松开发送，“其他收藏”和“更多”会进入对应列表。原生全屏时界面会挂载到 `document.fullscreenElement` 内，因此全屏状态也可操作。
 
 ### 抖音 DOM 接管说明
 
@@ -97,7 +97,9 @@ npm run build
 如需回复，点击同一操作条中的“回复”；扩展会填入 `@发送者 ` 并把光标放到官方输入框末尾，后续内容与发送动作由用户完成。
 普通模式使用侧边聊天框；进入全屏后使用播放器内可见的快捷回复栏。
 
-如需收藏，点击操作条中的“收藏”。短按 `Alt + Q` 打开本房收藏列表；“其他直播间”和“全部”会先显示直播间名称，展开后才能选择其中弹幕。列表支持搜索、发送次数/时间正序/时间倒序排序、数字键 `1–9` 快速发送、加入本房和删除。长按 `Alt + Q` 约 0.18 秒会在鼠标位置打开轮盘，移动指针选择后松开即可发送，移回中心或按 `Esc` 取消。
+如需收藏，点击操作条中的“收藏”。短按 `Alt + Q` 打开本房收藏列表；“其他直播间”和“全部”会先显示直播间名称，点击任意直播间后进入它的弹幕选择页。列表支持搜索、发送次数/时间正序/时间倒序排序、数字键 `1–9` 快速发送、加入本房和删除。长按 `Alt + Q` 约 0.18 秒会在鼠标位置打开圆形轮盘，移动指针选择后松开即可发送，移回中心或按 `Esc` 取消。
+
+虎牙和 Bilibili 的侧边聊天栏弹幕胶囊默认关闭，可在“平台详情 → 侧边聊天栏弹幕胶囊”中分别启用。胶囊包含 `+1`、回复和收藏三个按钮；该设置只影响侧边聊天消息，视频画面弹幕仍由全局功能开关控制。
 
 点击浏览器工具栏中的扩展图标，可以总开关扩展、分别启用平台以及开关 `Alt + 单击` 回退功能。
 
@@ -201,11 +203,11 @@ Danmaku Echo is a Manifest V3 browser extension for Chrome and Edge. It adds a `
 
 ### v1.1.4 release notes
 
-This release adds the first version of danmaku favorites. Favorites stay in `chrome.storage.local`; they are neither uploaded nor synchronized between devices. Equal normalized text is stored once globally while retaining its platform and room origins. The launcher focuses the current room by default; **Other rooms** and **All** first show room groups, then reveal their messages when expanded.
+This release adds the first version of danmaku favorites. Favorites stay in `chrome.storage.local`; they are neither uploaded nor synchronized between devices. Equal normalized text is stored once globally while retaining its platform and room origins. The launcher focuses the current room by default; **Other rooms** and **All** first show a room list, then open a separate message picker after a room is selected.
 
 The first version accepts ordinary text, Unicode emoji, and regular punctuation only. Bilibili image emotes, Douyin platform-image emoji, stickers, and other rich assets are explicitly rejected instead of being downgraded to alt text.
 
-Short-press `Alt + Q` in a live room to open the fixed panel, where search, send-count/collection-time sorting, number keys `1–9` for visible expanded messages, add-to-room, and delete are available. Hold `Alt + Q` to open a cursor-centered radial menu: current-room favorites send directly on release, while **Other favorites** and **More** open the corresponding grouped list. In native fullscreen the launcher mounts inside `document.fullscreenElement`.
+Short-press `Alt + Q` in a live room to open the fixed panel, where search, send-count/collection-time sorting, number keys `1–9` for the current message page, add-to-room, and delete are available. Hold `Alt + Q` to open a cursor-centered radial menu with circular, icon-free choices: current-room favorites send directly on release, while **Other favorites** and **More** open the corresponding room list. In native fullscreen the launcher mounts inside `document.fullscreenElement`.
 
 ### Douyin DOM takeover
 
@@ -269,6 +271,8 @@ npm run build
 Use the toolbar popup to enable or disable the extension, toggle individual platforms, and control the `Alt + click` fallback.
 
 Click **Favorite** in a danmaku action bar to store it. Short-press `Alt + Q` for the current-room list; search, number-key sending, other-room browsing, add-to-room, and deletion are available there. Hold `Alt + Q` for about 0.18 seconds to open the cursor-centered radial menu, point to an item, and release to send; move back to the center or press `Esc` to cancel.
+
+The side-chat action capsule is disabled by default for Huya and Bilibili. Enable each platform independently under **Platform details → Side-chat danmaku capsule**. The capsule contains **+1**, **Reply**, and **Favorite**; these switches affect side-chat messages only, while on-video danmaku continues to follow the global action settings.
 
 For Douyin diagnostics, press `Ctrl + Alt + D` in a live room. Startup, Canvas instances, DOM-takeover state, active-node counts, fallback reasons, and recent events are written to DevTools with the `[Danmaku Echo]` prefix.
 

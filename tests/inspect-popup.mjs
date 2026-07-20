@@ -65,7 +65,13 @@ const evaluation = await send("Runtime.evaluate", {
     vueComponentCount: document.querySelectorAll(
       ".setting-row,.platform-row,.color-field"
     ).length,
-    actionSwitches: ["action-plus-one", "action-reply", "action-favorite"].map((id) => ({
+    actionSwitches: [
+      "action-plus-one",
+      "action-reply",
+      "action-favorite",
+      "side-chat-capsule-bilibili",
+      "side-chat-capsule-huya"
+    ].map((id) => ({
       id,
       present: Boolean(document.getElementById(id)),
       checked: Boolean(document.getElementById(id)?.checked)
@@ -79,15 +85,27 @@ const evaluation = await send("Runtime.evaluate", {
 const saveRoundTrip = await send("Runtime.evaluate", {
   expression: `(async () => {
     const input = document.getElementById("action-reply");
+    const sideChatInput = document.getElementById("side-chat-capsule-bilibili");
+    const originalSideChatValue = sideChatInput.checked;
     input.checked = false;
     input.dispatchEvent(new Event("change", { bubbles: true }));
+    sideChatInput.checked = !originalSideChatValue;
+    sideChatInput.dispatchEvent(new Event("change", { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 250));
     const saved = await chrome.storage.sync.get(null);
     const persisted = saved.actions?.reply === false;
+    const sideChatPersisted = saved.sideChatCapsule?.bilibili === !originalSideChatValue;
     input.checked = true;
     input.dispatchEvent(new Event("change", { bubbles: true }));
+    sideChatInput.checked = originalSideChatValue;
+    sideChatInput.dispatchEvent(new Event("change", { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 100));
-    return { persisted, restored: input.checked === true };
+    return {
+      persisted,
+      restored: input.checked === true,
+      sideChatPersisted,
+      sideChatRestored: sideChatInput.checked === originalSideChatValue
+    };
   })()`,
   returnByValue: true,
   awaitPromise: true
@@ -101,6 +119,8 @@ if (!value.appChildren
     || value.colorFieldCount !== 30
     || !roundTripValue.persisted
     || !roundTripValue.restored
+    || !roundTripValue.sideChatPersisted
+    || !roundTripValue.sideChatRestored
     || events.some((event) => event.method === "Runtime.exceptionThrown")) {
   process.exitCode = 1;
 }

@@ -56,6 +56,10 @@ export const DEFAULT_SETTINGS: ExtensionSettings = Object.freeze({
     bilibili: true,
     douyin: true
   }),
+  sideChatCapsule: Object.freeze({
+    huya: false,
+    bilibili: false
+  }),
   colors: Object.freeze({
     huya: Object.freeze(emptyColorSettings()),
     bilibili: Object.freeze(emptyColorSettings()),
@@ -162,6 +166,11 @@ export function mergeSettings(saved?: unknown): ExtensionSettings {
   const value = isRecord(saved) ? saved : {};
   const savedPlatforms = isRecord(value.platforms) ? value.platforms : {};
   const savedActions = isRecord(value.actions) ? value.actions : {};
+  const savedSideChatCapsule = isRecord(value.sideChatCapsule)
+    ? value.sideChatCapsule
+    : isRecord(value.sideChatPlusOne)
+      ? value.sideChatPlusOne
+      : {};
   const savedColors = isRecord(value.colors) ? value.colors : {};
   return {
     enabled: typeof value.enabled === "boolean" ? value.enabled : DEFAULT_SETTINGS.enabled,
@@ -175,6 +184,14 @@ export function mergeSettings(saved?: unknown): ExtensionSettings {
       huya: typeof savedPlatforms.huya === "boolean" ? savedPlatforms.huya : true,
       bilibili: typeof savedPlatforms.bilibili === "boolean" ? savedPlatforms.bilibili : true,
       douyin: typeof savedPlatforms.douyin === "boolean" ? savedPlatforms.douyin : true
+    },
+    sideChatCapsule: {
+      huya: typeof savedSideChatCapsule.huya === "boolean"
+        ? savedSideChatCapsule.huya
+        : DEFAULT_SETTINGS.sideChatCapsule.huya,
+      bilibili: typeof savedSideChatCapsule.bilibili === "boolean"
+        ? savedSideChatCapsule.bilibili
+        : DEFAULT_SETTINGS.sideChatCapsule.bilibili
     },
     colors: {
       huya: mergeColorSettings(savedColors.huya),

@@ -55,6 +55,10 @@ test("merges partial settings with safe defaults", () => {
     favorite: true
   });
   assert.deepEqual(JSON.parse(JSON.stringify(settings.platforms)), { huya: true, bilibili: true, douyin: false });
+  assert.deepEqual(JSON.parse(JSON.stringify(settings.sideChatCapsule)), {
+    huya: false,
+    bilibili: false
+  });
   assert.deepEqual(JSON.parse(JSON.stringify(settings.colors.huya)), Object.fromEntries(
     shared.COLOR_SETTING_KEYS.map((key) => [key, ""])
   ));
@@ -68,6 +72,26 @@ test("merges independent action visibility settings", () => {
     plusOne: false,
     reply: true,
     favorite: false
+  });
+});
+
+test("keeps Huya and Bilibili side-chat capsules disabled by default and independent", () => {
+  const settings = shared.mergeSettings({
+    sideChatCapsule: { huya: true, bilibili: "invalid" }
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(settings.sideChatCapsule)), {
+    huya: true,
+    bilibili: false
+  });
+});
+
+test("migrates the temporary side-chat plus-one setting to the full capsule", () => {
+  const settings = shared.mergeSettings({
+    sideChatPlusOne: { huya: false, bilibili: true }
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(settings.sideChatCapsule)), {
+    huya: false,
+    bilibili: true
   });
 });
 

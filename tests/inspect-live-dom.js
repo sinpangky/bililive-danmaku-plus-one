@@ -1187,6 +1187,14 @@ async function inspect() {
       const fullscreenMode = new URL(location.href).searchParams.get("fullscreen") === "1";
       const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
       const nextPaint = () => new Promise((resolve) => requestAnimationFrame(resolve));
+      const previousSideChatSettings = await chrome.storage.sync.get("sideChatCapsule");
+      await chrome.storage.sync.set({
+        sideChatCapsule: {
+          ...(previousSideChatSettings.sideChatCapsule || {}),
+          [platform]: true
+        }
+      });
+      await delay(80);
       const root = document.createElement("section");
       root.className = platform === "bilibili" ? "chat-history-list" : "room-chat-messages";
       Object.assign(root.style, {
@@ -1536,6 +1544,9 @@ async function inspect() {
       if (panel) panel.remove();
       root.remove();
       outside.remove();
+      await chrome.storage.sync.set({
+        sideChatCapsule: previousSideChatSettings.sideChatCapsule || {}
+      });
       return {
         platform,
         messagePlusOneAvailable,

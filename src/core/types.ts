@@ -20,6 +20,11 @@ interface PlatformSettings {
   huya: boolean;
 }
 
+export interface SideChatCapsuleSettings {
+  bilibili: boolean;
+  huya: boolean;
+}
+
 export interface ActionSettings {
   favorite: boolean;
   plusOne: boolean;
@@ -32,6 +37,7 @@ export interface ExtensionSettings {
   colors: Record<PlatformId, ColorSettings>;
   enabled: boolean;
   platforms: PlatformSettings;
+  sideChatCapsule: SideChatCapsuleSettings;
 }
 
 export interface SharedExtensionApi {

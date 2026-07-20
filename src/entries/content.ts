@@ -1,5 +1,6 @@
 // @ts-nocheck -- legacy platform adapter; types are being introduced module by module.
 import { LIVE_PLATFORM_CONFIG, isSupportedContentPlatform } from "../platforms/live/config";
+import { visibleActionsForSurface } from "../platforms/live/action-visibility";
 import {
   BILIBILI_CHAT_ACTION_SURFACES,
   BILIBILI_CHAT_ACTION_TEXT,
@@ -44,6 +45,10 @@ import { createContentOverlay } from "../ui/content-overlay";
     "[contenteditable]:not([contenteditable='false'])",
     "[role='textbox']"
   ].join(",");
+  // Frozen overlay copies are inserted back into the live document. Never
+  // allow an advertisement/player subtree to bring an autoplaying media
+  // element or embedded document with it.
+  const ACTIVE_MEDIA_SELECTOR = "video, audio, iframe, object, embed";
   const OVERLAY_HOVER_PADDING = 14;
   const OVERLAY_LEAVE_DELAY = 160;
   const state = {
@@ -449,11 +454,13 @@ import { createContentOverlay } from "../ui/content-overlay";
 
     if (isBilibiliQuickInputRegion(element)
       || matchesAny(element, config.videoRoots)
+      || element.matches(ACTIVE_MEDIA_SELECTOR)
       || element.matches("video, canvas, button, input, textarea, [role='button'], [contenteditable='true']")) {
       return false;
     }
 
-    if (element.querySelector(EDITABLE_CONTROL_SELECTOR)) {
+    if (element.querySelector(EDITABLE_CONTROL_SELECTOR)
+      || element.querySelector(ACTIVE_MEDIA_SELECTOR)) {
       return false;
     }
 
@@ -961,7 +968,11 @@ import { createContentOverlay } from "../ui/content-overlay";
     event.preventDefault();
     event.stopPropagation();
     cancelHide();
-    if (!state.settings.actions.favorite || !state.message || !state.favoritesRuntime) {
+    if (!visibleActionsForSurface(
+      state.settings,
+      platformId,
+      state.candidateKind
+    ).favorite || !state.message || !state.favoritesRuntime) {
       return;
     }
     const hasRichAssets = Boolean(state.richPayload && state.richPayload.assets.length);
@@ -969,7 +980,13 @@ import { createContentOverlay } from "../ui/content-overlay";
   }
 
   function renderActionBar() {
-    if (state.ui) state.ui.setActions(state.settings.actions);
+    if (state.ui) {
+      state.ui.setActions(visibleActionsForSurface(
+        state.settings,
+        platformId,
+        state.candidateKind
+      ));
+    }
   }
 
   function freezeOverlayCandidate(candidate) {
@@ -1001,6 +1018,11 @@ import { createContentOverlay } from "../ui/content-overlay";
 
     clone.removeAttribute("id");
     clone.querySelectorAll("[id]").forEach((element) => element.removeAttribute("id"));
+    // A Huya pre-roll advertisement can expose text-bearing wrappers whose
+    // class names overlap broad danmaku selectors. If one slips through a DOM
+    // change between validation and cloning, stripping active media here keeps
+    // the visual freeze inert and prevents duplicate advertisement audio.
+    clone.querySelectorAll(ACTIVE_MEDIA_SELECTOR).forEach((media) => media.remove());
     clone.classList.add("bcp-one-frozen");
     clone.dataset.bcpOneOwned = "true";
 
@@ -1100,11 +1122,16 @@ import { createContentOverlay } from "../ui/content-overlay";
     state.actionBar.style.top = `${Math.max(8, Math.min(top, innerHeight - buttonRect.height - 8))}px`;
   }
 
-  function selectCandidate(candidate, kind) {
+  function selectCandidate(candidate, kind, allowNoVisibleActions) {
     if (kind === "overlay" && !isOverlayMessageElement(candidate)) {
       return false;
     }
     if (kind !== "overlay" && isBilibiliChatAdvertisement(candidate)) {
+      return false;
+    }
+    const candidateKind = kind || "chat";
+    const candidateActions = visibleActionsForSurface(state.settings, platformId, candidateKind);
+    if (!allowNoVisibleActions && !Object.values(candidateActions).some(Boolean)) {
       return false;
     }
 
@@ -1117,7 +1144,7 @@ import { createContentOverlay } from "../ui/content-overlay";
     cancelHide();
     clearSelection();
     state.candidate = candidate;
-    state.candidateKind = kind || "chat";
+    state.candidateKind = candidateKind;
     state.message = message;
     state.sender = senderFromCandidate(candidate, message, state.candidateKind);
     state.richPayload = richPayload;
@@ -1430,7 +1457,11 @@ import { createContentOverlay } from "../ui/content-overlay";
   }
 
   async function prepareReply() {
-    if (!state.settings.actions.reply || !state.candidate) {
+    if (!visibleActionsForSurface(
+      state.settings,
+      platformId,
+      state.candidateKind
+    ).reply || !state.candidate) {
       return;
     }
     const sender = state.sender
@@ -2026,7 +2057,11 @@ import { createContentOverlay } from "../ui/content-overlay";
   function onPlusOneClick(event) {
     event.preventDefault();
     event.stopPropagation();
-    if (!state.settings.actions.plusOne) {
+    if (!visibleActionsForSurface(
+      state.settings,
+      platformId,
+      state.candidateKind
+    ).plusOne) {
       return;
     }
     const message = state.message;
@@ -2209,7 +2244,7 @@ import { createContentOverlay } from "../ui/content-overlay";
       const overlay = findOverlayAtPoint(event.clientX, event.clientY);
       found = overlay ? { element: overlay, kind: "overlay" } : null;
     }
-    if (!found || !selectCandidate(found.element, found.kind)) {
+    if (!found || !selectCandidate(found.element, found.kind, true)) {
       return;
     }
 
