@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import vm from "node:vm";
@@ -65,10 +66,37 @@ trackContext.globalThis = trackContext;
 vm.runInNewContext(trackSource, trackContext, { filename: "douyin-track-model.js" });
 const track = trackContext.DanmakuEchoDouyinTrackModel;
 
+test("clips the DOM barrage renderer to the native Canvas viewport", () => {
+  const stylesheet = readFileSync(
+    resolve(root, "src", "styles", "douyin-content.css"),
+    "utf8"
+  );
+  const pageHook = readFileSync(
+    resolve(root, "src", "entries", "douyin-page-hook.ts"),
+    "utf8"
+  );
+  const layerRule = stylesheet.match(/\.bcp-douyin-dom-layer\s*\{([\s\S]*?)\}/)?.[1] || "";
+
+  assert.match(layerRule, /overflow:\s*hidden\s*;/);
+  assert.doesNotMatch(layerRule, /overflow:\s*visible\s*;/);
+  assert.match(pageHook, /layer\.style\.overflow\s*=\s*"hidden"\s*;/);
+});
+
 test("normalizes text and rejects non-message labels", () => {
   assert.equal(model.normalizeText("  你好\u200B\n 世界  "), "你好 世界");
   assert.equal(model.plausibleText("主播加油"), true);
   assert.equal(model.plausibleText("退出全屏"), false);
+});
+
+test("preserves zero-width joiners inside Douyin Emoji", () => {
+  assert.equal(model.normalizeText(" 👩🏽‍💻 👨‍👩‍👧‍👦 "), "👩🏽‍💻 👨‍👩‍👧‍👦");
+});
+
+test("keeps image-only native Douyin Emoji interactive", () => {
+  assert.equal(model.barrageInteractionText("", 1), "表情");
+  assert.equal(model.barrageInteractionText("  ", 2), "表情");
+  assert.equal(model.barrageInteractionText("文字弹幕", 1), "文字弹幕");
+  assert.equal(model.barrageInteractionText("", 0), "");
 });
 
 test("expands CSS-like box shorthand safely", () => {
@@ -97,6 +125,25 @@ test("serializes barrage content with a bounded, safe payload", () => {
       { type: "text", text: "弹幕", fontSize: 24 },
       { type: "image", src: "https://example.com/emoji.png", isInline: true }
     ]
+  }]);
+});
+
+test("preserves stable native Emoji resource hints from the renderer", () => {
+  const serialized = model.serializeBarrage({
+    content: [{
+      type: "image",
+      src: "https://signed.example.com/emoji.png?signature=temporary",
+      emojiId: "emoji-42",
+      emojiName: "wave",
+      resource: { id: "resource-9" },
+      unrelated: { secret: "discard" }
+    }]
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(serialized)), [{
+    type: "image",
+    src: "https://signed.example.com/emoji.png?signature=temporary",
+    assetHints: ["emoji-42", "wave", "resource-9"]
   }]);
 });
 

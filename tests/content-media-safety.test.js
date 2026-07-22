@@ -10,7 +10,7 @@ const contentSource = fs.readFileSync(
   "utf8"
 );
 
-test("rejects media-bearing overlay candidates and sanitizes frozen clones", () => {
+test("rejects media-bearing overlay candidates and builds inert frozen snapshots", () => {
   assert.match(
     contentSource,
     /const ACTIVE_MEDIA_SELECTOR = "video, audio, iframe, object, embed";/
@@ -21,10 +21,26 @@ test("rejects media-bearing overlay candidates and sanitizes frozen clones", () 
   );
   assert.match(
     contentSource,
-    /element\.querySelector\(ACTIVE_MEDIA_SELECTOR\)/
+    /function containsActiveMediaDeep\(element\)/
   );
   assert.match(
     contentSource,
-    /clone\.querySelectorAll\(ACTIVE_MEDIA_SELECTOR\)\.forEach\(\(media\) => media\.remove\(\)\);/
+    /descendant\.shadowRoot/
   );
+  assert.match(
+    contentSource,
+    /containsActiveMediaDeep\(element\)/
+  );
+  const freezeOverlaySource = contentSource.match(
+    /function freezeOverlayCandidate\(candidate\) \{[\s\S]*?\n  \}/
+  );
+  assert.ok(freezeOverlaySource, "freezeOverlayCandidate should exist");
+  assert.match(
+    freezeOverlaySource[0],
+    /createInertOverlaySnapshot\(candidate\)/
+  );
+  assert.doesNotMatch(freezeOverlaySource[0], /cloneNode/);
+  assert.doesNotMatch(contentSource, /\.cloneNode\(/);
+  assert.match(contentSource, /document\.createElement\("span"\)/);
+  assert.match(contentSource, /INERT_SNAPSHOT_SKIP_SELECTOR/);
 });

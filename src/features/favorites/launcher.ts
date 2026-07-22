@@ -8,6 +8,7 @@ import { groupedFavorites, rankedFavorites } from "./ranking";
 import {
   FAVORITES_STORAGE_KEY,
   type FavoriteDisplayItem,
+  type FavoritePayload,
   type FavoriteRoomGroup,
   type FavoriteSort,
   type FavoriteView,
@@ -45,13 +46,13 @@ export interface FavoritesLauncherState {
 interface FavoritesRuntimeOptions {
   enabled(): boolean;
   platform: PlatformId;
-  sendText(text: string): Promise<boolean>;
+  sendFavorite(payload: FavoritePayload): Promise<boolean>;
   showToast(message: string, tone?: string): void;
 }
 
 export interface FavoritesRuntime {
   destroy(): void;
-  favoriteText(text: string, hasRichAssets?: boolean): Promise<boolean | null>;
+  favoriteText(text: string, payload?: unknown): Promise<boolean | null>;
   openPanel(view?: FavoriteView): void;
 }
 
@@ -370,7 +371,7 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
     portal.dataset.bcpFavoritesLastSendResult = "pending";
     close();
     const currentRoom = room();
-    const success = await options.sendText(item.text);
+    const success = await options.sendFavorite(item.payload);
     portal.dataset.bcpFavoritesLastSendResult = success ? "success" : "failed";
     if (success) {
       await repository.recordSent(id, currentRoom);
@@ -523,14 +524,10 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
         delete runtimeScope.__danmakuEchoFavoritesRuntime;
       }
     },
-    async favoriteText(text: string, hasRichAssets = false): Promise<boolean | null> {
+    async favoriteText(text: string, payload?: unknown): Promise<boolean | null> {
       if (destroyed || !ownsUi() || !extensionContextAvailable(extensionId)) return null;
-      if (hasRichAssets) {
-        options.showToast("第一版仅支持收藏普通文字和 Unicode Emoji", "warning");
-        return false;
-      }
       try {
-        const result = await repository.favorite(text, room());
+        const result = await repository.favorite(text, room(), payload);
         options.showToast(result.added ? "已收藏到本房" : "这条弹幕已经收藏", "success");
         return true;
       } catch (error) {

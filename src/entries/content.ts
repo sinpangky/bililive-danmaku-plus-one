@@ -1,6 +1,7 @@
 // @ts-nocheck -- legacy platform adapter; types are being introduced module by module.
 import { LIVE_PLATFORM_CONFIG, isSupportedContentPlatform } from "../platforms/live/config";
 import { visibleActionsForSurface } from "../platforms/live/action-visibility";
+import { unicodeEmojiFallbackText } from "../platforms/live/emoji-fallback";
 import {
   BILIBILI_CHAT_ACTION_SURFACES,
   BILIBILI_CHAT_ACTION_TEXT,
@@ -49,6 +50,88 @@ import { createContentOverlay } from "../ui/content-overlay";
   // allow an advertisement/player subtree to bring an autoplaying media
   // element or embedded document with it.
   const ACTIVE_MEDIA_SELECTOR = "video, audio, iframe, object, embed";
+  const INERT_SNAPSHOT_SKIP_SELECTOR = [
+    ACTIVE_MEDIA_SELECTOR,
+    "script",
+    "style",
+    "link",
+    "meta",
+    "canvas",
+    "button",
+    "input",
+    "textarea",
+    "select",
+    "option",
+    "[contenteditable]:not([contenteditable='false'])",
+    "[data-bcp-one-owned]"
+  ].join(",");
+  const INERT_SNAPSHOT_STYLE_PROPERTIES = [
+    "display",
+    "box-sizing",
+    "font",
+    "font-family",
+    "font-size",
+    "font-style",
+    "font-weight",
+    "line-height",
+    "letter-spacing",
+    "text-align",
+    "text-shadow",
+    "-webkit-text-stroke",
+    "color",
+    "background",
+    "border",
+    "border-radius",
+    "padding",
+    "margin",
+    "opacity",
+    "filter",
+    "white-space",
+    "vertical-align",
+    "width",
+    "height",
+    "max-width",
+    "max-height"
+  ];
+  const INERT_SNAPSHOT_NODE_LIMIT = 96;
+  const HUYA_EMOJI_TOGGLE_SELECTORS = [
+    "[data-testid*='emoji' i]",
+    "[data-e2e*='emoji' i]",
+    "[aria-label*='表情']",
+    "[title*='表情']",
+    "[class*='emoji-btn' i]",
+    "[class*='emoticon-btn' i]",
+    "[class*='emotion-btn' i]",
+    "[class*='face-btn' i]",
+    "[class*='faceBtn']",
+    "button[class*='emoji' i]",
+    "button[class*='face' i]",
+    "[role='button'][class*='face' i]"
+  ];
+  const HUYA_EMOJI_SURFACE_SELECTORS = [
+    "[data-testid*='emoji-panel' i]",
+    "[data-e2e*='emoji-panel' i]",
+    "[class*='emoji-panel' i]",
+    "[class*='emoticon-panel' i]",
+    "[class*='emotion-panel' i]",
+    "[class*='face-panel' i]",
+    "[class*='facePanel']",
+    "[class*='emoji-list' i]",
+    "[class*='emoticon-list' i]",
+    "[class*='face-list' i]",
+    "[class*='faceList']"
+  ];
+  const PLATFORM_EMOJI_ITEM_SELECTORS = [
+    "[data-emoji]",
+    "[data-emoji-name]",
+    "[data-emoticon]",
+    "[data-emoticon-id]",
+    "[class*='emoji-item' i]",
+    "[class*='emojiItem']",
+    "[class*='emoticon-item' i]",
+    "[class*='face-item' i]",
+    "[class*='faceItem']"
+  ];
   const OVERLAY_HOVER_PADDING = 14;
   const OVERLAY_LEAVE_DELAY = 160;
   const state = {
@@ -183,6 +266,137 @@ import { createContentOverlay } from "../ui/content-overlay";
         return false;
       }
     });
+  }
+
+  function containsActiveMediaDeep(element) {
+    if (!(element instanceof Element)) {
+      return false;
+    }
+
+    const roots = [element];
+    const visited = new Set();
+    let inspectedElements = 0;
+    while (roots.length && visited.size < 24 && inspectedElements < 500) {
+      const root = roots.shift();
+      if (!root || visited.has(root)) continue;
+      visited.add(root);
+
+      if (root instanceof Element && root.matches(ACTIVE_MEDIA_SELECTOR)) {
+        return true;
+      }
+      try {
+        if (root.querySelector(ACTIVE_MEDIA_SELECTOR)) {
+          return true;
+        }
+        for (const descendant of root.querySelectorAll("*")) {
+          inspectedElements += 1;
+          if (descendant.shadowRoot && !visited.has(descendant.shadowRoot)) {
+            roots.push(descendant.shadowRoot);
+          }
+          if (inspectedElements >= 500) break;
+        }
+      } catch (_error) {
+        // A detached or unusual site-owned root should not break hover logic.
+      }
+    }
+    return false;
+  }
+
+  function serializedTextFromElement(root, options) {
+    const removals = options && Array.isArray(options.removals) ? options.removals : [];
+    const imageTokens = Boolean(options && options.imageTokens);
+    const rejectRoot = Boolean(options && options.rejectRoot);
+    const pieces = [];
+
+    const visit = (node, isRoot) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        pieces.push(node.textContent || "");
+        return;
+      }
+      if (!(node instanceof Element)) {
+        return;
+      }
+      if ((!isRoot || rejectRoot) && matchesAny(node, removals)) {
+        return;
+      }
+      if (node instanceof HTMLImageElement) {
+        if (imageTokens) {
+          const token = emojiTokenFromImage(node);
+          if (token) pieces.push(` ${token} `);
+        }
+        return;
+      }
+      if (node.tagName === "BR") {
+        pieces.push(" ");
+        return;
+      }
+      for (const child of node.childNodes) {
+        visit(child, false);
+      }
+    };
+
+    visit(root, true);
+    return shared.parseMessageText(pieces.join(""), config.maxLength);
+  }
+
+  function copyInertPresentation(source, target) {
+    const computed = getComputedStyle(source);
+    for (const property of INERT_SNAPSHOT_STYLE_PROPERTIES) {
+      const value = computed.getPropertyValue(property);
+      if (value) target.style.setProperty(property, value, "important");
+    }
+    target.style.setProperty("animation", "none", "important");
+    target.style.setProperty("transition", "none", "important");
+    target.style.setProperty("pointer-events", "none", "important");
+  }
+
+  function appendInertSnapshotChildren(source, target, budget, depth) {
+    if (depth > 10 || budget.count >= INERT_SNAPSHOT_NODE_LIMIT) {
+      return;
+    }
+
+    for (const child of source.childNodes) {
+      if (budget.count >= INERT_SNAPSHOT_NODE_LIMIT) break;
+      if (child.nodeType === Node.TEXT_NODE) {
+        target.appendChild(document.createTextNode(child.textContent || ""));
+        budget.count += 1;
+        continue;
+      }
+      if (!(child instanceof Element) || child.matches(INERT_SNAPSHOT_SKIP_SELECTOR)) {
+        continue;
+      }
+
+      let inertChild = null;
+      if (child instanceof HTMLImageElement) {
+        inertChild = document.createElement("img");
+        const sourceUrl = child.currentSrc || child.src;
+        if (sourceUrl) inertChild.src = sourceUrl;
+        inertChild.alt = child.alt || "";
+        inertChild.decoding = "async";
+        inertChild.draggable = false;
+      } else if (child.tagName === "BR") {
+        inertChild = document.createElement("br");
+      } else {
+        // Always use a built-in inert element. Copying the site's tag name can
+        // invoke a custom-element constructor and initialize another player.
+        inertChild = document.createElement("span");
+      }
+
+      copyInertPresentation(child, inertChild);
+      target.appendChild(inertChild);
+      budget.count += 1;
+      if (!(child instanceof HTMLImageElement) && child.tagName !== "BR") {
+        appendInertSnapshotChildren(child, inertChild, budget, depth + 1);
+      }
+    }
+  }
+
+  function createInertOverlaySnapshot(candidate) {
+    const snapshot = document.createElement("span");
+    snapshot.setAttribute("aria-hidden", "true");
+    copyInertPresentation(candidate, snapshot);
+    appendInertSnapshotChildren(candidate, snapshot, { count: 0 }, 0);
+    return snapshot;
   }
 
   function closestFromPath(path, selectors) {
@@ -460,7 +674,7 @@ import { createContentOverlay } from "../ui/content-overlay";
     }
 
     if (element.querySelector(EDITABLE_CONTROL_SELECTOR)
-      || element.querySelector(ACTIVE_MEDIA_SELECTOR)) {
+      || containsActiveMediaDeep(element)) {
       return false;
     }
 
@@ -687,6 +901,41 @@ import { createContentOverlay } from "../ui/content-overlay";
     };
   }
 
+  function messageEmojiImages(candidate, messageElement) {
+    const roots = candidate === messageElement ? [messageElement] : [messageElement, candidate];
+    const images = [];
+    const seen = new Set();
+    roots.forEach((root) => {
+      if (root instanceof HTMLImageElement && !seen.has(root)) {
+        seen.add(root);
+        images.push(root);
+      }
+      root.querySelectorAll("img").forEach((image) => {
+        if (!seen.has(image)) {
+          seen.add(image);
+          images.push(image);
+        }
+      });
+    });
+    return images.filter((image) => {
+      if (closestMatching(image, config.userNames)) return false;
+      let marker = "";
+      let current = image;
+      for (let depth = 0; current && depth < 4 && current !== candidate; depth += 1) {
+        marker += ` ${elementMarker(current)}`;
+        current = current.parentElement;
+      }
+      const source = [image.currentSrc, image.getAttribute("src"), image.getAttribute("data-src")]
+        .filter(Boolean).join(" ");
+      const token = emojiTokenFromImage(image);
+      const positive = Boolean(token)
+        || /(?:emoji|emote|emoticon|sticker|emotion|face|表情)/i.test(`${marker} ${source}`);
+      const decorative = /(?:avatar|badge|medal|level|grade|rank|fansclub|fan-club|guard|noble)/i
+        .test(marker);
+      return !decorative && (messageElement.contains(image) || positive);
+    });
+  }
+
   function messageElementFromCandidate(candidate) {
     if (!(candidate instanceof Element)) {
       return null;
@@ -707,27 +956,60 @@ import { createContentOverlay } from "../ui/content-overlay";
   function richPayloadFromCandidate(candidate) {
     const element = messageElementFromCandidate(candidate);
     if (!element) {
-      return { text: "", plainText: "", assets: [] };
+      return { text: "", plainText: "", assets: [], parts: [] };
     }
-    const assets = Array.from(element.querySelectorAll("img"))
-      .filter((image) => !closestMatching(image, config.userNames)
-        && !closestMatching(image, [
-          "[class*='avatar' i]",
-          "[class*='badge' i]",
-          "[class*='medal' i]"
-        ]))
+    const assets = messageEmojiImages(candidate, element)
       .map(assetDescriptorFromElement)
       .filter(Boolean)
       .slice(0, 8);
-    const plainClone = element.cloneNode(true);
-    plainClone.querySelectorAll("img,button,svg,[aria-hidden='true'],[data-bcp-one-owned]")
-      .forEach((item) => item.remove());
-    const plainText = shared.parseMessageText(plainClone.textContent, config.maxLength);
+    const plainText = serializedTextFromElement(element, {
+      imageTokens: false,
+      rejectRoot: false,
+      removals: ["img", "button", "svg", "[aria-hidden='true']", "[data-bcp-one-owned]"]
+    });
     let text = richTextFromElement(element);
     if (!shared.isPlausibleMessage(text, config.maxLength) && assets.length) {
       text = assets.map((asset) => asset.token).filter(Boolean).join(" ") || "图片表情";
     }
-    return { text, plainText, assets };
+    return { text, plainText, assets, parts: richPartsFromElement(element) };
+  }
+
+  function richPartsFromElement(element) {
+    const parts = [];
+    const appendText = (value) => {
+      const text = String(value || "");
+      if (!text) return;
+      const previous = parts[parts.length - 1];
+      if (previous && previous.type === "text") previous.text += text;
+      else parts.push({ type: "text", text });
+    };
+    const visit = (node) => {
+      if (!node || parts.length >= 40) return;
+      if (node.nodeType === Node.TEXT_NODE) {
+        appendText(node.textContent || "");
+        return;
+      }
+      if (!(node instanceof Element)) return;
+      if (matchesAny(node, [
+        "button",
+        "svg",
+        "[aria-hidden='true']",
+        "[data-bcp-one-owned]",
+        ...config.userNames
+      ])) return;
+      if (node instanceof HTMLImageElement) {
+        const asset = assetDescriptorFromElement(node);
+        if (asset) parts.push({ type: "emoji", asset });
+        return;
+      }
+      if (node.tagName === "BR") {
+        appendText(" ");
+        return;
+      }
+      Array.from(node.childNodes).forEach(visit);
+    };
+    Array.from(element.childNodes).forEach(visit);
+    return parts;
   }
 
   function assetMatchScore(element, asset) {
@@ -746,16 +1028,6 @@ import { createContentOverlay } from "../ui/content-overlay";
   }
 
   function richTextFromElement(element) {
-    const clone = element.cloneNode(true);
-    clone.querySelectorAll("img").forEach((image) => {
-      const token = emojiTokenFromImage(image);
-      if (token) {
-        image.replaceWith(document.createTextNode(token));
-      } else {
-        image.remove();
-      }
-    });
-
     const removals = [
       "button",
       "svg",
@@ -763,17 +1035,11 @@ import { createContentOverlay } from "../ui/content-overlay";
       "[data-bcp-one-owned]",
       ...config.userNames
     ];
-    for (const selector of removals) {
-      try {
-        if (clone.matches && clone.matches(selector)) {
-          return "";
-        }
-        clone.querySelectorAll(selector).forEach((item) => item.remove());
-      } catch (_error) {
-        // Ignore selectors unsupported by an older Chromium build.
-      }
-    }
-    return shared.parseMessageText(clone.textContent, config.maxLength);
+    return serializedTextFromElement(element, {
+      imageTokens: true,
+      rejectRoot: true,
+      removals
+    });
   }
 
   function richTextFromCandidate(candidate) {
@@ -800,7 +1066,6 @@ import { createContentOverlay } from "../ui/content-overlay";
       return specific;
     }
 
-    const clone = candidate.cloneNode(true);
     const removals = [
       "button",
       "svg",
@@ -810,15 +1075,11 @@ import { createContentOverlay } from "../ui/content-overlay";
       ...config.userNames
     ];
 
-    for (const selector of removals) {
-      try {
-        clone.querySelectorAll(selector).forEach((element) => element.remove());
-      } catch (_error) {
-        // Ignore selectors that are unsupported by an older browser.
-      }
-    }
-
-    return shared.parseMessageText(clone.textContent, config.maxLength);
+    return serializedTextFromElement(candidate, {
+      imageTokens: false,
+      rejectRoot: false,
+      removals
+    });
   }
 
   function senderFromElement(element) {
@@ -975,8 +1236,7 @@ import { createContentOverlay } from "../ui/content-overlay";
     ).favorite || !state.message || !state.favoritesRuntime) {
       return;
     }
-    const hasRichAssets = Boolean(state.richPayload && state.richPayload.assets.length);
-    void state.favoritesRuntime.favoriteText(state.message, hasRichAssets);
+    void state.favoritesRuntime.favoriteText(state.message, state.richPayload);
   }
 
   function renderActionBar() {
@@ -991,62 +1251,27 @@ import { createContentOverlay } from "../ui/content-overlay";
 
   function freezeOverlayCandidate(candidate) {
     const rect = candidate.getBoundingClientRect();
-    const computed = getComputedStyle(candidate);
-    const clone = candidate.cloneNode(true);
-    const copiedProperties = [
-      "display",
-      "box-sizing",
-      "font",
-      "font-family",
-      "font-size",
-      "font-style",
-      "font-weight",
-      "line-height",
-      "letter-spacing",
-      "text-align",
-      "text-shadow",
-      "-webkit-text-stroke",
-      "color",
-      "background",
-      "border",
-      "border-radius",
-      "padding",
-      "opacity",
-      "filter",
-      "white-space"
-    ];
+    // Never deep-clone live-site DOM here. Huya advertisements can contain
+    // custom elements or clonable shadow roots that initialize a new media
+    // pipeline during a deep DOM clone, before media descendants can be removed.
+    const snapshot = createInertOverlaySnapshot(candidate);
+    snapshot.classList.add("bcp-one-frozen");
+    snapshot.dataset.bcpOneOwned = "true";
 
-    clone.removeAttribute("id");
-    clone.querySelectorAll("[id]").forEach((element) => element.removeAttribute("id"));
-    // A Huya pre-roll advertisement can expose text-bearing wrappers whose
-    // class names overlap broad danmaku selectors. If one slips through a DOM
-    // change between validation and cloning, stripping active media here keeps
-    // the visual freeze inert and prevents duplicate advertisement audio.
-    clone.querySelectorAll(ACTIVE_MEDIA_SELECTOR).forEach((media) => media.remove());
-    clone.classList.add("bcp-one-frozen");
-    clone.dataset.bcpOneOwned = "true";
-
-    for (const property of copiedProperties) {
-      const value = computed.getPropertyValue(property);
-      if (value) {
-        clone.style.setProperty(property, value, "important");
-      }
-    }
-
-    clone.style.setProperty("position", "fixed", "important");
-    clone.style.setProperty("left", `${rect.left}px`, "important");
-    clone.style.setProperty("top", `${rect.top}px`, "important");
-    clone.style.setProperty("right", "auto", "important");
-    clone.style.setProperty("bottom", "auto", "important");
-    clone.style.setProperty("width", `${rect.width}px`, "important");
-    clone.style.setProperty("height", `${rect.height}px`, "important");
-    clone.style.setProperty("margin", "0", "important");
-    clone.style.setProperty("transform", "none", "important");
-    clone.style.setProperty("animation", "none", "important");
-    clone.style.setProperty("transition", "none", "important");
-    clone.style.setProperty("visibility", "visible", "important");
-    clone.style.setProperty("pointer-events", "none", "important");
-    clone.style.setProperty("z-index", "2147483646", "important");
+    snapshot.style.setProperty("position", "fixed", "important");
+    snapshot.style.setProperty("left", `${rect.left}px`, "important");
+    snapshot.style.setProperty("top", `${rect.top}px`, "important");
+    snapshot.style.setProperty("right", "auto", "important");
+    snapshot.style.setProperty("bottom", "auto", "important");
+    snapshot.style.setProperty("width", `${rect.width}px`, "important");
+    snapshot.style.setProperty("height", `${rect.height}px`, "important");
+    snapshot.style.setProperty("margin", "0", "important");
+    snapshot.style.setProperty("transform", "none", "important");
+    snapshot.style.setProperty("animation", "none", "important");
+    snapshot.style.setProperty("transition", "none", "important");
+    snapshot.style.setProperty("visibility", "visible", "important");
+    snapshot.style.setProperty("pointer-events", "none", "important");
+    snapshot.style.setProperty("z-index", "2147483646", "important");
 
     state.originalVisibility = {
       value: candidate.style.getPropertyValue("visibility"),
@@ -1068,8 +1293,8 @@ import { createContentOverlay } from "../ui/content-overlay";
     }
 
     candidate.style.setProperty("visibility", "hidden", "important");
-    ensurePortal().appendChild(clone);
-    state.frozenClone = clone;
+    ensurePortal().appendChild(snapshot);
+    state.frozenClone = snapshot;
   }
 
   function unfreezeOverlayCandidate() {
@@ -1820,45 +2045,44 @@ import { createContentOverlay } from "../ui/content-overlay";
     }
   }
 
-  function bilibiliEmojiItemCandidates() {
+  function platformEmojiToggleSelectors() {
+    return platformId === "bilibili"
+      ? BILIBILI_EMOJI_TOGGLE_SELECTORS
+      : HUYA_EMOJI_TOGGLE_SELECTORS;
+  }
+
+  function platformEmojiSurfaceSelectors() {
+    return platformId === "bilibili"
+      ? BILIBILI_EMOJI_SURFACE_SELECTORS
+      : HUYA_EMOJI_SURFACE_SELECTORS;
+  }
+
+  function platformEmojiItemCandidates() {
     const results = [];
     const seen = new Set();
     const add = (element) => {
       if (!(element instanceof Element) || seen.has(element) || !isVisible(element)
-          || closestMatching(element, config.chatRoots) || isOwned(element)) {
+          || closestMatching(element, config.messages) || isOwned(element)) {
         return;
       }
       seen.add(element);
       results.push(element);
     };
-    queryAllDeep([
-      "[data-emoji]",
-      "[data-emoji-name]",
-      "[data-emoticon]",
-      "[data-emoticon-id]",
-      "[class*='emoji-item' i]",
-      "[class*='emojiItem']",
-      "[class*='emoticon-item' i]"
-    ]).forEach(add);
-    queryAllDeep(BILIBILI_EMOJI_SURFACE_SELECTORS).forEach((surface) => {
-      if (!isVisible(surface) || closestMatching(surface, config.chatRoots)) {
+    queryAllDeep(PLATFORM_EMOJI_ITEM_SELECTORS).forEach(add);
+    queryAllDeep(platformEmojiSurfaceSelectors()).forEach((surface) => {
+      if (!isVisible(surface) || closestMatching(surface, config.messages)) {
         return;
       }
-      surface.querySelectorAll("img,[data-emoji],[data-emoticon],[role='button'],button")
+      surface.querySelectorAll("img,[data-emoji],[data-emoticon],[role='button'],button,li")
         .forEach(add);
-    });
-    queryAllDeep(["img"]).slice(0, 1000).forEach((image) => {
-      if (!closestMatching(image, config.videoRoots)) {
-        add(image);
-      }
     });
     return results.slice(0, 500);
   }
 
-  function findMatchingBilibiliEmoji(asset) {
+  function findMatchingPlatformEmoji(asset) {
     let best = null;
     let bestScore = 0;
-    bilibiliEmojiItemCandidates().forEach((element) => {
+    platformEmojiItemCandidates().forEach((element) => {
       const score = assetMatchScore(element, asset);
       if (score > bestScore) {
         bestScore = score;
@@ -1871,17 +2095,15 @@ import { createContentOverlay } from "../ui/content-overlay";
     return best.closest([
       "button",
       "[role='button']",
-      "[data-emoji]",
-      "[data-emoticon]",
-      "[class*='emoji-item' i]",
-      "[class*='emoticon-item' i]"
+      "li",
+      ...PLATFORM_EMOJI_ITEM_SELECTORS
     ].join(",")) || best;
   }
 
-  function findBilibiliEmojiToggle(input) {
+  function findPlatformEmojiToggle(input) {
     const inputRect = input && input.getBoundingClientRect();
-    const candidates = queryAllDeep(BILIBILI_EMOJI_TOGGLE_SELECTORS)
-      .filter((element) => isVisible(element) && !closestMatching(element, config.chatRoots)
+    const candidates = queryAllDeep(platformEmojiToggleSelectors())
+      .filter((element) => isVisible(element) && !closestMatching(element, config.messages)
         && !isOwned(element));
     candidates.sort((first, second) => {
       const score = (element) => {
@@ -1898,17 +2120,17 @@ import { createContentOverlay } from "../ui/content-overlay";
     return candidates[0] || null;
   }
 
-  async function waitForBilibiliEmoji(asset, timeout) {
+  async function waitForPlatformEmoji(asset, timeout) {
     const deadline = Date.now() + timeout;
-    let match = findMatchingBilibiliEmoji(asset);
+    let match = findMatchingPlatformEmoji(asset);
     while (!match && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 50));
-      match = findMatchingBilibiliEmoji(asset);
+      match = findMatchingPlatformEmoji(asset);
     }
     return match;
   }
 
-  function countMatchingBilibiliChatAssets(asset) {
+  function countMatchingChatAssets(asset) {
     let count = 0;
     queryAllDeep(config.messages).slice(-120).forEach((row) => {
       row.querySelectorAll("img").forEach((image) => {
@@ -1930,10 +2152,10 @@ import { createContentOverlay } from "../ui/content-overlay";
     return `${input.textContent || ""}|${input.innerHTML || ""}`.slice(0, 4096);
   }
 
-  async function waitForBilibiliEmojiResult(input, asset, previousCount, previousInput, timeout) {
+  async function waitForPlatformEmojiResult(input, asset, previousCount, previousInput, timeout) {
     const deadline = Date.now() + timeout;
     while (Date.now() < deadline) {
-      if (countMatchingBilibiliChatAssets(asset) > previousCount) {
+      if (countMatchingChatAssets(asset) > previousCount) {
         return "sent";
       }
       if (richInputFingerprint(input) !== previousInput) {
@@ -1944,7 +2166,11 @@ import { createContentOverlay } from "../ui/content-overlay";
     return "none";
   }
 
-  async function repeatBilibiliRichPayload(payload) {
+  async function repeatPlatformRichPayload(payload) {
+    const unicodeFallback = unicodeEmojiFallbackText(payload);
+    if (unicodeFallback) {
+      return repeatMessage(unicodeFallback);
+    }
     const now = Date.now();
     if (now - state.lastActionAt < 700) {
       showToast("操作太快，请稍后再试", "warning");
@@ -1954,25 +2180,25 @@ import { createContentOverlay } from "../ui/content-overlay";
     const asset = payload && Array.isArray(payload.assets) ? payload.assets[0] : null;
     const input = findInput();
     if (!asset || !input) {
-      showToast("未找到B站表情资源或弹幕输入框", "error");
+      showToast(`未找到${config.name}图片 Emoji 资源或弹幕输入框`, "error");
       return false;
     }
-    const previousCount = countMatchingBilibiliChatAssets(asset);
-    let item = findMatchingBilibiliEmoji(asset);
+    const previousCount = countMatchingChatAssets(asset);
+    let item = findMatchingPlatformEmoji(asset);
     if (!item) {
-      const toggle = findBilibiliEmojiToggle(input);
+      const toggle = findPlatformEmojiToggle(input);
       if (toggle && typeof toggle.click === "function") {
         toggle.click();
-        item = await waitForBilibiliEmoji(asset, 800);
+        item = await waitForPlatformEmoji(asset, 800);
       }
     }
     if (!item || typeof item.click !== "function") {
-      showToast("未在B站表情面板中找到对应图片，已取消 +1", "error");
+      showToast(`未在${config.name}表情面板中找到对应 Emoji，已取消 +1`, "error");
       return false;
     }
     const beforeInput = richInputFingerprint(input);
     item.click();
-    let result = await waitForBilibiliEmojiResult(input, asset, previousCount, beforeInput, 900);
+    let result = await waitForPlatformEmojiResult(input, asset, previousCount, beforeInput, 900);
     if (result === "inserted" && richInputFingerprint(input) !== beforeInput) {
       const button = findSendButton(input);
       if (button) {
@@ -1980,7 +2206,7 @@ import { createContentOverlay } from "../ui/content-overlay";
       } else {
         pressEnter(input);
       }
-      result = await waitForBilibiliEmojiResult(input, asset, previousCount, beforeInput, 900);
+      result = await waitForPlatformEmojiResult(input, asset, previousCount, beforeInput, 900);
       if (result !== "sent" && !richInputFingerprint(input)) {
         result = "sent";
       }
@@ -1989,15 +2215,15 @@ import { createContentOverlay } from "../ui/content-overlay";
       const button = findSendButton(input);
       if (button) {
         button.click();
-        result = await waitForBilibiliEmojiResult(input, asset, previousCount, beforeInput, 900);
+        result = await waitForPlatformEmojiResult(input, asset, previousCount, beforeInput, 900);
       }
     }
     if (result !== "sent") {
-      showToast("B站图片表情发送未确认，请重试", "error");
+      showToast(`${config.name}图片 Emoji 发送未确认，请重试`, "error");
       return false;
     }
     releaseInputFocus(input);
-    showToast("已发送图片表情 +1", "success");
+    showToast("已发送图片 Emoji +1", "success");
     return true;
   }
 
@@ -2066,8 +2292,8 @@ import { createContentOverlay } from "../ui/content-overlay";
     }
     const message = state.message;
     const richPayload = state.richPayload;
-    if (platformId === "bilibili" && richPayload && richPayload.assets.length) {
-      repeatBilibiliRichPayload(richPayload);
+    if (richPayload && richPayload.assets.length) {
+      repeatPlatformRichPayload(richPayload);
     } else if (message) {
       repeatMessage(message);
     }
@@ -2278,7 +2504,9 @@ import { createContentOverlay } from "../ui/content-overlay";
   state.favoritesRuntime = createFavoritesRuntime({
     enabled: () => isEnabled() && state.settings.actions.favorite,
     platform: platformId,
-    sendText: (message) => repeatMessage(message),
+    sendFavorite: (payload) => payload.assets.length
+      ? repeatPlatformRichPayload(payload)
+      : repeatMessage(payload.text),
     showToast
   });
   document.addEventListener("pointerover", onPointerOver, true);

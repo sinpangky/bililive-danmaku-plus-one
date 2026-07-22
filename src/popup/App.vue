@@ -113,7 +113,7 @@
                 id="action-favorite"
                 v-model="settings.actions.favorite"
                 title="显示收藏"
-                description="收藏通用文字弹幕；短按 Alt+Q 打开列表，长按呼出轮盘。"
+                description="收藏文字、Unicode Emoji 与平台图片表情；短按 Alt+Q 打开列表，长按呼出轮盘。"
                 aria-label="显示收藏选项"
                 @change="save"
               />
@@ -202,7 +202,7 @@
                   <ul aria-label="当前支持的收藏内容">
                     <li>普通文字</li>
                     <li>Unicode Emoji</li>
-                    <li>常规标点</li>
+                    <li>平台图片表情与混排内容</li>
                   </ul>
                 </div>
 
@@ -241,7 +241,7 @@
               <ol class="favorites-guide-flow" aria-label="收藏使用流程">
                 <li>
                   <span class="favorites-flow-index">1</span>
-                  <span><strong>先收藏</strong><small>悬停普通文字弹幕，点击“收藏”。</small></span>
+                  <span><strong>先收藏</strong><small>悬停支持收藏的弹幕，点击“收藏”。</small></span>
                 </li>
                 <li>
                   <span class="favorites-flow-index">2</span>
@@ -256,7 +256,7 @@
               <div class="favorites-guide-note">
                 <strong>本地</strong>
                 <span>
-                  收藏使用 Chrome 本地存储，不上传、不联网。平台图片表情和贴纸暂不支持。
+                  所有可识别弹幕均可收藏，内容只保存在 Chrome 本地。发送平台图片表情时，当前平台和账号需仍可使用对应资源。
                 </span>
               </div>
             </div>
@@ -284,7 +284,7 @@ import PlatformRow from "./components/PlatformRow.vue";
 import SettingSwitch from "./components/SettingSwitch.vue";
 import { useSettings } from "./composables/useSettings";
 
-const feedbackEmail = "2926074960@qq.com";
+const feedbackEmail = "sadunicorn1113@gmail.com";
 const platforms: ReadonlyArray<{ id: PlatformId; label: string }> = [
   { id: "bilibili", label: "Bilibili" },
   { id: "douyin", label: "Douyin" },

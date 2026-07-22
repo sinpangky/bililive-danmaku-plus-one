@@ -13,6 +13,7 @@ interface PaintGradient {
 export type SafePaint = PaintGradient | string;
 
 export interface SerializedBarrageItem {
+  assetHints?: string[];
   backgroundColor?: SafePaint;
   borderColor?: SafePaint;
   borderRadius?: number;
@@ -51,7 +52,7 @@ export function numberOr(value: unknown, fallback: number): number {
 
 export function normalizeText(value: unknown): string {
   return String(value == null ? "" : value)
-    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
+    .replace(/[\u200B\u200C\u2060\uFEFF]/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -62,6 +63,14 @@ export function plausibleText(value: unknown): boolean {
   return length > 0
     && length <= 1000
     && !/^(高清|超清|蓝光|原画|自动|流畅|发送|设置|退出全屏|直播已结束)$/.test(text);
+}
+
+export function barrageInteractionText(value: unknown, imageCount: unknown): string {
+  const text = normalizeText(value);
+  if (plausibleText(text)) {
+    return text;
+  }
+  return numberOr(imageCount, 0) > 0 ? "表情" : "";
 }
 
 export function boxEdges(value: unknown): BoxEdges {
@@ -96,6 +105,27 @@ function safeBox(value: unknown): number | number[] {
     return value.slice(0, 4).map((edge) => numberOr(edge, 0));
   }
   return numberOr(value, 0);
+}
+
+function imageAssetHints(value: Record<string, unknown>): string[] {
+  const keys = [
+    "id", "key", "name", "text", "alt", "title", "uri", "url",
+    "emojiId", "emoji_id", "emojiName", "emoji_name",
+    "resourceId", "resource_id", "webUri", "web_uri"
+  ];
+  const hints = new Set<string>();
+  const add = (raw: unknown): void => {
+    if (typeof raw !== "string" && typeof raw !== "number") return;
+    const hint = String(raw).trim();
+    if (hint && hint.length <= 4096) hints.add(hint);
+  };
+  keys.forEach((key) => add(value[key]));
+  ["image", "emoji", "resource"].forEach((key) => {
+    const nested = value[key];
+    if (!isRecord(nested)) return;
+    keys.forEach((nestedKey) => add(nested[nestedKey]));
+  });
+  return [...hints].slice(0, 20);
 }
 
 export function rendererPaint(value: unknown, background: boolean): string {
@@ -146,6 +176,8 @@ export function serializeContent(
     result.text = String(value.text == null ? "" : value.text).slice(0, 1000);
   } else if (type === "image" && typeof value.src === "string") {
     result.src = value.src.slice(0, 4096);
+    const hints = imageAssetHints(value);
+    if (hints.length) result.assetHints = hints;
   }
   ["width", "height", "fontSize", "strokeWidth", "borderWidth", "borderRadius", "borderRadiusRatio", "opacity"]
     .forEach((key) => {

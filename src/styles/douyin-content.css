@@ -13,14 +13,16 @@
 /*
  * Douyin's native barrage layer is a canvas.  The replacement layer keeps the
  * same fixed viewport geometry, while only individual barrage nodes take part
- * in hit testing.  Width, height and translate3d are supplied by the page hook.
+ * in hit testing. The layer clips moving nodes to the native Canvas viewport,
+ * so a barrage is revealed progressively as it enters from the right. Width,
+ * height and translate3d are supplied by the page hook.
  */
 .bcp-douyin-dom-layer {
   all: initial;
   contain: layout style;
   display: block;
   isolation: isolate;
-  overflow: visible;
+  overflow: hidden;
   pointer-events: none !important;
   position: fixed;
   z-index: 2147483646;

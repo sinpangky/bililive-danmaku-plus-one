@@ -1,5 +1,6 @@
 // @ts-nocheck -- performance-sensitive page hook; typed models are extracted separately.
 import {
+  barrageInteractionText,
   boxEdges,
   normalizeText,
   numberOr,
@@ -13,6 +14,8 @@ import {
   DOUYIN_PAGE_SOURCE,
   isDouyinProtocolMessage
 } from "../platforms/douyin/protocol";
+import { serializedEmojiAssets } from "../platforms/douyin/rich-data";
+import { allAssetsMatch } from "../platforms/douyin/own-message";
 import {
   canvasPixelSize,
   channelInfo,
@@ -38,7 +41,7 @@ import { extractSenderFromRecord } from "../core/reply";
   }
   globalThis.__bulletPlusOneDouyinCanvasHook = true;
 
-  const DEBUG_VERSION = "douyin-dom-renderer-v9-reply-identity";
+  const DEBUG_VERSION = "douyin-dom-renderer-v13-manual-own-race";
   const DOM_ACTION_HEIGHT = 40;
   const DOM_ACTION_ITEM_WIDTHS = Object.freeze({
     plusOne: 38.4,
@@ -128,6 +131,7 @@ import { extractSenderFromRecord } from "../core/reply";
       rendererResults: 0,
       ownMessagesQueued: 0,
       ownBarragesMatched: 0,
+      ownBarragesReconciled: 0,
       skippedBarrages: 0
     },
     lastError: "",
@@ -406,27 +410,97 @@ import { extractSenderFromRecord } from "../core/reply";
   }
 
   function rememberOwnMessage(data) {
-    const text = normalizeText(data && data.text);
-    if (!plausibleText(text)) {
+    const assets = Array.isArray(data && data.assets)
+      ? data.assets.filter((asset) => asset && Array.isArray(asset.keys) && asset.keys.length)
+        .slice(0, 8)
+      : [];
+    const text = normalizeText(data && Object.hasOwn(data, "plainText")
+      ? data.plainText
+      : data && data.text);
+    if (!plausibleText(text) && !assets.length) {
       return;
     }
     const now = Date.now();
     pruneOwnMessages(now);
-    ownMessages.push({
+    const item = {
       id: String(data.intentId || "").slice(0, 80),
       text,
+      assets,
       at: now,
       source: String(data.sourceType || "unknown").slice(0, 40)
-    });
+    };
+    if (reconcileRecentOwnMessage(item, now)) {
+      return;
+    }
+    ownMessages.push(item);
     if (ownMessages.length > OWN_MESSAGE_LIMIT) {
       ownMessages.splice(0, ownMessages.length - OWN_MESSAGE_LIMIT);
     }
     debugState.counters.ownMessagesQueued += 1;
     debugEvent("own-message-queued", {
       text,
+      assetCount: assets.length,
       source: String(data.sourceType || "unknown").slice(0, 40),
       queueLength: ownMessages.length
     });
+  }
+
+  function ownMessageMatches(item, text, content) {
+    const normalized = normalizeText(text);
+    const observedAssets = serializedEmojiAssets(content, location.href);
+    if (item.assets && item.assets.length) {
+      return allAssetsMatch(item.assets, observedAssets)
+        && (!item.text || item.text === normalized);
+    }
+    return Boolean(item.text && item.text === normalized);
+  }
+
+  function completeOwnMessageMatch(item, track, mode) {
+    track.own = true;
+    if (track.renderer && track.renderer.barrage) {
+      track.renderer.barrage.dataset.own = "true";
+    }
+    const observedAssets = serializedEmojiAssets(track.content, location.href);
+    debugState.counters.ownBarragesMatched += 1;
+    if (mode === "recent-track") {
+      debugState.counters.ownBarragesReconciled += 1;
+    }
+    debugEvent(mode === "recent-track" ? "own-barrage-reconciled" : "own-barrage-matched", {
+      intentId: item.id,
+      trackId: track.id,
+      text: normalizeText(track.description && track.description.text),
+      assetCount: observedAssets.length,
+      source: item.source,
+      age: Date.now() - item.at
+    });
+    window.postMessage({
+      source: DOUYIN_PAGE_SOURCE,
+      type: "own-message-consumed",
+      intentId: item.id
+    }, "*");
+    return true;
+  }
+
+  function reconcileRecentOwnMessage(item, now) {
+    if (!String(item.source || "").startsWith("manual-")) {
+      return false;
+    }
+    let best = null;
+    let bestAge = Infinity;
+    for (const instance of instances.values()) {
+      for (const track of instance.tracks.values()) {
+        const age = now - Number(track.observedAt || 0);
+        if (track.own || age < 0 || age > 2500
+            || !ownMessageMatches(item, track.description && track.description.text, track.content)) {
+          continue;
+        }
+        if (age < bestAge) {
+          best = track;
+          bestAge = age;
+        }
+      }
+    }
+    return best ? completeOwnMessageMatch(item, best, "recent-track") : false;
   }
 
   function cancelOwnMessage(data) {
@@ -441,24 +515,25 @@ import { extractSenderFromRecord } from "../core/reply";
     }
   }
 
-  function consumeOwnMessage(text) {
+  function consumeOwnMessage(text, content) {
     const normalized = normalizeText(text);
-    if (!normalized) {
+    const observedAssets = serializedEmojiAssets(content, location.href);
+    if (!normalized && !observedAssets.length) {
       return false;
     }
     pruneOwnMessages(Date.now());
-    const index = ownMessages.findIndex((item) => item.text === normalized);
+    const index = ownMessages.findIndex((item) => ownMessageMatches(item, normalized, content));
     if (index < 0) {
       return false;
     }
     const matched = ownMessages.splice(index, 1)[0];
-    debugState.counters.ownBarragesMatched += 1;
-    debugEvent("own-barrage-matched", {
-      text: normalized,
-      source: matched.source,
-      age: Date.now() - matched.at
-    });
-    return true;
+    return completeOwnMessageMatch(matched, {
+      content,
+      description: { text: normalized },
+      id: "pending",
+      own: false,
+      renderer: null
+    }, "queued-intent");
   }
 
   function elementMarker(element) {
@@ -671,7 +746,9 @@ import { extractSenderFromRecord } from "../core/reply";
       layer.style.position = "fixed";
       layer.style.margin = "0";
       layer.style.padding = "0";
-      layer.style.overflow = "visible";
+      // Match the native Canvas viewport. Tracks begin at its right edge and
+      // must be revealed progressively instead of painting over adjacent UI.
+      layer.style.overflow = "hidden";
       layer.style.pointerEvents = "none";
       layer.style.contain = "layout style";
       layer.style.isolation = "isolate";
@@ -1510,8 +1587,8 @@ import { extractSenderFromRecord } from "../core/reply";
     // use the same deterministic square fallback in both measurement and DOM.
     const description = describeBarrage(options, instance.config, null);
     const content = serializeBarrage(options);
-    const interactive = plausibleText(description.text);
-    if (!interactive) {
+    const interactionText = barrageInteractionText(description.text, description.imageCount);
+    if (!interactionText) {
       debugState.counters.skippedBarrages += 1;
       debugEvent("barrage-skipped", {
         instanceId: instance.id,
@@ -1521,6 +1598,8 @@ import { extractSenderFromRecord } from "../core/reply";
       });
       return false;
     }
+    description.imageOnly = !plausibleText(description.text) && description.imageCount > 0;
+    description.text = interactionText;
     const sourcePadding = boxEdges(options.padding);
     const uniformPadding = Math.min(DOM_BARRAGE_PADDING_MAX, Math.max(
       DOM_BARRAGE_PADDING,
@@ -1556,7 +1635,7 @@ import { extractSenderFromRecord } from "../core/reply";
       description,
       content,
       sender: extractSenderFromRecord(options),
-      own: consumeOwnMessage(description.text),
+      own: consumeOwnMessage(description.text, content),
       deltaXWithoutDpr: 0,
       bookedChannel: null,
       observedAt,

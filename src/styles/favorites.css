@@ -91,17 +91,6 @@
   animation: bcp-favorites-panel-in 190ms cubic-bezier(.2, .8, .2, 1) both;
 }
 
-.bcp-favorites-panel::before {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 4px;
-  background: linear-gradient(180deg,
-    var(--bcp-favorite-accent),
-    var(--bcp-favorite-accent-end));
-  content: "";
-  pointer-events: none;
-}
-
 .bcp-favorites-header,
 .bcp-favorites-brand,
 .bcp-favorites-room,
@@ -882,7 +871,7 @@
   top: -169px;
   width: 338px;
   height: 338px;
-  border: 2px solid rgb(253 129 1 / 48%);
+  border: 2px solid var(--bcp-favorite-accent);
   border-radius: 50%;
   content: "";
   pointer-events: none;
@@ -969,11 +958,11 @@
   height: 78px;
   padding: 10px;
   transform: translate(-50%, -50%);
-  border: 2px solid rgb(253 129 1 / 46%);
+  border: 0;
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 8px 18px rgb(89 47 12 / 18%);
-  transition: transform 140ms ease, border-color 140ms ease, background-color 140ms ease;
+  transition: transform 140ms ease, background-color 140ms ease;
 }
 
 .bcp-favorites-radial-item > span {
@@ -994,7 +983,6 @@
 .bcp-favorites-radial-item.is-selected {
   z-index: 2;
   transform: translate(-50%, -50%) scale(1.08);
-  border-color: var(--bcp-favorite-accent);
   background: var(--bcp-favorite-accent);
   color: #fff;
 }

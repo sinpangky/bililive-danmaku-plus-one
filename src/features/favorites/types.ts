@@ -1,7 +1,24 @@
 import type { PlatformId } from "../../core/types";
 
-export const FAVORITES_SCHEMA_VERSION = 1;
+export const FAVORITES_SCHEMA_VERSION = 2;
 export const FAVORITES_STORAGE_KEY = "danmakuEchoFavoritesV1";
+
+export interface FavoriteAsset {
+  keys: string[];
+  src: string;
+  token: string;
+}
+
+export type FavoritePart =
+  | { text: string; type: "text" }
+  | { asset: FavoriteAsset; type: "emoji" };
+
+export interface FavoritePayload {
+  assets: FavoriteAsset[];
+  parts: FavoritePart[];
+  plainText: string;
+  text: string;
+}
 
 export interface RoomContext {
   platform: PlatformId;
@@ -33,6 +50,7 @@ export interface FavoriteDanmaku {
   lastSentAt: number;
   normalizedText: string;
   origins: FavoriteOrigin[];
+  payload: FavoritePayload;
   roomStats: Record<string, FavoriteRoomStats>;
   text: string;
   totalSendCount: number;
@@ -41,7 +59,7 @@ export interface FavoriteDanmaku {
 
 export interface FavoritesDatabase {
   items: FavoriteDanmaku[];
-  schemaVersion: 1;
+  schemaVersion: 2;
   updatedAt: number;
 }
 

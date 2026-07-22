@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "弹幕回声 Danmaku Echo",
   "description": "为虎牙、哔哩哔哩和抖音直播添加弹幕 +1、回复与本地收藏。",
-  "version": "2.0.1",
+  "version": "2.0.6",
   "icons": {
     "16": "assets/icons/icon-16.png",
     "32": "assets/icons/icon-32.png",

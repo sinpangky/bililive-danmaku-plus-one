@@ -14,6 +14,9 @@
         <span :class="['bcp-favorites-scope', { 'is-local': item.belongsToCurrentRoom }]">
           {{ item.belongsToCurrentRoom ? '本房' : '跨房' }}
         </span>
+        <span v-if="item.payload.assets.length">
+          图片表情{{ item.payload.assets.length > 1 ? ` × ${item.payload.assets.length}` : '' }}
+        </span>
         <span :title="item.sourceLabel">{{ item.sourceLabel }}</span>
         <span :title="collectedAtTitle">收藏 {{ collectedAtLabel }}</span>
         <span>已发送 {{ item.totalSendCount }} 次</span>

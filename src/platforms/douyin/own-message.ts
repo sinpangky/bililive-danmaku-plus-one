@@ -20,7 +20,7 @@ function sanitizeAsset(value: unknown): EmojiAssetDescriptor | null {
   return {
     src: String(value.src || "").slice(0, 4096),
     token: String(value.token || "").slice(0, 120),
-    keys: value.keys.map((key) => String(key).slice(0, 520)).slice(0, 24)
+    keys: value.keys.map((key) => String(key).slice(0, 520)).slice(0, 64)
   };
 }
 
@@ -52,6 +52,23 @@ export function normalizeRichPayload(value: unknown, parseText: TextParser, maxL
 
 export function assetsMatch(first: EmojiAssetDescriptor | null | undefined, second: EmojiAssetDescriptor | null | undefined): boolean {
   return Boolean(first && second && first.keys.some((key) => second.keys.includes(key)));
+}
+
+export function allAssetsMatch(
+  expected: EmojiAssetDescriptor[] | null | undefined,
+  actual: EmojiAssetDescriptor[] | null | undefined
+): boolean {
+  if (!expected?.length || !actual?.length || expected.length > actual.length) {
+    return false;
+  }
+  const unused = new Set(actual.map((_asset, index) => index));
+  return expected.every((item) => {
+    const index = actual.findIndex((candidate, candidateIndex) =>
+      unused.has(candidateIndex) && assetsMatch(item, candidate));
+    if (index < 0) return false;
+    unused.delete(index);
+    return true;
+  });
 }
 
 export function payloadSignature(payload: RichPayload, comparableText: (value: unknown) => string): string {

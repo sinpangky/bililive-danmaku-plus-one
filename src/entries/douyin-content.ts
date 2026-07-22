@@ -10,11 +10,13 @@ import {
   serializedEmojiAssets
 } from "../platforms/douyin/rich-data";
 import {
+  allAssetsMatch,
   assetsMatch,
   normalizeRichPayload as normalizeOwnMessagePayload,
   payloadSignature as ownMessagePayloadSignature
 } from "../platforms/douyin/own-message";
 import { createFavoritesRuntime } from "../features/favorites/launcher";
+import { unicodeEmojiFallbackText } from "../platforms/live/emoji-fallback";
 import { createDouyinOverlay } from "../ui/douyin-overlay";
 
 (function initDanmakuEchoDouyin() {
@@ -31,7 +33,7 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
   const CARD_LOCK_TIME = 2500;
   const CARD_STICKY_TIME = 8000;
   const CARD_HIDE_DELAY = 650;
-  const DEBUG_VERSION = "douyin-content-v8-reply-coordinator";
+  const DEBUG_VERSION = "douyin-content-v15-scoped-editor-selection";
   const RENDERER_HEARTBEAT_INTERVAL = 5000;
   const TRUSTED_ACTION_WINDOW = 1500;
   const OWN_CHAT_MESSAGE_TTL = 12_000;
@@ -137,6 +139,7 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
     "[data-testid*='emoji' i]",
     "[aria-label*='表情']",
     "[title*='表情']",
+    "[class*='emoji-icon' i]",
     "[class*='emoji-btn' i]",
     "[class*='emojiBtn']",
     "[class*='emoticon-btn' i]",
@@ -155,6 +158,15 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
     "[class*='emoticon-panel' i]",
     "[class*='emotion-panel' i]",
     "[class*='emoji-list' i]"
+  ];
+  const EMOJI_ITEM_SELECTORS = [
+    "img[class*='emoji' i]",
+    "[data-emoji]",
+    "[data-emoji-name]",
+    "[data-emoticon]",
+    "[class*='emoji-item' i]",
+    "[class*='emojiItem']",
+    "[class*='emoticon-item' i]"
   ];
 
   const state = {
@@ -187,6 +199,8 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
     lastActionAt: 0,
     nextOwnAnnouncementId: 1,
     ownChatIntents: [],
+    confirmedOwnMessageIds: new Set(),
+    pendingManualEmojiIntents: [],
     ownChatScanTimer: 0,
     ownChatObserver: null,
     senderCache: new Map(),
@@ -537,23 +551,6 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
     }
   }
 
-  function serializedContentHasImages(content) {
-    if (!Array.isArray(content)) return false;
-    return content.some((raw) => {
-      if (!raw || typeof raw !== "object") return false;
-      if (raw.type === "image" && raw.src) return true;
-      return serializedContentHasImages(raw.content);
-    });
-  }
-
-  function candidateHasRichAssets(candidate) {
-    return Boolean(candidate && (
-      candidate.richPayload && Array.isArray(candidate.richPayload.assets)
-        && candidate.richPayload.assets.length
-      || serializedContentHasImages(candidate.content)
-    ));
-  }
-
   function onFavoriteActionClick(event) {
     event.preventDefault();
     event.stopPropagation();
@@ -563,7 +560,7 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
     }
     void state.favoritesRuntime.favoriteText(
       state.candidate.message,
-      candidateHasRichAssets(state.candidate)
+      state.candidate.richPayload
     );
     armExpiry();
   }
@@ -611,13 +608,32 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
     const image = element instanceof HTMLImageElement
       ? element
       : element.querySelector("img");
+    const metadataElements = [];
+    let metadataElement = element;
+    for (let depth = 0; metadataElement && depth < 4; depth += 1) {
+      metadataElements.push(metadataElement);
+      if (depth > 0 && metadataElement.matches(EMOJI_ITEM_SELECTORS.join(","))) break;
+      metadataElement = metadataElement.parentElement;
+    }
+    const metadataAttributes = [
+      "data-id", "data-key", "data-uri", "data-url", "data-src",
+      "data-text", "data-emoji", "data-emoji-id", "data-emoji-name",
+      "data-emoticon", "data-resource-id", "title", "aria-label"
+    ];
+    const metadataValues = metadataElements.flatMap((item) =>
+      metadataAttributes.map((name) => item.getAttribute(name)).filter(Boolean));
     const sources = [
       image && image.currentSrc,
       image && image.getAttribute("src"),
       image && image.getAttribute("data-src"),
       image && image.getAttribute("data-url"),
       element.getAttribute("data-src"),
-      element.getAttribute("data-url")
+      element.getAttribute("data-url"),
+      ...metadataElements.flatMap((item) => [
+        item.getAttribute("data-uri"),
+        item.getAttribute("data-src"),
+        item.getAttribute("data-url")
+      ])
     ].filter(Boolean);
     const names = [
       image && emojiTokenFromImage(image),
@@ -635,7 +651,8 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
       element.getAttribute("data-emoticon"),
       element.getAttribute("data-id"),
       element.getAttribute("title"),
-      element.getAttribute("aria-label")
+      element.getAttribute("aria-label"),
+      ...metadataValues
     ].filter(Boolean);
     const keys = new Set();
     sources.concat(names).forEach((value) => {
@@ -647,7 +664,7 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
     return {
       src: String(sources[0] || "").slice(0, 4096),
       token: shared.normalizeWhitespace(names[0] || "").slice(0, 120),
-      keys: Array.from(keys).slice(0, 24)
+      keys: Array.from(keys).slice(0, 48)
     };
   }
 
@@ -1028,16 +1045,106 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
     return best && bestScore >= 620 ? best.sender : "";
   }
 
+  function richPayloadFromRendererContent(canvasText, rendererContent) {
+    const parts = [];
+    const appendText = (value) => {
+      const text = String(value == null ? "" : value);
+      if (!text) return;
+      const previous = parts[parts.length - 1];
+      if (previous && previous.type === "text") {
+        previous.text += text;
+      } else {
+        parts.push({ type: "text", text });
+      }
+    };
+    const visit = (raw) => {
+      if (!raw || typeof raw !== "object" || parts.length >= 40) return;
+      if (raw.type === "text") {
+        appendText(raw.text);
+      } else if (raw.type === "image") {
+        const asset = serializedEmojiAssets([raw], location.href)[0];
+        if (asset) parts.push({ type: "emoji", asset });
+      }
+      if (Array.isArray(raw.content)) raw.content.forEach(visit);
+    };
+    (Array.isArray(rendererContent) ? rendererContent : []).forEach(visit);
+    const assets = parts.filter((part) => part.type === "emoji").map((part) => part.asset);
+    const plainText = shared.parseMessageText(
+      parts.filter((part) => part.type === "text").map((part) => part.text).join(""),
+      MAX_LENGTH
+    );
+    const text = shared.parseMessageText(canvasText, MAX_LENGTH)
+      || plainText
+      || (assets.length ? "\u8868\u60c5" : "");
+    return { text, plainText, assets, parts };
+  }
+
+  function mergeEmojiAsset(primary, secondary) {
+    if (!secondary) return primary;
+    return {
+      src: primary.src || secondary.src || "",
+      token: secondary.token || primary.token || "",
+      keys: Array.from(new Set([
+        ...(Array.isArray(primary.keys) ? primary.keys : []),
+        ...(Array.isArray(secondary.keys) ? secondary.keys : [])
+      ])).slice(0, 64)
+    };
+  }
+
+  function mergeRendererPayloadWithChatRow(rendererPayload, chatPayload, canvasText) {
+    if (!chatPayload || !Array.isArray(chatPayload.assets) || !chatPayload.assets.length) {
+      return {
+        ...rendererPayload,
+        sender: chatPayload && chatPayload.sender || senderForMessage(canvasText)
+      };
+    }
+    const unused = new Set(chatPayload.assets.map((_asset, index) => index));
+    const mergedAssets = rendererPayload.assets.map((rendererAsset, index) => {
+      let matchedIndex = chatPayload.assets.findIndex((asset, assetIndex) =>
+        unused.has(assetIndex) && assetsMatch(rendererAsset, asset));
+      if (matchedIndex < 0 && chatPayload.assets.length === rendererPayload.assets.length
+          && unused.has(index)) {
+        matchedIndex = index;
+      }
+      if (matchedIndex < 0) return rendererAsset;
+      unused.delete(matchedIndex);
+      return mergeEmojiAsset(rendererAsset, chatPayload.assets[matchedIndex]);
+    });
+    let assetIndex = 0;
+    const parts = rendererPayload.parts.map((part) => {
+      if (part.type !== "emoji") return part;
+      const asset = mergedAssets[assetIndex++];
+      return { type: "emoji", asset };
+    });
+    return {
+      ...rendererPayload,
+      assets: mergedAssets,
+      parts,
+      sender: chatPayload.sender || senderForMessage(canvasText)
+    };
+  }
+
   function resolveRichPayload(canvasText, rendererContent) {
     const key = comparableText(canvasText);
-    const rendererAssets = serializedEmojiAssets(rendererContent, location.href);
+    const rendererPayload = richPayloadFromRendererContent(canvasText, rendererContent);
+    const rendererAssets = rendererPayload.assets;
     const matches = [];
+    const assetMatches = [];
     const rows = queryAll(CHAT_MESSAGE_SELECTORS).slice(-100).reverse();
     for (const row of rows) {
       if (isOwned(row)) {
         continue;
       }
       const payload = richPayloadFromChatRow(row);
+      if (rendererAssets.length && payload.assets.length) {
+        const exactAssetCount = payload.assets.filter((asset) =>
+          rendererAssets.some((rendererAsset) => assetsMatch(asset, rendererAsset))).length;
+        if (exactAssetCount || (key
+            && comparableText(payload.plainText || payload.text) === key
+            && payload.assets.length === rendererAssets.length)) {
+          assetMatches.push({ payload, exactAssetCount });
+        }
+      }
       const rowKey = comparableText(payload.plainText || payload.text);
       if (shared.isPlausibleMessage(payload.text, MAX_LENGTH)
           && key && rowKey === key) {
@@ -1045,11 +1152,9 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
       }
     }
     if (rendererAssets.length) {
-      const exactAssetMatch = matches.find((payload) => payload.assets.some((asset) =>
-        rendererAssets.some((rendererAsset) => assetsMatch(asset, rendererAsset))));
-      if (exactAssetMatch) {
-        return exactAssetMatch;
-      }
+      assetMatches.sort((left, right) => right.exactAssetCount - left.exactAssetCount);
+      const matched = assetMatches[0] && assetMatches[0].payload || matches[0] || null;
+      return mergeRendererPayloadWithChatRow(rendererPayload, matched, canvasText);
     }
     if (matches.length) {
       return matches[0];
@@ -1361,7 +1466,13 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
       }));
       let inserted = false;
       try {
-        document.execCommand("selectAll", false, null);
+        const selection = getSelection();
+        if (selection) {
+          const range = document.createRange();
+          range.selectNodeContents(input);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }
         inserted = document.execCommand("insertText", false, value);
       } catch (_error) {
         inserted = false;
@@ -1369,6 +1480,7 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
       if (!inserted) {
         input.textContent = value;
       }
+      placeCaretAtEnd(input);
       input.dispatchEvent(new InputEvent("input", {
         bubbles: true,
         composed: true,
@@ -1623,23 +1735,19 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
     const results = [];
     const seen = new Set();
     const add = (element) => {
-      if (!(element instanceof Element) || seen.has(element) || !isVisible(element)
+      const insideEmojiSurface = element instanceof Element
+        && Boolean(closestAny(element, EMOJI_SURFACE_SELECTORS));
+      if (!(element instanceof Element) || seen.has(element)
+          || (!isVisible(element) && !insideEmojiSurface)
           || closestAny(element, CHAT_MESSAGE_SELECTORS) || isOwned(element)) {
         return;
       }
       seen.add(element);
       results.push(element);
     };
-    queryAll([
-      "[data-emoji]",
-      "[data-emoji-name]",
-      "[data-emoticon]",
-      "[class*='emoji-item' i]",
-      "[class*='emojiItem']",
-      "[class*='emoticon-item' i]"
-    ]).forEach(add);
+    queryAll(EMOJI_ITEM_SELECTORS).forEach(add);
     queryAll(EMOJI_SURFACE_SELECTORS).forEach((surface) => {
-      if (!isVisible(surface) || closestAny(surface, CHAT_MESSAGE_SELECTORS)) {
+      if (closestAny(surface, CHAT_MESSAGE_SELECTORS)) {
         return;
       }
       surface.querySelectorAll("img,[data-emoji],[data-emoticon],[role='button'],button")
@@ -1735,11 +1843,23 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
     if (!item) {
       const toggle = findEmojiToggle(input);
       if (toggle && typeof toggle.click === "function") {
+        debugEvent("emoji-panel-open-request", {
+          toggleClass: typeof toggle.className === "string" ? toggle.className.slice(0, 160) : "",
+          assetKeys: Array.isArray(asset && asset.keys) ? asset.keys.slice(0, 8) : []
+        }, "info");
         toggle.click();
         item = await waitForEmojiItem(asset, 800);
       }
     }
     if (!item || typeof item.click !== "function") {
+      const visibleSurfaces = queryAll(EMOJI_SURFACE_SELECTORS).filter(isVisible).length;
+      debugEvent("emoji-asset-not-found", {
+        src: String(asset && asset.src || "").slice(0, 500),
+        token: String(asset && asset.token || "").slice(0, 120),
+        assetKeys: Array.isArray(asset && asset.keys) ? asset.keys.slice(0, 12) : [],
+        visibleSurfaces,
+        candidateCount: emojiItemCandidates().length
+      }, "error");
       return { ok: false, reason: "emoji-not-found" };
     }
     const before = richInputFingerprint(input);
@@ -1809,6 +1929,11 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
   }
 
   async function prepareRichInput(input, payload) {
+    const unicodeFallback = unicodeEmojiFallbackText(payload);
+    if (unicodeFallback) {
+      setInputValue(input, unicodeFallback);
+      return { ok: true, reason: "unicode-emoji-fallback" };
+    }
     const parts = Array.isArray(payload.parts) ? payload.parts : [];
     const orderedEmojiParts = parts.filter((part) => part.type === "emoji");
     if (!orderedEmojiParts.length) {
@@ -1865,14 +1990,13 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
     const textMatches = rowText || intentText
       ? rowText === intentText
       : Boolean(rowRaw && rowRaw === intentRaw);
-    if (!textMatches) {
-      return false;
+    if (intent.payload.assets.length) {
+      const expectedPlainText = comparableText(intent.payload.plainText);
+      const actualPlainText = comparableText(payload.plainText);
+      return allAssetsMatch(intent.payload.assets, payload.assets)
+        && (!expectedPlainText || expectedPlainText === actualPlainText);
     }
-    if (!intent.payload.assets.length) {
-      return Boolean(intentText || intentRaw);
-    }
-    return intent.payload.assets.every((expected) =>
-      payload.assets.some((actual) => assetsMatch(expected, actual)));
+    return textMatches && Boolean(intentText || intentRaw);
   }
 
   function clearStaleOwnChatMarks() {
@@ -1923,6 +2047,7 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
         content.dataset.bcpDouyinOwnChatContent = "true";
       }
       state.ownChatIntents.splice(intentIndex, 1);
+      forgetPendingManualEmojiIntent(intent.id);
       intentIndex -= 1;
       debugState.counters.ownChatMessagesMarked += 1;
       debugEvent("own-chat-message-marked", {
@@ -1971,7 +2096,9 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
       type: "own-message-intent",
       intentId,
       sourceType: String(sourceType || "unknown").slice(0, 40),
-      text: payload.plainText || text
+      text: payload.plainText || text,
+      plainText: payload.plainText,
+      assets: payload.assets
     }, "*");
     queueOwnChatIntent(intentId, payload);
     debugEvent("own-message-announced", {
@@ -1991,7 +2118,110 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
       type: "own-message-cancel",
       intentId
     }, "*");
+    state.confirmedOwnMessageIds.delete(intentId);
+    forgetPendingManualEmojiIntent(intentId);
     state.ownChatIntents = state.ownChatIntents.filter((intent) => intent.id !== intentId);
+  }
+
+  function forgetPendingManualEmojiIntent(intentId) {
+    state.pendingManualEmojiIntents = state.pendingManualEmojiIntents
+      .filter((entry) => entry.intentId !== intentId);
+  }
+
+  function recentManualEmojiIntents() {
+    const cutoff = Date.now() - OWN_CHAT_MESSAGE_TTL;
+    state.pendingManualEmojiIntents = state.pendingManualEmojiIntents
+      .filter((entry) => entry.at >= cutoff);
+    return state.pendingManualEmojiIntents.slice();
+  }
+
+  function emojiAssetFromTrustedClick(event) {
+    if (!event.isTrusted) return null;
+    const path = typeof event.composedPath === "function" ? event.composedPath() : [event.target];
+    const elements = path.filter((item) => item instanceof Element);
+    const surface = elements.find((element) => matchesAny(element, EMOJI_SURFACE_SELECTORS));
+    if (!surface) return null;
+    const item = elements.find((element) => element !== surface
+      && surface.contains(element)
+      && (element instanceof HTMLImageElement || matchesAny(element, EMOJI_ITEM_SELECTORS)));
+    return item ? assetDescriptorFromElement(item) : null;
+  }
+
+  function rememberManualEmojiClick(event) {
+    if (!enabled()) return;
+    const asset = emojiAssetFromTrustedClick(event);
+    if (!asset) return;
+    const payload = {
+      text: "表情",
+      plainText: "",
+      assets: [asset],
+      parts: [{ type: "emoji", asset }]
+    };
+    const intentId = announceOwnMessage(payload, "manual-emoji");
+    if (!intentId) return;
+    state.pendingManualEmojiIntents.push({ intentId, payload, at: Date.now() });
+    if (state.pendingManualEmojiIntents.length > 12) {
+      state.pendingManualEmojiIntents.splice(0, state.pendingManualEmojiIntents.length - 12);
+    }
+    debugEvent("manual-emoji-intent", {
+      intentId,
+      assetKeys: asset.keys.slice(0, 4)
+    }, "info");
+  }
+
+  function announceManualInput(input, sourceType) {
+    const base = normalizeRichPayload(richPayloadFromInput(input));
+    const pending = recentManualEmojiIntents();
+    if (!pending.length) {
+      const intentId = announceOwnMessage(base, sourceType);
+      debugEvent("manual-send-detected", {
+        sourceType,
+        intentId,
+        text: base.text,
+        assetCount: base.assets.length
+      }, "info");
+      return intentId;
+    }
+    const assets = base.assets.slice();
+    const parts = base.parts.slice();
+    pending.forEach((entry) => {
+      entry.payload.assets.forEach((asset) => {
+        if (!assets.some((existing) => assetsMatch(existing, asset))) {
+          assets.push(asset);
+          parts.push({ type: "emoji", asset });
+        }
+      });
+      cancelOwnMessageAnnouncement(entry.intentId);
+    });
+    state.pendingManualEmojiIntents = [];
+    const intentId = announceOwnMessage({
+      text: base.text || (assets.length ? "表情" : ""),
+      plainText: base.plainText,
+      assets,
+      parts
+    }, sourceType);
+    debugEvent("manual-send-detected", {
+      sourceType,
+      intentId,
+      text: base.text,
+      assetCount: assets.length
+    }, "info");
+    return intentId;
+  }
+
+  async function waitForOwnMessageConfirmation(intentId, timeout) {
+    if (!intentId) return false;
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      if (state.confirmedOwnMessageIds.has(intentId)
+          || !state.ownChatIntents.some((intent) => intent.id === intentId)) {
+        state.confirmedOwnMessageIds.delete(intentId);
+        return true;
+      }
+      scheduleOwnChatScan(0);
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    }
+    return false;
   }
 
   async function waitForConsumption(input, message, timeout) {
@@ -2043,8 +2273,8 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
     const prepared = await prepareRichInput(input, richPayload);
     await new Promise((resolve) => setTimeout(resolve, 80));
     if (!prepared.ok) {
-      await new Promise((resolve) => setTimeout(resolve, 220));
-      const directSent = !state.ownChatIntents.some((intent) => intent.id === ownIntentId);
+      const directSent = prepared.reason === "emoji-not-inserted"
+        && await waitForOwnMessageConfirmation(ownIntentId, 3200);
       if (directSent) {
         debugState.counters.sendsSucceeded += 1;
         debugEvent("send-succeeded", { message, mode: "emoji-direct" }, "info");
@@ -2319,10 +2549,8 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
       }, "*");
       return;
     }
-    const ok = await state.favoritesRuntime.favoriteText(
-      message,
-      serializedContentHasImages(data.content)
-    );
+    const richPayload = await resolveRichPayloadWithRetry(message, data.content);
+    const ok = await state.favoritesRuntime.favoriteText(richPayload.text, richPayload);
     if (ok === null) return;
     window.postMessage({
       source: DOUYIN_CONTENT_SOURCE,
@@ -2345,6 +2573,8 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
     if (!enabled()) {
       hideCard("disabled-by-settings");
       state.ownChatIntents = [];
+      state.confirmedOwnMessageIds.clear();
+      state.pendingManualEmojiIntents = [];
       document.querySelectorAll("[data-bcp-douyin-own-chat='true']").forEach((row) => {
         delete row.dataset.bcpDouyinOwnChat;
         delete row.dataset.bcpDouyinOwnChatSignature;
@@ -2370,6 +2600,16 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
     }
     if (event.data.type === "renderer-favorite") {
       void handleRendererFavorite(event.data);
+      return;
+    }
+    if (event.data.type === "own-message-consumed") {
+      const intentId = String(event.data.intentId || "").slice(0, 80);
+      if (intentId) {
+        state.confirmedOwnMessageIds.add(intentId);
+        forgetPendingManualEmojiIntent(intentId);
+        setTimeout(() => state.confirmedOwnMessageIds.delete(intentId), 10_000);
+        debugEvent("own-message-confirmed", { intentId }, "info");
+      }
       return;
     }
     if (event.data.type === "ready") {
@@ -2401,7 +2641,7 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
   state.favoritesRuntime = createFavoritesRuntime({
     enabled: () => enabled() && state.settings.actions.favorite,
     platform: "douyin",
-    sendText: (message) => repeatMessage(message, message),
+    sendFavorite: (payload) => repeatMessage(payload.text, payload),
     showToast
   });
   document.addEventListener("pointermove", onPointerMove, true);
@@ -2412,15 +2652,26 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
     }
   }, true);
   document.addEventListener("click", rememberTrustedRendererAction, true);
+  document.addEventListener("click", rememberManualEmojiClick, true);
   document.addEventListener("click", (event) => {
     if (!event.isTrusted || !enabled()) {
       return;
     }
     const input = findInput();
-    const button = input && findSendButton(input);
     const path = typeof event.composedPath === "function" ? event.composedPath() : [event.target];
-    if (button && path.includes(button)) {
-      announceOwnMessage(richPayloadFromInput(input), "manual-button");
+    const clickedSend = path.find((item) => item instanceof Element
+      && matchesAny(item, SEND_BUTTON_SELECTORS));
+    let sharesInputContainer = false;
+    for (let scope = input && input.parentElement, depth = 0;
+      scope && depth < 7;
+      scope = scope.parentElement, depth += 1) {
+      if (clickedSend && scope.contains(clickedSend)) {
+        sharesInputContainer = true;
+        break;
+      }
+    }
+    if (input && clickedSend && sharesInputContainer) {
+      announceManualInput(input, "manual-button");
     }
   }, true);
   document.addEventListener("click", onAltClick, true);
@@ -2431,7 +2682,7 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
     if (event.isTrusted && event.key === "Enter" && !event.shiftKey && enabled()) {
       const input = findInput();
       if (input && (event.target === input || input.contains(event.target))) {
-        announceOwnMessage(richPayloadFromInput(input), "manual-enter");
+        announceManualInput(input, "manual-enter");
       }
     }
     if (event.ctrlKey && event.altKey && String(event.key).toLowerCase() === "d") {

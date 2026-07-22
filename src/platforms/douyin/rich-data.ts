@@ -30,7 +30,20 @@ export function normalizedAssetKeys(value: unknown, baseUrl: string): string[] {
         keys.add(`file:${file}`);
         keys.add(`stem:${file.split(/[@~!]/, 1)[0]}`);
       }
+      const fragments = pathname.match(/[a-z0-9][a-z0-9_-]{9,}/g) || [];
+      fragments.slice(-12).forEach((fragment) => {
+        if (!/^(?:webcast|douyin|douyinpic|byteimg|tos-cn|webcast-platform)/.test(fragment)) {
+          keys.add(`fragment:${fragment.slice(0, 240)}`);
+        }
+      });
     }
+    url.searchParams.forEach((parameter, name) => {
+      if (/(?:sign|signature|expire|timestamp|token|auth)/i.test(name)) return;
+      const fragments = decodeURIComponent(parameter).toLowerCase()
+        .match(/[a-z0-9][a-z0-9_-]{9,}/g) || [];
+      fragments.slice(0, 8).forEach((fragment) =>
+        keys.add(`fragment:${fragment.slice(0, 240)}`));
+    });
   } catch {
     // Emoji names and internal ids are not necessarily URLs.
   }
@@ -41,10 +54,16 @@ function serializedAssetDescriptor(value: unknown, baseUrl: string): EmojiAssetD
   if (!isRecord(value) || value.type !== "image" || typeof value.src !== "string" || !value.src) {
     return null;
   }
+  const keys = new Set(normalizedAssetKeys(value.src, baseUrl));
+  if (Array.isArray(value.assetHints)) {
+    value.assetHints.slice(0, 20).forEach((hint) => {
+      normalizedAssetKeys(hint, baseUrl).forEach((key) => keys.add(key));
+    });
+  }
   return {
     src: value.src.slice(0, 4096),
     token: "",
-    keys: normalizedAssetKeys(value.src, baseUrl).slice(0, 24)
+    keys: [...keys].slice(0, 48)
   };
 }
 

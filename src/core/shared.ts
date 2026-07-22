@@ -126,11 +126,27 @@ export function detectPlatform(hostname: unknown, pathname?: unknown): PlatformI
 
 export function normalizeWhitespace(value: unknown): string {
   return String(value == null ? "" : value)
-    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
+    // U+200D is the zero-width joiner used by family, profession and many
+    // gendered Emoji sequences. Removing it changes the message being echoed.
+    .replace(/[\u200B\u200C\u2060\uFEFF]/g, "")
     .replace(/\u00A0/g, " ")
     .replace(/[ \t]+/g, " ")
     .replace(/\s*\n\s*/g, "\n")
     .trim();
+}
+
+function sliceGraphemes(value: string, limit: number): string {
+  if (limit <= 0) return "";
+  if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
+    const segments = new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value);
+    const result: string[] = [];
+    for (const item of segments) {
+      if (result.length >= limit) break;
+      result.push(item.segment);
+    }
+    return result.join("");
+  }
+  return Array.from(value).slice(0, limit).join("");
 }
 
 export function parseMessageText(value: unknown, maxLength?: number): string {
@@ -149,7 +165,7 @@ export function parseMessageText(value: unknown, maxLength?: number): string {
   if (userPrefix && !/^(https?|ftp)$/i.test(userPrefix[1].trim())) {
     text = userPrefix[2].trim();
   }
-  return Array.from(text).slice(0, limit).join("");
+  return sliceGraphemes(text, limit);
 }
 
 export function isPlausibleMessage(value: unknown, maxLength?: number): boolean {

@@ -611,6 +611,7 @@ async function inspect() {
         });
       const canvasRect = rectValue(canvas);
       const canvasStyle = canvas ? getComputedStyle(canvas) : null;
+      const layerStyle = layer ? getComputedStyle(layer) : null;
       let pageDebug = null;
       try {
         const marker = document.getElementById("bcp-douyin-page-debug");
@@ -642,6 +643,9 @@ async function inspect() {
         canvasDisplay: canvasStyle ? canvasStyle.display : "missing",
         layerPresent: Boolean(layer),
         layerHidden: Boolean(layer && (layer.hidden || getComputedStyle(layer).display === "none")),
+        layerClipsToCanvas: Boolean(layerStyle
+          && layerStyle.overflowX === "hidden"
+          && layerStyle.overflowY === "hidden"),
         chatRowRect: rectValue(chatRow),
         chatCardVisible: Boolean(chatCard),
         visibleToastCount: document.querySelectorAll(
@@ -1021,6 +1025,7 @@ async function inspect() {
       douyinDomRegression = {
         ready: initial.canvasVisibility === "hidden" && !initial.layerHidden,
         layerPresent: initial.layerPresent,
+        layerClipsToCanvas: initial.layerClipsToCanvas,
         rightChatPlusOneAbsent: !afterChatHover.chatCardVisible,
         barrageCount: initial.nodes.length,
         canvasHiddenAfterReady: initial.canvasVisibility === "hidden",
@@ -1880,6 +1885,7 @@ async function inspect() {
     const failures = [];
     [
       "ready",
+      "layerClipsToCanvas",
       "hoverUsesTransparentThemeFrame",
       "targetPaused",
       "otherContinued",

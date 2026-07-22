@@ -328,7 +328,7 @@ const emptyState = computed(() => {
   if (props.state.view === "current") {
     return {
       title: "本房还没有收藏",
-      detail: "悬停一条普通文字弹幕并点击“收藏”，它会优先出现在这里。",
+      detail: "悬停一条支持收藏的弹幕并点击“收藏”，它会优先出现在这里。",
       action: props.state.otherCount
         ? { label: `查看其他直播间的 ${props.state.otherCount} 条收藏`, view: "other" as const }
         : null

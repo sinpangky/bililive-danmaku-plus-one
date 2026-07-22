@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import vm from "node:vm";
@@ -33,8 +34,8 @@ context.globalThis = context;
 vm.runInNewContext(source, context, { filename: "favorites-model.js" });
 const favorites = context.DanmakuEchoFavoritesModel;
 
-function memoryStorage() {
-  const values = {};
+function memoryStorage(initial = {}) {
+  const values = JSON.parse(JSON.stringify(initial));
   return {
     get(key, callback) {
       callback({ [key]: values[key] });
@@ -78,6 +79,156 @@ test("deduplicates global content and records multiple room origins", async () =
     Array.from(repository.database.items[0].origins, (origin) => origin.roomKey).sort(),
     [roomA.roomKey, roomB.roomKey]
   );
+});
+
+test("stores image Emoji and mixed content as a resendable favorite payload", async () => {
+  const repository = favorites.createFavoritesRepository(memoryStorage());
+  await repository.load();
+  const waving = {
+    keys: ["raw:https://example.com/wave.png?sign=old", "file:wave.png", "name:主播挥手"],
+    src: "https://example.com/wave.png?sign=old",
+    token: "[主播挥手]"
+  };
+  const saved = await repository.favorite("晚上好 [主播挥手]", roomA, {
+    text: "晚上好 [主播挥手]",
+    plainText: "晚上好",
+    assets: [waving],
+    parts: [
+      { type: "text", text: "晚上好 " },
+      { type: "emoji", asset: waving }
+    ]
+  });
+
+  assert.equal(saved.item.payload.assets.length, 1);
+  assert.equal(saved.item.payload.assets[0].token, "[主播挥手]");
+  assert.deepEqual(
+    Array.from(saved.item.payload.parts, (part) => part.type),
+    ["text", "emoji"]
+  );
+  assert.equal(saved.item.payload.plainText, "晚上好");
+  assert.equal(saved.item.text, "晚上好 [主播挥手]");
+});
+
+test("shows platform image names from tokens and metadata instead of generic labels", async () => {
+  assert.equal(favorites.favoriteAssetDisplayName({
+    keys: ["file:emoji_100.webp"],
+    src: "https://example.com/emoji_100.webp",
+    token: "[害羞]"
+  }), "[害羞]");
+  assert.equal(favorites.favoriteAssetDisplayName({
+    keys: [
+      "name:https://example.com/emoji.webp?sign=temporary",
+      "name:害羞",
+      "file:4fe19d82280f42ab.webp"
+    ],
+    src: "https://example.com/emoji.webp?sign=temporary",
+    token: ""
+  }), "[害羞]");
+
+  const repository = favorites.createFavoritesRepository(memoryStorage());
+  await repository.load();
+  const shy = {
+    keys: ["name:害羞", "file:4fe19d82280f42ab.webp"],
+    src: "https://example.com/4fe19d82280f42ab.webp",
+    token: ""
+  };
+  const saved = await repository.favorite("表情", roomA, {
+    text: "表情",
+    plainText: "真的",
+    assets: [shy],
+    parts: [
+      { type: "text", text: "真的" },
+      { type: "emoji", asset: shy }
+    ]
+  });
+
+  assert.equal(saved.item.text, "真的 [害羞]");
+  assert.equal(saved.item.normalizedText.includes("害羞"), true);
+});
+
+test("distinguishes rich favorites with the same display text by resource identity", async () => {
+  const repository = favorites.createFavoritesRepository(memoryStorage());
+  await repository.load();
+  const payload = (file) => ({
+    text: "图片表情",
+    plainText: "",
+    assets: [{ keys: [`file:${file}`], src: `https://example.com/${file}`, token: "" }]
+  });
+
+  await repository.favorite("图片表情", roomA, payload("first.png"));
+  await repository.favorite("图片表情", roomA, payload("second.png"));
+  await repository.favorite("图片表情", roomB, payload("first.png"));
+
+  assert.equal(repository.database.items.length, 2);
+  const shared = repository.database.items.find((item) =>
+    item.payload.assets[0].keys.includes("file:first.png"));
+  assert.deepEqual(
+    Array.from(shared.origins, (origin) => origin.roomKey).sort(),
+    [roomA.roomKey, roomB.roomKey]
+  );
+});
+
+test("loads legacy text favorites into the rich-capable schema without data loss", async () => {
+  const legacy = {
+    danmakuEchoFavoritesV1: {
+      schemaVersion: 1,
+      updatedAt: 1,
+      items: [{
+        id: "legacy",
+        text: "旧版收藏 😀",
+        normalizedText: "旧版收藏 😀",
+        createdAt: 1,
+        updatedAt: 1,
+        lastSentAt: 0,
+        totalSendCount: 0,
+        globalPinned: false,
+        origins: [],
+        roomStats: {}
+      }]
+    }
+  };
+  const repository = favorites.createFavoritesRepository(memoryStorage(legacy));
+  await repository.load();
+
+  assert.equal(repository.database.schemaVersion, 2);
+  assert.equal(repository.database.items[0].text, "旧版收藏 😀");
+  assert.equal(repository.database.items[0].payload.text, "旧版收藏 😀");
+  assert.equal(repository.database.items[0].payload.assets.length, 0);
+});
+
+test("upgrades an existing generic rich favorite to its saved image name on load", async () => {
+  const legacy = {
+    danmakuEchoFavoritesV1: {
+      schemaVersion: 2,
+      updatedAt: 1,
+      items: [{
+        id: "generic-rich",
+        text: "图片表情",
+        payload: {
+          text: "图片表情",
+          plainText: "",
+          assets: [{ keys: ["name:害羞"], src: "", token: "" }],
+          parts: [{
+            type: "emoji",
+            asset: { keys: ["name:害羞"], src: "", token: "" }
+          }]
+        },
+        normalizedText: "图片表情",
+        createdAt: 1,
+        updatedAt: 1,
+        lastSentAt: 0,
+        totalSendCount: 0,
+        globalPinned: false,
+        origins: [],
+        roomStats: {}
+      }]
+    }
+  };
+  const repository = favorites.createFavoritesRepository(memoryStorage(legacy));
+  await repository.load();
+
+  assert.equal(repository.database.items[0].text, "[害羞]");
+  assert.equal(repository.database.items[0].normalizedText.includes("害羞"), true);
 });
 
 test("sorts favorites by send count by default while preserving room filters", async () => {
@@ -192,4 +343,12 @@ test("derives stable platform room identifiers from live URLs", () => {
     "923572354274"
   );
   assert.equal(favorites.roomIdFromLocation("huya", "https://www.huya.com/some-room"), "some-room");
+});
+
+test("keeps only the themed outer ring on the favorites radial menu", () => {
+  const styles = readFileSync(resolve(root, "src", "styles", "favorites.css"), "utf8");
+  assert.doesNotMatch(styles, /\.bcp-favorites-panel::before/);
+  assert.match(styles, /\.bcp-favorites-radial::before\s*\{[\s\S]*?border:\s*2px solid var\(--bcp-favorite-accent\)/);
+  assert.match(styles, /\.bcp-favorites-radial-item\s*\{[\s\S]*?border:\s*0;/);
+  assert.doesNotMatch(styles, /\.bcp-favorites-radial-item\.is-selected\s*\{[\s\S]*?border-color:/);
 });

@@ -32,6 +32,13 @@ test("keeps a URL instead of treating its scheme as a username", () => {
   assert.equal(shared.parseMessageText("https://example.com/live"), "https://example.com/live");
 });
 
+test("preserves complete Unicode Emoji grapheme sequences", () => {
+  const family = "👨‍👩‍👧‍👦";
+  const profession = "👩🏽‍💻";
+  assert.equal(shared.normalizeWhitespace(`  ${family} ${profession}  `), `${family} ${profession}`);
+  assert.equal(shared.parseMessageText(`${family}${profession}`, 1), family);
+});
+
 test("uses the meaningful final line from a decorated chat row", () => {
   assert.equal(shared.parseMessageText("等级 12\n用户甲\n这波漂亮"), "这波漂亮");
 });
