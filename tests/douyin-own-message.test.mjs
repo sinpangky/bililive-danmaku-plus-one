@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 import { resolve } from "node:path";
@@ -32,6 +33,10 @@ const context = {};
 context.globalThis = context;
 vm.runInNewContext(source, context, { filename: "douyin-own-message.js" });
 const ownMessage = context.DanmakuEchoDouyinOwnMessage;
+const douyinStyles = readFileSync(
+  resolve(root, "src", "styles", "douyin-content.css"),
+  "utf8"
+);
 
 const asset = (...keys) => ({ src: "", token: "", keys });
 
@@ -59,4 +64,20 @@ test("requires a distinct observed asset for every expected Emoji", () => {
     [asset("name:wave"), asset("name:wave")],
     [asset("name:wave"), asset("name:wave")]
   ), true);
+});
+
+test("keeps both Douyin own-message frames larger than their content", () => {
+  const videoFrame = douyinStyles.match(
+    /\.bcp-douyin-dom-barrage\[data-own='true'\] \.bcp-douyin-dom-content\s*\{[\s\S]*?\}/
+  );
+  const sideChatFrame = douyinStyles.match(
+    /\[data-bcp-douyin-own-chat-content='true'\]\s*\{[\s\S]*?\}/
+  );
+  assert.ok(videoFrame);
+  assert.ok(sideChatFrame);
+  assert.match(videoFrame[0], /outline:\s*3px solid/);
+  assert.match(videoFrame[0], /outline-offset:\s*3px/);
+  assert.doesNotMatch(videoFrame[0], /inset/);
+  assert.match(sideChatFrame[0], /outline:\s*3px solid/);
+  assert.match(sideChatFrame[0], /outline-offset:\s*3px/);
 });

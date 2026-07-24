@@ -78,8 +78,10 @@ for (const [label, css] of [["shared", contentCss], ["Douyin", douyinContentCss]
   }
   if (!css.includes('data-action="plus-one"')
       || !css.includes("font-size: 14.4px")
-      || !css.includes("min-width: 38.4px")) {
-    throw new Error(`${label} +1 action must retain its 80% visual scale`);
+      || !css.includes("flex: 0 0 56px")
+      || !css.includes("min-width: 56px")
+      || !css.includes("width: 56px")) {
+    throw new Error(`${label} actions must use equal 56px button widths`);
   }
 }
 

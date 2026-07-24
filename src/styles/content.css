@@ -39,25 +39,20 @@
   color: var(--bcp-action-text, #fff);
   cursor: pointer;
   display: flex;
+  flex: 0 0 56px;
   font: 600 16px/22px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-feature-settings: "ss01" on, "cv01" on;
   justify-content: center;
+  min-width: 56px;
   padding: 0 12px;
   pointer-events: auto;
   transition: background-color 140ms ease, transform 140ms ease;
   white-space: nowrap;
+  width: 56px;
 }
 
 .bcp-one-action[data-action="plus-one"] {
   font-size: 14.4px;
-  min-width: 38.4px;
-  padding-right: 9.6px;
-  padding-left: 9.6px;
-}
-
-.bcp-one-action[data-action="reply"],
-.bcp-one-action[data-action="favorite"] {
-  min-width: 56px;
 }
 
 .bcp-one-action:hover {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 import { resolve } from "node:path";
@@ -32,6 +33,18 @@ const context = {};
 context.globalThis = context;
 vm.runInNewContext(source, context, { filename: "live-action-visibility.js" });
 const { visibleActionsForSurface } = context.DanmakuEchoLiveActionVisibility;
+const sharedContentStyles = readFileSync(
+  resolve(root, "src", "styles", "content.css"),
+  "utf8"
+);
+const douyinContentStyles = readFileSync(
+  resolve(root, "src", "styles", "douyin-content.css"),
+  "utf8"
+);
+const douyinPageHook = readFileSync(
+  resolve(root, "src", "entries", "douyin-page-hook.ts"),
+  "utf8"
+);
 
 const settings = {
   actions: { plusOne: true, reply: true, favorite: true },
@@ -82,4 +95,23 @@ test("keeps video-overlay plus-one controlled by the existing global action", ()
     ...settings,
     actions: { ...settings.actions, plusOne: false }
   }, "huya", "overlay").plusOne, false);
+});
+
+test("gives plus-one, reply and favorite equal widths on every capsule", () => {
+  for (const [styles, selector] of [
+    [sharedContentStyles, ".bcp-one-action"],
+    [douyinContentStyles, ".bcp-douyin-dom-action-item"],
+    [douyinContentStyles, ".bcp-douyin-action-item"]
+  ]) {
+    const escapedSelector = selector.replaceAll(".", "\\.");
+    const block = styles.match(new RegExp(`${escapedSelector}\\s*\\{[\\s\\S]*?\\}`));
+    assert.ok(block, `${selector} styles should exist`);
+    assert.match(block[0], /flex:\s*0 0 56px/);
+    assert.match(block[0], /min-width:\s*56px/);
+    assert.match(block[0], /width:\s*56px/);
+  }
+  assert.match(
+    douyinPageHook,
+    /DOM_ACTION_ITEM_WIDTHS[\s\S]*?plusOne:\s*56,[\s\S]*?reply:\s*56,[\s\S]*?favorite:\s*56/
+  );
 });

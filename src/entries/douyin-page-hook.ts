@@ -44,7 +44,7 @@ import { extractSenderFromRecord } from "../core/reply";
   const DEBUG_VERSION = "douyin-dom-renderer-v13-manual-own-race";
   const DOM_ACTION_HEIGHT = 40;
   const DOM_ACTION_ITEM_WIDTHS = Object.freeze({
-    plusOne: 38.4,
+    plusOne: 56,
     reply: 56,
     favorite: 56
   });

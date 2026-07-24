@@ -33,7 +33,7 @@
 }
 
 .bcp-douyin-dom-track {
-  --bcp-douyin-action-space: 38.4px;
+  --bcp-douyin-action-space: 174px;
   --bcp-douyin-action-gap: 8px;
   --bcp-douyin-hover-trailing-space: 12px;
   align-items: center;
@@ -99,20 +99,26 @@
   white-space: nowrap;
 }
 
-/* A layout-neutral frame makes the user's echoed barrage easy to spot. */
+/*
+ * Keep the user's frame outside the rendered content. The gap prevents the
+ * frame from covering text or image Emoji without changing barrage geometry.
+ */
 .bcp-douyin-dom-barrage[data-own='true'] .bcp-douyin-dom-content {
   background: color-mix(in srgb,
     var(--bcp-selection, #fd8101) 18%, transparent);
-  border-radius: 5px;
-  box-shadow: inset 0 0 0 2px color-mix(in srgb,
+  border-radius: 7px;
+  outline: 3px solid color-mix(in srgb,
     var(--bcp-selection, #fd8101) 96%, transparent);
+  outline-offset: 3px;
 }
 
 /* The side chat keeps native interactions, but sent messages get a layout-neutral frame. */
 [data-bcp-douyin-own-chat-content='true'] {
   background: rgb(255 91 52 / 14%) !important;
-  border-radius: 5px !important;
-  box-shadow: 0 0 0 2px rgb(255 116 76 / 92%) !important;
+  border-radius: 7px !important;
+  box-shadow: none !important;
+  outline: 3px solid rgb(255 116 76 / 92%) !important;
+  outline-offset: 3px !important;
 }
 
 /*
@@ -164,25 +170,20 @@
   color: var(--bcp-action-text, #fff);
   cursor: pointer;
   display: inline-flex;
+  flex: 0 0 56px;
   font: 600 16px/22px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-feature-settings: "ss01" on, "cv01" on;
   justify-content: center;
+  min-width: 56px;
   padding: 0 12px;
   touch-action: manipulation;
   transition: background-color 140ms ease, transform 140ms ease;
   white-space: nowrap;
+  width: 56px;
 }
 
 .bcp-douyin-dom-action-item[data-action="plus-one"] {
   font-size: 14.4px;
-  min-width: 38.4px;
-  padding-right: 9.6px;
-  padding-left: 9.6px;
-}
-
-.bcp-douyin-dom-action-item[data-action="reply"],
-.bcp-douyin-dom-action-item[data-action="favorite"] {
-  min-width: 56px;
 }
 
 .bcp-douyin-dom-action-item:hover {
@@ -337,25 +338,20 @@
   color: var(--bcp-action-text, #fff);
   cursor: pointer;
   display: inline-flex;
+  flex: 0 0 56px;
   font: 600 16px/22px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-feature-settings: "ss01" on, "cv01" on;
   justify-content: center;
+  min-width: 56px;
   padding: 0 12px;
   pointer-events: auto !important;
   transition: background-color 140ms ease, transform 140ms ease;
   white-space: nowrap;
+  width: 56px;
 }
 
 .bcp-douyin-action-item[data-action="plus-one"] {
   font-size: 14.4px;
-  min-width: 38.4px;
-  padding-right: 9.6px;
-  padding-left: 9.6px;
-}
-
-.bcp-douyin-action-item[data-action="reply"],
-.bcp-douyin-action-item[data-action="favorite"] {
-  min-width: 56px;
 }
 
 .bcp-douyin-action-item:hover {
