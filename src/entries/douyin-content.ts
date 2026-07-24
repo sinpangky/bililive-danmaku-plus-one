@@ -15,6 +15,7 @@ import {
   normalizeRichPayload as normalizeOwnMessagePayload,
   payloadSignature as ownMessagePayloadSignature
 } from "../platforms/douyin/own-message";
+import { appendedMutationValue } from "../platforms/douyin/input-order";
 import { createFavoritesRuntime } from "../features/favorites/launcher";
 import { unicodeEmojiFallbackText } from "../platforms/live/emoji-fallback";
 import { createDouyinOverlay } from "../ui/douyin-overlay";
@@ -1452,6 +1453,7 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
         inputType: "insertText"
       }));
       input.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+      placeCaretAtEnd(input);
       return;
     }
     if (input.isContentEditable
@@ -1838,7 +1840,39 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
     return !(input instanceof Element) || !input.querySelector("img,[data-emoji],[data-emoticon]");
   }
 
+  async function restoreRichInputCaret(input) {
+    if (!input || !input.isConnected) {
+      return false;
+    }
+    input.focus({ preventScroll: true });
+    placeCaretAtEnd(input);
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    if (!input.isConnected) {
+      return false;
+    }
+    input.focus({ preventScroll: true });
+    placeCaretAtEnd(input);
+    return true;
+  }
+
+  async function waitForRichInputStability(input, timeout) {
+    const deadline = Date.now() + timeout;
+    let previous = richInputFingerprint(input);
+    let stableSamples = 0;
+    while (Date.now() < deadline && stableSamples < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      const current = richInputFingerprint(input);
+      if (current === previous) {
+        stableSamples += 1;
+      } else {
+        previous = current;
+        stableSamples = 0;
+      }
+    }
+  }
+
   async function insertEmojiAsset(input, asset) {
+    await restoreRichInputCaret(input);
     let item = findMatchingEmojiItem(asset);
     if (!item) {
       const toggle = findEmojiToggle(input);
@@ -1862,6 +1896,9 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
       }, "error");
       return { ok: false, reason: "emoji-not-found" };
     }
+    if (!await restoreRichInputCaret(input)) {
+      return { ok: false, reason: "input-detached" };
+    }
     const before = richInputFingerprint(input);
     item.click();
     const deadline = Date.now() + 600;
@@ -1871,6 +1908,17 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
     if (richInputFingerprint(input) === before) {
       return { ok: false, reason: "emoji-not-inserted" };
     }
+    if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
+      const orderedValue = appendedMutationValue(before, input.value);
+      if (orderedValue && orderedValue !== input.value) {
+        setInputValue(input, orderedValue);
+        debugEvent("emoji-input-order-repaired", {
+          insertedLength: orderedValue.length - before.length
+        }, "info");
+      }
+    }
+    await waitForRichInputStability(input, 180);
+    await restoreRichInputCaret(input);
     debugState.counters.emojiAssetsInserted += 1;
     return { ok: true, reason: "inserted" };
   }
@@ -1944,6 +1992,10 @@ import { createDouyinOverlay } from "../ui/douyin-overlay";
     for (const part of parts) {
       if (part.type === "text") {
         appendInputText(input, part.text);
+        await waitForRichInputStability(input, 180);
+        if (!await restoreRichInputCaret(input)) {
+          return { ok: false, reason: "input-detached" };
+        }
       } else if (part.type === "emoji") {
         const inserted = await insertEmojiAsset(input, part.asset);
         if (!inserted.ok) {

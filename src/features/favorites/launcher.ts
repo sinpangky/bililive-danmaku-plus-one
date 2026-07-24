@@ -7,11 +7,14 @@ import { currentRoomContext } from "./room-context";
 import { groupedFavorites, rankedFavorites } from "./ranking";
 import {
   FAVORITES_STORAGE_KEY,
+  FAVORITE_WRITE_MESSAGE,
   type FavoriteDisplayItem,
   type FavoritePayload,
   type FavoriteRoomGroup,
   type FavoriteSort,
   type FavoriteView,
+  type FavoriteWriteRequest,
+  type FavoriteWriteResponse,
   type RoomContext
 } from "./types";
 
@@ -67,6 +70,7 @@ const FAVORITES_UI_VERSION = 2;
 const OWNER_SELECTOR = "[data-bcp-favorites-runtime-owner='true']";
 const STALE_PORTAL_SELECTOR = ".bcp-favorites-host, .bcp-favorites-portal";
 const OPEN_REQUEST_EVENT = "danmaku-echo:favorites-open";
+const FAVORITE_WRITE_TIMEOUT = 6_000;
 
 function runtimeId(extensionId: string): string {
   const random = typeof globalThis.crypto?.randomUUID === "function"
@@ -110,9 +114,61 @@ function extensionContextAvailable(extensionId: string): boolean {
 
 function favoriteErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error || "");
-  return /extension context invalidated/i.test(message)
+  return /extension context invalidated|receiving end does not exist|message port closed/i.test(message)
     ? "扩展已更新，请刷新直播页后重试"
     : message || "收藏失败";
+}
+
+function mutateFavoriteInBackground(
+  request: Omit<FavoriteWriteRequest, "type">
+): Promise<FavoriteWriteResponse> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error("收藏服务响应超时，请重试"));
+    }, FAVORITE_WRITE_TIMEOUT);
+    try {
+      chrome.runtime.sendMessage({ ...request, type: FAVORITE_WRITE_MESSAGE }, (
+        response: FavoriteWriteResponse | undefined
+      ) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try {
+          const error = chrome.runtime.lastError;
+          if (error) {
+            reject(new Error(error.message));
+          } else if (!response?.ok) {
+            reject(new Error(response?.error || "收藏服务暂不可用"));
+          } else {
+            resolve(response);
+          }
+        } catch (error) {
+          reject(error);
+        }
+      });
+    } catch (error) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    }
+  });
+}
+
+function writeFavoriteInBackground(
+  text: string,
+  room: RoomContext,
+  payload?: unknown
+): Promise<FavoriteWriteResponse> {
+  return mutateFavoriteInBackground({
+    operation: "favorite",
+    payload,
+    room,
+    text
+  });
 }
 
 function editableTarget(target: EventTarget | null): boolean {
@@ -374,20 +430,30 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
     const success = await options.sendFavorite(item.payload);
     portal.dataset.bcpFavoritesLastSendResult = success ? "success" : "failed";
     if (success) {
-      await repository.recordSent(id, currentRoom);
+      try {
+        await mutateFavoriteInBackground({ id, operation: "record-sent", room: currentRoom });
+      } catch (error) {
+        options.showToast(`弹幕已发送，但发送次数保存失败：${favoriteErrorMessage(error)}`, "warning");
+      }
     }
   }
 
   async function addToRoom(id: string): Promise<void> {
-    await repository.addToRoom(id, room());
-    options.showToast("已加入本房收藏", "success");
-    refresh();
+    try {
+      await mutateFavoriteInBackground({ id, operation: "add-to-room", room: room() });
+      options.showToast("已加入本房收藏", "success");
+    } catch (error) {
+      options.showToast(favoriteErrorMessage(error), "error");
+    }
   }
 
   async function remove(id: string): Promise<void> {
-    await repository.remove(id);
-    options.showToast("已删除收藏", "success");
-    refresh();
+    try {
+      await mutateFavoriteInBackground({ id, operation: "remove", room: room() });
+      options.showToast("已删除收藏", "success");
+    } catch (error) {
+      options.showToast(favoriteErrorMessage(error), "error");
+    }
   }
 
   function changeView(view: FavoriteView): void {
@@ -493,7 +559,9 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
     areaName
   ) => {
     if (areaName === "local" && changes[FAVORITES_STORAGE_KEY]) {
-      void repository.load();
+      void repository.load().catch((error) => {
+        console.warn("[Danmaku Echo] favorites refresh failed", error);
+      });
     }
   };
 
@@ -525,14 +593,25 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
       }
     },
     async favoriteText(text: string, payload?: unknown): Promise<boolean | null> {
-      if (destroyed || !ownsUi() || !extensionContextAvailable(extensionId)) return null;
+      if (!options.enabled()) return false;
+      if (!extensionContextAvailable(extensionId)) {
+        options.showToast("扩展已更新，请刷新直播页后重试", "error");
+        return false;
+      }
+      const pendingFeedback = setTimeout(() => {
+        options.showToast("正在收藏…", "info");
+      }, 300);
       try {
-        const result = await repository.favorite(text, room(), payload);
-        options.showToast(result.added ? "已收藏到本房" : "这条弹幕已经收藏", "success");
+        const currentRoom = room();
+        const response = await writeFavoriteInBackground(text, currentRoom, payload);
+        const added = Boolean(response.added);
+        options.showToast(added ? "已收藏到本房" : "这条弹幕已经收藏", "success");
         return true;
       } catch (error) {
         options.showToast(favoriteErrorMessage(error), "error");
         return false;
+      } finally {
+        clearTimeout(pendingFeedback);
       }
     },
     openPanel
@@ -543,7 +622,15 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
     state.loading = false;
     refresh();
   });
-  void repository.load();
+  void repository.load().then(() => {
+    if (repository.recoveredFromBackup) {
+      options.showToast("检测到收藏数据异常，已从本地备份自动恢复", "warning");
+    }
+  }).catch((error) => {
+    state.loading = false;
+    options.showToast(favoriteErrorMessage(error), "error");
+    console.warn("[Danmaku Echo] favorites load failed", error);
+  });
   uiObserver.observe(document.documentElement, { childList: true, subtree: true });
   document.addEventListener(OPEN_REQUEST_EVENT, onExternalOpen);
   document.addEventListener("pointermove", onPointerMove, true);

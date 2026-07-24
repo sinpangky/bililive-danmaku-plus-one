@@ -78,6 +78,8 @@ test("Douyin keeps native image-only Emoji renderable and confirms direct panel 
   assert.match(contentSource, /"\[class\*='emoji-icon' i\]"/);
   assert.match(contentSource, /\(!isVisible\(element\) && !insideEmojiSurface\)/);
   assert.match(contentSource, /debugEvent\("emoji-asset-not-found"/);
+  assert.match(contentSource, /await restoreRichInputCaret\(input\)/);
+  assert.match(contentSource, /appendedMutationValue\(before, input\.value\)/);
   assert.match(pageHookSource, /barrageInteractionText\(description\.text, description\.imageCount\)/);
   assert.match(pageHookSource, /type: "own-message-consumed"/);
 });
@@ -115,6 +117,6 @@ test("Douyin never selects the whole page while clearing a failed rich +1", () =
 test("favorites accepts complete rich payloads instead of rejecting image Emoji", () => {
   const launcherSource = readFileSync(resolve(root, "src", "features", "favorites", "launcher.ts"), "utf8");
   assert.doesNotMatch(launcherSource, /暂不支持收藏/);
-  assert.match(launcherSource, /repository\.favorite\(text, room\(\), payload\)/);
+  assert.match(launcherSource, /writeFavoriteInBackground\(text, currentRoom, payload\)/);
   assert.match(launcherSource, /options\.sendFavorite\(item\.payload\)/);
 });

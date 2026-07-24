@@ -39,6 +39,10 @@ test("rejects media-bearing overlay candidates and builds inert frozen snapshots
     freezeOverlaySource[0],
     /createInertOverlaySnapshot\(candidate\)/
   );
+  assert.match(
+    freezeOverlaySource[0],
+    /snapshot\.classList\.add\("bcp-one-frozen", "bcp-one-target"\)/
+  );
   assert.doesNotMatch(freezeOverlaySource[0], /cloneNode/);
   assert.doesNotMatch(contentSource, /\.cloneNode\(/);
   assert.match(contentSource, /document\.createElement\("span"\)/);

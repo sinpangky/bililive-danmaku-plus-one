@@ -1255,7 +1255,9 @@ import { createContentOverlay } from "../ui/content-overlay";
     // custom elements or clonable shadow roots that initialize a new media
     // pipeline during a deep DOM clone, before media descendants can be removed.
     const snapshot = createInertOverlaySnapshot(candidate);
-    snapshot.classList.add("bcp-one-frozen");
+    // The live candidate is hidden while hovered, so its selection outline is
+    // invisible. Keep the outline on the inert snapshot shown in its place.
+    snapshot.classList.add("bcp-one-frozen", "bcp-one-target");
     snapshot.dataset.bcpOneOwned = "true";
 
     snapshot.style.setProperty("position", "fixed", "important");

@@ -1,6 +1,6 @@
 {
   "name": "danmaku-echo",
-  "version": "2.0.6",
+  "version": "2.0.7",
   "private": true,
   "description": "Danmaku echoing, replies, and local favorites for Huya, Bilibili, and Douyin Live",
   "license": "GPL-3.0-or-later",
@@ -18,7 +18,7 @@
     "dev": "vite",
     "build": "node scripts/build-extension.mjs",
     "typecheck": "tsc --noEmit && vue-tsc --noEmit",
-    "test": "npm run build && node --test tests/shared.test.js tests/reply.test.mjs tests/douyin-barrage-model.test.mjs tests/douyin-rich-data.test.mjs tests/douyin-own-message.test.mjs tests/bilibili-dom-config.test.mjs tests/content-media-safety.test.js tests/live-action-visibility.test.mjs tests/emoji-fallback.test.mjs tests/favorites.test.mjs",
+    "test": "npm run build && node --test tests/shared.test.js tests/reply.test.mjs tests/douyin-barrage-model.test.mjs tests/douyin-rich-data.test.mjs tests/douyin-input-order.test.mjs tests/douyin-own-message.test.mjs tests/bilibili-dom-config.test.mjs tests/content-media-safety.test.js tests/live-action-visibility.test.mjs tests/emoji-fallback.test.mjs tests/favorites.test.mjs",
     "check": "npm run typecheck && npm run build && node tests/validate-manifest.js build/extension && node tests/validate-vue-architecture.js && node --check build/extension/src/content.js && node --check build/extension/src/douyin-page-hook.js && node --check build/extension/src/douyin-content.js && node --check tests/fixture-server.js && node --check tests/inspect-live-dom.js && node --check tests/inspect-popup.mjs && npm test",
     "package": "node scripts/sync-version.js && npm run check && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1"
   },

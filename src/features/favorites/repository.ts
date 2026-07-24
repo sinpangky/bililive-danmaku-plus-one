@@ -1,4 +1,6 @@
 import {
+  FAVORITES_BACKUP_STORAGE_KEY,
+  FAVORITES_IMPORT_BACKUP_STORAGE_KEY,
   FAVORITES_SCHEMA_VERSION,
   FAVORITES_STORAGE_KEY,
   type FavoriteAsset,
@@ -12,9 +14,16 @@ import {
 } from "./types";
 
 type StorageAreaLike = Pick<chrome.storage.StorageArea, "get" | "set">;
+const STORAGE_OPERATION_TIMEOUT = 4_000;
 
 function emptyDatabase(): FavoritesDatabase {
-  return { items: [], schemaVersion: FAVORITES_SCHEMA_VERSION, updatedAt: 0 };
+  return {
+    items: [],
+    revision: 0,
+    schemaVersion: FAVORITES_SCHEMA_VERSION,
+    updatedAt: 0,
+    writeId: ""
+  };
 }
 
 function favoriteId(): string {
@@ -228,27 +237,169 @@ function normalizeDatabase(value: unknown): FavoritesDatabase {
   }) : [];
   return {
     items,
+    revision: Math.max(0, Number(source.revision) || 0),
     schemaVersion: FAVORITES_SCHEMA_VERSION,
-    updatedAt: Number(source.updatedAt) || 0
+    updatedAt: Number(source.updatedAt) || 0,
+    writeId: String(source.writeId || "").slice(0, 160)
   };
 }
 
-function storageGet(area: StorageAreaLike): Promise<FavoritesDatabase> {
-  return new Promise((resolve) => {
-    area.get(FAVORITES_STORAGE_KEY, (result) => {
-      resolve(normalizeDatabase(result?.[FAVORITES_STORAGE_KEY]));
-    });
+function storedDatabase(value: unknown): FavoritesDatabase | null {
+  if (!isRecord(value) || !Array.isArray(value.items)) return null;
+  if (value.items.some((item) => !isRecord(item)
+      || !String(item.id || "").trim()
+      || (!normalizeFavoriteText(item.text) && !isRecord(item.payload)))) {
+    return null;
+  }
+  const normalized = normalizeDatabase(value);
+  if (normalized.items.length !== value.items.length
+      || new Set(normalized.items.map((item) => item.id)).size !== normalized.items.length) {
+    return null;
+  }
+  return normalized;
+}
+
+function storageValues(area: StorageAreaLike): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error("读取收藏超时，请重试"));
+    }, STORAGE_OPERATION_TIMEOUT);
+    try {
+      area.get([FAVORITES_STORAGE_KEY, FAVORITES_BACKUP_STORAGE_KEY], (result) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try {
+          const error = globalThis.chrome?.runtime?.lastError;
+          if (error) reject(new Error(error.message));
+          else resolve(result || {});
+        } catch (error) {
+          reject(error);
+        }
+      });
+    } catch (error) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    }
   });
 }
 
-function storageSet(area: StorageAreaLike, database: FavoritesDatabase): Promise<void> {
+async function storageGet(area: StorageAreaLike): Promise<{
+  database: FavoritesDatabase;
+  recoveredFromBackup: boolean;
+}> {
+  const values = await storageValues(area);
+  const primaryValue = values[FAVORITES_STORAGE_KEY];
+  const primary = storedDatabase(primaryValue);
+  if (primary) return { database: primary, recoveredFromBackup: false };
+
+  const backup = storedDatabase(values[FAVORITES_BACKUP_STORAGE_KEY]);
+  if (backup) return { database: backup, recoveredFromBackup: true };
+  if (primaryValue === undefined || primaryValue === null) {
+    return { database: emptyDatabase(), recoveredFromBackup: false };
+  }
+  throw new Error("收藏数据损坏，且没有可用的本地备份");
+}
+
+function storageWrite(area: StorageAreaLike, update: Record<string, unknown>): Promise<void> {
   return new Promise((resolve, reject) => {
-    area.set({ [FAVORITES_STORAGE_KEY]: database }, () => {
-      const error = globalThis.chrome?.runtime?.lastError;
-      if (error) reject(new Error(error.message));
-      else resolve();
-    });
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error("保存收藏超时，请重试"));
+    }, STORAGE_OPERATION_TIMEOUT);
+    try {
+      area.set(update, () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try {
+          const error = globalThis.chrome?.runtime?.lastError;
+          if (error) reject(new Error(error.message));
+          else resolve();
+        } catch (error) {
+          reject(error);
+        }
+      });
+    } catch (error) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    }
   });
+}
+
+async function storageSet(area: StorageAreaLike, database: FavoritesDatabase): Promise<void> {
+  await storageWrite(area, {
+    [FAVORITES_STORAGE_KEY]: database,
+    [FAVORITES_BACKUP_STORAGE_KEY]: database
+  });
+  const values = await storageValues(area);
+  const verified = storedDatabase(values[FAVORITES_STORAGE_KEY]);
+  if (!verified || verified.writeId !== database.writeId
+      || verified.revision !== database.revision) {
+    throw new Error("收藏写入校验失败，请重试");
+  }
+}
+
+export interface FavoritesExportBundle {
+  database: FavoritesDatabase;
+  exportedAt: number;
+  format: "danmaku-echo-favorites";
+  schemaVersion: typeof FAVORITES_SCHEMA_VERSION;
+}
+
+export async function exportFavoritesData(area: StorageAreaLike): Promise<FavoritesExportBundle> {
+  const loaded = await storageGet(area);
+  return {
+    database: loaded.database,
+    exportedAt: Date.now(),
+    format: "danmaku-echo-favorites",
+    schemaVersion: FAVORITES_SCHEMA_VERSION
+  };
+}
+
+export async function importFavoritesData(
+  area: StorageAreaLike,
+  value: unknown
+): Promise<FavoritesDatabase> {
+  let parsed = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      throw new Error("备份文件不是有效的 JSON");
+    }
+  }
+  if (!isRecord(parsed) || parsed.format !== "danmaku-echo-favorites"
+      || !Object.hasOwn(parsed, "database")) {
+    throw new Error("不是弹幕回声收藏备份文件");
+  }
+  const incoming = storedDatabase(parsed.database);
+  if (!incoming) throw new Error("收藏备份内容损坏或格式不完整");
+
+  const current = (await storageGet(area)).database;
+  incoming.revision = Math.max(current.revision, incoming.revision) + 1;
+  incoming.updatedAt = Date.now();
+  incoming.writeId = favoriteId();
+  await storageWrite(area, {
+    [FAVORITES_STORAGE_KEY]: incoming,
+    [FAVORITES_BACKUP_STORAGE_KEY]: incoming,
+    [FAVORITES_IMPORT_BACKUP_STORAGE_KEY]: current
+  });
+  const values = await storageValues(area);
+  const verified = storedDatabase(values[FAVORITES_STORAGE_KEY]);
+  if (!verified || verified.writeId !== incoming.writeId) {
+    throw new Error("导入后校验失败，原收藏已保留在本地备份中");
+  }
+  return verified;
 }
 
 function roomStats(item: FavoriteDanmaku, roomKey: string): FavoriteRoomStats {
@@ -257,38 +408,70 @@ function roomStats(item: FavoriteDanmaku, roomKey: string): FavoriteRoomStats {
 
 export function createFavoritesRepository(area: StorageAreaLike) {
   let database = emptyDatabase();
+  let recoveredFromBackup = false;
+  let operationQueue: Promise<void> = Promise.resolve();
   const listeners = new Set<(database: FavoritesDatabase) => void>();
 
   function notify(): void {
     listeners.forEach((listener) => listener(database));
   }
 
+  function enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const result = operationQueue.then(operation, operation);
+    operationQueue = result.then(() => undefined, () => undefined);
+    return result;
+  }
+
+  async function loadLatest(): Promise<void> {
+    const loaded = await storageGet(area);
+    database = loaded.database;
+    recoveredFromBackup = loaded.recoveredFromBackup;
+  }
+
   async function persist(): Promise<void> {
     database.updatedAt = Date.now();
+    database.revision += 1;
+    database.writeId = favoriteId();
     await storageSet(area, database);
     notify();
   }
 
+  function mutate<T>(operation: () => { changed: boolean; result: T }): Promise<T> {
+    return enqueue(async () => {
+      await loadLatest();
+      const mutation = operation();
+      if (mutation.changed || recoveredFromBackup) {
+        await persist();
+        recoveredFromBackup = false;
+      } else {
+        notify();
+      }
+      return mutation.result;
+    });
+  }
+
   return {
     async addToRoom(id: string, room: RoomContext): Promise<void> {
-      const item = database.items.find((entry) => entry.id === id);
-      if (!item) return;
-      const now = Date.now();
-      if (!item.origins.some((origin) => origin.roomKey === room.roomKey)) {
-        item.origins.push({
-          collectedAt: now,
-          platform: room.platform,
-          roomId: room.roomId,
-          roomKey: room.roomKey,
-          roomName: room.roomName
-        });
-      }
-      item.roomStats[room.roomKey] = {
-        ...roomStats(item, room.roomKey),
-        addedToRoomAt: now
-      };
-      item.updatedAt = now;
-      await persist();
+      return mutate(() => {
+        const item = database.items.find((entry) => entry.id === id);
+        if (!item) return { changed: false, result: undefined };
+        const now = Date.now();
+        if (!item.origins.some((origin) => origin.roomKey === room.roomKey)) {
+          item.origins.push({
+            collectedAt: now,
+            platform: room.platform,
+            roomId: room.roomId,
+            roomKey: room.roomKey,
+            roomName: room.roomName
+          });
+        }
+        item.roomStats[room.roomKey] = {
+          ...roomStats(item, room.roomKey),
+          addedToRoomAt: now
+        };
+        item.updatedAt = now;
+        return { changed: true, result: undefined };
+      });
     },
     async favorite(
       textValue: unknown,
@@ -299,68 +482,84 @@ export function createFavoritesRepository(area: StorageAreaLike) {
       const text = favoriteDisplayText(payload, textValue);
       if (!text) throw new Error("收藏内容为空");
       const key = favoriteKey(text, payload);
-      const now = Date.now();
-      let item = database.items.find((entry) => entry.normalizedText === key);
-      const added = !item;
-      if (!item) {
-        item = {
-          createdAt: now,
-          globalPinned: false,
-          id: favoriteId(),
-          lastSentAt: 0,
-          normalizedText: key,
-          origins: [],
-          payload,
-          roomStats: {},
-          text,
-          totalSendCount: 0,
-          updatedAt: now
+      return mutate(() => {
+        const now = Date.now();
+        let item = database.items.find((entry) => entry.normalizedText === key);
+        const added = !item;
+        if (!item) {
+          item = {
+            createdAt: now,
+            globalPinned: false,
+            id: favoriteId(),
+            lastSentAt: 0,
+            normalizedText: key,
+            origins: [],
+            payload,
+            roomStats: {},
+            text,
+            totalSendCount: 0,
+            updatedAt: now
+          };
+          database.items.push(item);
+        }
+        if (!item.origins.some((origin) => origin.roomKey === room.roomKey)) {
+          item.origins.push({
+            collectedAt: now,
+            platform: room.platform,
+            roomId: room.roomId,
+            roomKey: room.roomKey,
+            roomName: room.roomName
+          });
+        }
+        item.roomStats[room.roomKey] = {
+          ...roomStats(item, room.roomKey),
+          addedToRoomAt: item.roomStats[room.roomKey]?.addedToRoomAt || now
         };
-        database.items.push(item);
-      }
-      if (!item.origins.some((origin) => origin.roomKey === room.roomKey)) {
-        item.origins.push({
-          collectedAt: now,
-          platform: room.platform,
-          roomId: room.roomId,
-          roomKey: room.roomKey,
-          roomName: room.roomName
-        });
-      }
-      item.roomStats[room.roomKey] = {
-        ...roomStats(item, room.roomKey),
-        addedToRoomAt: item.roomStats[room.roomKey]?.addedToRoomAt || now
-      };
-      item.updatedAt = now;
-      await persist();
-      return { added, item };
+        item.updatedAt = now;
+        return { changed: true, result: { added, item } };
+      });
     },
     get database(): FavoritesDatabase {
       return database;
     },
+    get recoveredFromBackup(): boolean {
+      return recoveredFromBackup;
+    },
     async load(): Promise<FavoritesDatabase> {
-      database = await storageGet(area);
-      notify();
-      return database;
+      return enqueue(async () => {
+        await loadLatest();
+        if (recoveredFromBackup) {
+          await persist();
+        } else {
+          notify();
+        }
+        return database;
+      });
     },
     async recordSent(id: string, room: RoomContext): Promise<void> {
-      const item = database.items.find((entry) => entry.id === id);
-      if (!item) return;
-      const now = Date.now();
-      const stats = roomStats(item, room.roomKey);
-      item.roomStats[room.roomKey] = {
-        ...stats,
-        lastSentAt: now,
-        sendCount: stats.sendCount + 1
-      };
-      item.lastSentAt = now;
-      item.totalSendCount += 1;
-      item.updatedAt = now;
-      await persist();
+      return mutate(() => {
+        const item = database.items.find((entry) => entry.id === id);
+        if (!item) return { changed: false, result: undefined };
+        const now = Date.now();
+        const stats = roomStats(item, room.roomKey);
+        item.roomStats[room.roomKey] = {
+          ...stats,
+          lastSentAt: now,
+          sendCount: stats.sendCount + 1
+        };
+        item.lastSentAt = now;
+        item.totalSendCount += 1;
+        item.updatedAt = now;
+        return { changed: true, result: undefined };
+      });
     },
     async remove(id: string): Promise<void> {
-      database.items = database.items.filter((entry) => entry.id !== id);
-      await persist();
+      return mutate(() => {
+        const next = database.items.filter((entry) => entry.id !== id);
+        const changed = next.length !== database.items.length;
+        database.items = next;
+        return { changed, result: undefined };
+      });
     },
     subscribe(listener: (database: FavoritesDatabase) => void): () => void {
       listeners.add(listener);

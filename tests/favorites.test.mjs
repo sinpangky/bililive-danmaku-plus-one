@@ -29,7 +29,12 @@ const buildResult = await build({
 const output = Array.isArray(buildResult) ? buildResult[0] : buildResult;
 const source = output.output.find((entry) => entry.type === "chunk")?.code;
 if (!source) throw new Error("Could not build favorites model test module");
-const context = { crypto: globalThis.crypto, URL };
+const context = {
+  clearTimeout,
+  crypto: globalThis.crypto,
+  setTimeout,
+  URL
+};
 context.globalThis = context;
 vm.runInNewContext(source, context, { filename: "favorites-model.js" });
 const favorites = context.DanmakuEchoFavoritesModel;
@@ -37,12 +42,19 @@ const favorites = context.DanmakuEchoFavoritesModel;
 function memoryStorage(initial = {}) {
   const values = JSON.parse(JSON.stringify(initial));
   return {
-    get(key, callback) {
-      callback({ [key]: values[key] });
+    get(keys, callback) {
+      const requested = Array.isArray(keys) ? keys : [keys];
+      callback(Object.fromEntries(requested.map((key) => [key, values[key]])));
     },
     set(update, callback) {
       Object.assign(values, JSON.parse(JSON.stringify(update)));
       callback();
+    },
+    snapshot() {
+      return JSON.parse(JSON.stringify(values));
+    },
+    writeRaw(key, value) {
+      values[key] = JSON.parse(JSON.stringify(value));
     }
   };
 }
@@ -255,13 +267,15 @@ test("supports ascending and descending collection-time sorting", async () => {
   await repository.load();
   const older = await repository.favorite("较早收藏", roomA);
   const newer = await repository.favorite("较晚收藏", roomA);
-  older.item.createdAt = 1_000;
-  older.item.origins[0].collectedAt = 1_000;
-  older.item.roomStats[roomA.roomKey].addedToRoomAt = 1_000;
-  newer.item.createdAt = 2_000;
-  newer.item.origins[0].collectedAt = 2_000;
-  newer.item.roomStats[roomA.roomKey].addedToRoomAt = 2_000;
-  older.item.totalSendCount = 5;
+  const currentOlder = repository.database.items.find((item) => item.id === older.item.id);
+  const currentNewer = repository.database.items.find((item) => item.id === newer.item.id);
+  currentOlder.createdAt = 1_000;
+  currentOlder.origins[0].collectedAt = 1_000;
+  currentOlder.roomStats[roomA.roomKey].addedToRoomAt = 1_000;
+  currentNewer.createdAt = 2_000;
+  currentNewer.origins[0].collectedAt = 2_000;
+  currentNewer.roomStats[roomA.roomKey].addedToRoomAt = 2_000;
+  currentOlder.totalSendCount = 5;
 
   assert.deepEqual(
     Array.from(favorites.rankedFavorites(
@@ -290,9 +304,9 @@ test("groups other and all favorites by room before exposing messages", async ()
   const shared = await repository.favorite("跨房弹幕", roomA);
   await repository.favorite("跨房弹幕", roomB);
   const onlyB = await repository.favorite("B房弹幕", roomB);
-  shared.item.totalSendCount = 4;
-  onlyB.item.totalSendCount = 2;
-  onlyA.item.totalSendCount = 1;
+  repository.database.items.find((item) => item.id === shared.item.id).totalSendCount = 4;
+  repository.database.items.find((item) => item.id === onlyB.item.id).totalSendCount = 2;
+  repository.database.items.find((item) => item.id === onlyA.item.id).totalSendCount = 1;
 
   const otherGroups = favorites.groupedFavorites(
     repository.database.items, roomA, "other"
@@ -325,11 +339,96 @@ test("can promote an other-room favorite into the current room without duplicati
   assert.equal(current[0].id, saved.item.id);
   assert.equal(current[0].belongsToCurrentRoom, true);
   assert.equal(
-    saved.item.origins.some((origin) => origin.roomKey === roomA.roomKey
+    current[0].origins.some((origin) => origin.roomKey === roomA.roomKey
       && origin.roomName === roomA.roomName),
     true
   );
   assert.equal(repository.database.items.length, 1);
+});
+
+test("serializes overlapping local mutations without losing favorites", async () => {
+  const storage = memoryStorage();
+  const repository = favorites.createFavoritesRepository(storage);
+  await repository.load();
+  await Promise.all([
+    repository.favorite("并发收藏 A", roomA),
+    repository.favorite("并发收藏 B", roomB),
+    repository.favorite("并发收藏 C", roomA)
+  ]);
+
+  assert.deepEqual(
+    Array.from(repository.database.items, (item) => item.text).sort(),
+    ["并发收藏 A", "并发收藏 B", "并发收藏 C"]
+  );
+  assert.equal(repository.database.revision, 3);
+  assert.ok(repository.database.writeId);
+});
+
+test("keeps a verified redundant copy and automatically repairs a damaged primary", async () => {
+  const storage = memoryStorage();
+  const writer = favorites.createFavoritesRepository(storage);
+  await writer.load();
+  await writer.favorite("需要保护的收藏", roomA);
+
+  const saved = storage.snapshot();
+  assert.deepEqual(
+    saved.danmakuEchoFavoritesV1,
+    saved.danmakuEchoFavoritesBackupV2
+  );
+  storage.writeRaw("danmakuEchoFavoritesV1", { items: "damaged", schemaVersion: 2 });
+
+  const reader = favorites.createFavoritesRepository(storage);
+  await reader.load();
+  assert.equal(reader.recoveredFromBackup, true);
+  assert.equal(reader.database.items[0].text, "需要保护的收藏");
+  const repaired = storage.snapshot();
+  assert.deepEqual(repaired.danmakuEchoFavoritesV1, repaired.danmakuEchoFavoritesBackupV2);
+});
+
+test("rejects damaged favorites when neither local copy is usable", async () => {
+  const storage = memoryStorage({
+    danmakuEchoFavoritesV1: { items: "damaged", schemaVersion: 2 },
+    danmakuEchoFavoritesBackupV2: { items: [null], schemaVersion: 2 }
+  });
+  const repository = favorites.createFavoritesRepository(storage);
+  await assert.rejects(repository.load(), /收藏数据损坏/);
+});
+
+test("exports a portable JSON bundle and preserves pre-import data for rollback", async () => {
+  const sourceStorage = memoryStorage();
+  const source = favorites.createFavoritesRepository(sourceStorage);
+  await source.load();
+  await source.favorite("来自备份的收藏", roomA);
+  const bundle = await favorites.exportFavoritesData(sourceStorage);
+
+  assert.equal(bundle.format, "danmaku-echo-favorites");
+  assert.equal(bundle.database.items.length, 1);
+
+  const targetStorage = memoryStorage();
+  const target = favorites.createFavoritesRepository(targetStorage);
+  await target.load();
+  await target.favorite("导入前的收藏", roomB);
+  const beforeImport = targetStorage.snapshot().danmakuEchoFavoritesV1;
+  const imported = await favorites.importFavoritesData(targetStorage, JSON.stringify(bundle));
+  const saved = targetStorage.snapshot();
+
+  assert.deepEqual(Array.from(imported.items, (item) => item.text), ["来自备份的收藏"]);
+  assert.deepEqual(saved.danmakuEchoFavoritesBeforeImportV2, beforeImport);
+  assert.deepEqual(saved.danmakuEchoFavoritesV1, saved.danmakuEchoFavoritesBackupV2);
+});
+
+test("rejects invalid import files before overwriting local favorites", async () => {
+  const storage = memoryStorage();
+  const repository = favorites.createFavoritesRepository(storage);
+  await repository.load();
+  await repository.favorite("不能丢失的收藏", roomA);
+  const before = storage.snapshot();
+
+  await assert.rejects(
+    favorites.importFavoritesData(storage, '{"format":"unknown"}'),
+    /不是弹幕回声收藏备份文件/
+  );
+  assert.deepEqual(storage.snapshot(), before);
 });
 
 test("derives stable platform room identifiers from live URLs", () => {
@@ -351,4 +450,32 @@ test("keeps only the themed outer ring on the favorites radial menu", () => {
   assert.match(styles, /\.bcp-favorites-radial::before\s*\{[\s\S]*?border:\s*2px solid var\(--bcp-favorite-accent\)/);
   assert.match(styles, /\.bcp-favorites-radial-item\s*\{[\s\S]*?border:\s*0;/);
   assert.doesNotMatch(styles, /\.bcp-favorites-radial-item\.is-selected\s*\{[\s\S]*?border-color:/);
+});
+
+test("routes long-lived capsule writes through the wakeable background service", () => {
+  const launcher = readFileSync(resolve(root, "src", "features", "favorites", "launcher.ts"), "utf8");
+  const repository = readFileSync(resolve(root, "src", "features", "favorites", "repository.ts"), "utf8");
+  const worker = readFileSync(resolve(root, "src", "entries", "service-worker.ts"), "utf8");
+
+  assert.match(launcher, /writeFavoriteInBackground\(text, currentRoom, payload\)/);
+  assert.match(launcher, /chrome\.runtime\.sendMessage/);
+  assert.match(launcher, /扩展已更新，请刷新直播页后重试/);
+  assert.doesNotMatch(
+    launcher,
+    /if \(destroyed \|\| !ownsUi\(\) \|\| !extensionContextAvailable\(extensionId\)\) return null/
+  );
+  assert.match(repository, /STORAGE_OPERATION_TIMEOUT/);
+  assert.match(repository, /保存收藏超时，请重试/);
+  assert.match(repository, /FAVORITES_BACKUP_STORAGE_KEY/);
+  assert.match(repository, /收藏写入校验失败，请重试/);
+  assert.match(worker, /isFavoriteWriteRequest\(message\)/);
+  assert.match(worker, /favoriteWriteQueue/);
+  assert.match(worker, /favoritesRepository\.favorite\([\s\S]*?request\.text \|\| ""/);
+  assert.match(worker, /favoritesRepository\.addToRoom/);
+  assert.match(worker, /favoritesRepository\.recordSent/);
+  assert.match(worker, /favoritesRepository\.remove/);
+  assert.match(launcher, /operation: "add-to-room"/);
+  assert.match(launcher, /operation: "record-sent"/);
+  assert.match(launcher, /operation: "remove"/);
+  assert.doesNotMatch(launcher, /await repository\.recordSent/);
 });

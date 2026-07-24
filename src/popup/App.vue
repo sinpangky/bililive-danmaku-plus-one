@@ -259,6 +259,8 @@
                   所有可识别弹幕均可收藏，内容只保存在 Chrome 本地。发送平台图片表情时，当前平台和账号需仍可使用对应资源。
                 </span>
               </div>
+
+              <FavoritesDataTools @status="setStatus" />
             </div>
           </section>
         </div>
@@ -280,6 +282,7 @@
 import { computed } from "vue";
 import type { ColorSettingKey, PlatformId } from "../core/types";
 import ColorPlatform from "./components/ColorPlatform.vue";
+import FavoritesDataTools from "./components/FavoritesDataTools.vue";
 import PlatformRow from "./components/PlatformRow.vue";
 import SettingSwitch from "./components/SettingSwitch.vue";
 import { useSettings } from "./composables/useSettings";

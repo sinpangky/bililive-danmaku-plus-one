@@ -2,6 +2,9 @@ import type { PlatformId } from "../../core/types";
 
 export const FAVORITES_SCHEMA_VERSION = 2;
 export const FAVORITES_STORAGE_KEY = "danmakuEchoFavoritesV1";
+export const FAVORITES_BACKUP_STORAGE_KEY = "danmakuEchoFavoritesBackupV2";
+export const FAVORITES_IMPORT_BACKUP_STORAGE_KEY = "danmakuEchoFavoritesBeforeImportV2";
+export const FAVORITE_WRITE_MESSAGE = "danmaku-echo.favorite-write";
 
 export interface FavoriteAsset {
   keys: string[];
@@ -18,6 +21,21 @@ export interface FavoritePayload {
   parts: FavoritePart[];
   plainText: string;
   text: string;
+}
+
+export interface FavoriteWriteRequest {
+  id?: string;
+  operation?: "add-to-room" | "favorite" | "record-sent" | "remove";
+  payload?: unknown;
+  room: RoomContext;
+  text?: string;
+  type: typeof FAVORITE_WRITE_MESSAGE;
+}
+
+export interface FavoriteWriteResponse {
+  added?: boolean;
+  error?: string;
+  ok: boolean;
 }
 
 export interface RoomContext {
@@ -59,8 +77,10 @@ export interface FavoriteDanmaku {
 
 export interface FavoritesDatabase {
   items: FavoriteDanmaku[];
+  revision: number;
   schemaVersion: 2;
   updatedAt: number;
+  writeId: string;
 }
 
 export type FavoriteView = "all" | "current" | "other";

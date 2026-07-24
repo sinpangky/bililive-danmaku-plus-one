@@ -1,10 +1,78 @@
-import type { DouyinRuntimeRequest } from "../core/types";
+import type { DouyinRuntimeRequest, PlatformId } from "../core/types";
+import { createFavoritesRepository } from "../features/favorites/repository";
+import {
+  FAVORITE_WRITE_MESSAGE,
+  type FavoriteWriteRequest,
+  type FavoriteWriteResponse
+} from "../features/favorites/types";
 
 const DOUYIN_LIVE_PATTERN = /^https:\/\/(?:live\.douyin\.com\/|www\.douyin\.com\/follow\/live(?:\/|[?#]|$))/i;
 const recentRouteInjections = new Map<number, { at: number; url: string }>();
+const favoritesRepository = createFavoritesRepository(chrome.storage.local);
+let favoriteWriteQueue: Promise<void> = Promise.resolve();
 
 function isDouyinLiveUrl(value: unknown): boolean {
   return DOUYIN_LIVE_PATTERN.test(String(value || ""));
+}
+
+function isFavoriteWriteRequest(value: unknown): value is FavoriteWriteRequest {
+  if (!value || typeof value !== "object") return false;
+  const request = value as Partial<FavoriteWriteRequest>;
+  const operation = request.operation || "favorite";
+  const room = request.room;
+  return request.type === FAVORITE_WRITE_MESSAGE
+    && (operation === "favorite" || operation === "add-to-room"
+      || operation === "record-sent" || operation === "remove")
+    && (operation === "favorite"
+      ? typeof request.text === "string"
+        && Array.from(request.text).length > 0
+        && Array.from(request.text).length <= 1_000
+      : typeof request.id === "string" && request.id.length > 0 && request.id.length <= 200)
+    && Boolean(room && typeof room === "object"
+      && (room.platform === "bilibili" || room.platform === "douyin" || room.platform === "huya")
+      && typeof room.roomId === "string" && room.roomId.length > 0 && room.roomId.length <= 300
+      && typeof room.roomKey === "string" && room.roomKey.length <= 320
+      && typeof room.roomName === "string" && room.roomName.length > 0 && room.roomName.length <= 500
+      && typeof room.url === "string" && room.url.length > 0 && room.url.length <= 4_096
+      && room.roomKey === `${room.platform}:${room.roomId}`);
+}
+
+function senderMatchesPlatform(senderUrl: unknown, platform: PlatformId): boolean {
+  try {
+    const url = new URL(String(senderUrl || ""));
+    const host = url.hostname.toLowerCase();
+    if (platform === "bilibili") return host === "live.bilibili.com";
+    if (platform === "huya") return host === "huya.com" || host.endsWith(".huya.com");
+    return isDouyinLiveUrl(url.href);
+  } catch {
+    return false;
+  }
+}
+
+function writeFavorite(request: FavoriteWriteRequest): Promise<{ added: boolean }> {
+  const operation = favoriteWriteQueue.then(async () => {
+    const kind = request.operation || "favorite";
+    if (kind === "add-to-room") {
+      await favoritesRepository.addToRoom(request.id || "", request.room);
+      return { added: false };
+    }
+    if (kind === "record-sent") {
+      await favoritesRepository.recordSent(request.id || "", request.room);
+      return { added: false };
+    }
+    if (kind === "remove") {
+      await favoritesRepository.remove(request.id || "");
+      return { added: false };
+    }
+    const result = await favoritesRepository.favorite(
+      request.text || "",
+      request.room,
+      request.payload
+    );
+    return { added: result.added };
+  });
+  favoriteWriteQueue = operation.then(() => undefined, () => undefined);
+  return operation;
 }
 
 async function ensureDouyinContentRuntime(tabId: number, frameId: number): Promise<boolean> {
@@ -73,6 +141,22 @@ function isDouyinRuntimeRequest(value: unknown): value is DouyinRuntimeRequest {
 }
 
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+  if (isFavoriteWriteRequest(message)) {
+    const senderUrl = sender.url || sender.tab?.url;
+    if (!senderMatchesPlatform(senderUrl, message.room.platform)) {
+      sendResponse({ ok: false, error: "invalid-favorite-sender" } satisfies FavoriteWriteResponse);
+      return false;
+    }
+    writeFavorite(message).then(({ added }) => {
+      sendResponse({ ok: true, added } satisfies FavoriteWriteResponse);
+    }).catch((error: unknown) => {
+      sendResponse({
+        ok: false,
+        error: String(error instanceof Error ? error.message : error)
+      } satisfies FavoriteWriteResponse);
+    });
+    return true;
+  }
   if (!isDouyinRuntimeRequest(message)) {
     return false;
   }
