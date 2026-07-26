@@ -13,6 +13,7 @@ function titleRoomName(title: string, platform: PlatformId, roomId: string): str
   const suffixes: Record<PlatformId, RegExp[]> = {
     bilibili: [/\s*[-_|]\s*哔哩哔哩直播.*$/i, /\s*[-_|]\s*bilibili.*$/i],
     douyin: [/\s*[-_|]\s*抖音直播.*$/i, /\s*[-_|]\s*抖音.*$/i],
+    douyu: [/\s*[-_|]\s*斗鱼直播.*$/i, /\s*[-_|]\s*斗鱼.*$/i],
     huya: [/\s*[-_|]\s*虎牙直播.*$/i, /\s*[-_|]\s*虎牙.*$/i]
   };
   let normalized = String(title || "").replace(/\s+/g, " ").trim();
@@ -34,6 +35,9 @@ export function roomIdFromLocation(platform: PlatformId, href: string): string {
   }
   if (platform === "huya") {
     return segments[0] || url.searchParams.get("roomid") || url.hostname;
+  }
+  if (platform === "douyu") {
+    return segments[0] || url.searchParams.get("roomId") || url.hostname;
   }
   return url.searchParams.get("room_id")
     || url.searchParams.get("roomId")

@@ -69,7 +69,9 @@ function fallbackRoom(roomKey: string): Pick<FavoriteRoomGroup, "platform" | "ro
   const platform = separator > 0 ? roomKey.slice(0, separator) : "bilibili";
   const roomId = separator > 0 ? roomKey.slice(separator + 1) : roomKey;
   return {
-    platform: platform === "douyin" || platform === "huya" ? platform : "bilibili",
+    platform: platform === "douyin" || platform === "douyu" || platform === "huya"
+      ? platform
+      : "bilibili",
     roomId,
     roomKey,
     roomName: `直播间 ${roomId}`

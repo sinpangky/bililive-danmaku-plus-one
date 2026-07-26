@@ -1,6 +1,6 @@
 import { createApp, nextTick, reactive } from "vue";
 import type { PlatformId } from "../../core/types";
-import favoritesStyles from "../../styles/favorites.css?inline";
+import favoritesStyles from "../../assets/styles/favorites.css?inline";
 import FavoritesLauncher from "./FavoritesLauncher.vue";
 import { createFavoritesRepository } from "./repository";
 import { currentRoomContext } from "./room-context";
@@ -286,7 +286,6 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
   let restoreFocus: HTMLElement | null = null;
   let unsubscribe = () => {};
   let destroyed = false;
-  let runtime: FavoritesRuntime;
 
   const onVisibilityChange = () => {
     if (document.hidden) cancelGesture();
@@ -565,7 +564,7 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
     }
   };
 
-  runtime = {
+  const runtime: FavoritesRuntime = {
     destroy(): void {
       if (destroyed) return;
       destroyed = true;

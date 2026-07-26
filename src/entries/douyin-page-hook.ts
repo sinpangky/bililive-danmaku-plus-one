@@ -1,4 +1,4 @@
-// @ts-nocheck -- performance-sensitive page hook; typed models are extracted separately.
+// @ts-nocheck -- performance-sensitive page hook; typed modules cover its stable boundaries.
 import {
   barrageInteractionText,
   boxEdges,
@@ -48,7 +48,7 @@ import { extractSenderFromRecord } from "../core/reply";
     reply: 56,
     favorite: 56
   });
-  const DOM_ACTION_DIVIDER_WIDTH = 3;
+  const DOM_ACTION_DIVIDER_WIDTH = 2;
   const DOM_ACTION_GAP = 8;
   const DOM_ACTION_TRAILING_SPACE = 12;
   const DOM_BARRAGE_PADDING = 8;
@@ -100,7 +100,7 @@ import { extractSenderFromRecord } from "../core/reply";
       const url = new URL(value, location.href);
       const pathname = url.pathname.replace(/\/+$/, "") || "/";
       return `${url.origin}${pathname}`;
-    } catch (_error) {
+    } catch {
       return String(value || "").split(/[?#]/, 1)[0];
     }
   }
@@ -274,7 +274,7 @@ import { extractSenderFromRecord } from "../core/reply";
     }
     try {
       measurementContext = document.createElement("canvas").getContext("2d");
-    } catch (_error) {
+    } catch {
       measurementContext = null;
     }
     return measurementContext;
@@ -291,7 +291,7 @@ import { extractSenderFromRecord } from "../core/reply";
       try {
         context.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
         width = context.measureText(text).width;
-      } catch (_error) {
+      } catch {
         // The character estimate remains usable when a site font is unavailable.
       }
     }
@@ -571,8 +571,8 @@ import { extractSenderFromRecord } from "../core/reply";
     if (typeof original !== "function" || original.__danmakuEchoObserved) {
       return;
     }
-    function danmakuEchoTransferControlToOffscreen() {
-      const offscreen = Reflect.apply(original, this, arguments);
+    function danmakuEchoTransferControlToOffscreen(...args) {
+      const offscreen = Reflect.apply(original, this, args);
       if (offscreen && typeof offscreen === "object") {
         offscreenSources.set(offscreen, this);
         debugState.counters.canvasTransfers += 1;
@@ -770,7 +770,7 @@ import { extractSenderFromRecord } from "../core/reply";
     if (instance.rendererBorderRadius == null) {
       try {
         instance.rendererBorderRadius = getComputedStyle(instance.canvas).borderRadius || "";
-      } catch (_error) {
+      } catch {
         instance.rendererBorderRadius = "";
       }
       layer.style.borderRadius = instance.rendererBorderRadius;
@@ -1695,13 +1695,12 @@ import { extractSenderFromRecord } from "../core/reply";
         message: String(error && error.message || error)
       }, "error");
     } finally {
-      if (instances.get(instance.id) !== instance
-          || instance.rendererGeneration !== rendererGeneration) {
-        return;
-      }
-      instance.rendererPreparing = Math.max(0, instance.rendererPreparing - 1);
-      if (instance.active && !channelsEmpty(instance)) {
-        startAnimation(instance);
+      if (instances.get(instance.id) === instance
+          && instance.rendererGeneration === rendererGeneration) {
+        instance.rendererPreparing = Math.max(0, instance.rendererPreparing - 1);
+        if (instance.active && !channelsEmpty(instance)) {
+          startAnimation(instance);
+        }
       }
     }
   }
@@ -1952,7 +1951,8 @@ import { extractSenderFromRecord } from "../core/reply";
     if (typeof original !== "function" || original.__danmakuEchoObserved) {
       return;
     }
-    function danmakuEchoPostMessage(message) {
+    function danmakuEchoPostMessage(...args) {
+      const [message] = args;
       try {
         observeWorkerMessage(message);
       } catch (error) {
@@ -1962,7 +1962,7 @@ import { extractSenderFromRecord } from "../core/reply";
           message: String(error && error.message || error)
         }, "error");
       }
-      return Reflect.apply(original, this, arguments);
+      return Reflect.apply(original, this, args);
     }
     danmakuEchoPostMessage.__danmakuEchoObserved = true;
     Object.defineProperty(prototype, "postMessage", {

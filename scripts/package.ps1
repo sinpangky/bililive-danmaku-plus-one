@@ -1,3 +1,7 @@
+param(
+    [string]$OutputDirectory = ""
+)
+
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -8,7 +12,15 @@ if (-not (Test-Path -LiteralPath (Join-Path $extensionRoot "manifest.json"))) {
 }
 
 $manifest = Get-Content -LiteralPath (Join-Path $extensionRoot "manifest.json") -Raw -Encoding UTF8 | ConvertFrom-Json
-$dist = Join-Path $root "dist"
+$dist = if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
+    Join-Path $root "dist"
+}
+elseif ([System.IO.Path]::IsPathRooted($OutputDirectory)) {
+    [System.IO.Path]::GetFullPath($OutputDirectory)
+}
+else {
+    [System.IO.Path]::GetFullPath((Join-Path $root $OutputDirectory))
+}
 $destination = Join-Path $dist "danmaku-echo-v$($manifest.version).zip"
 
 New-Item -ItemType Directory -Path $dist -Force | Out-Null
@@ -26,15 +38,9 @@ $archive = [System.IO.Compression.ZipFile]::Open(
 )
 
 try {
-    $files = @(
-        Get-Item -LiteralPath (Join-Path $extensionRoot "manifest.json")
-        Get-Item -LiteralPath (Join-Path $extensionRoot "README.md")
-        Get-Item -LiteralPath (Join-Path $extensionRoot "LICENSE")
-        Get-ChildItem -LiteralPath (Join-Path $extensionRoot "assets") -File -Recurse
-        Get-ChildItem -LiteralPath (Join-Path $extensionRoot "background") -File -Recurse
-        Get-ChildItem -LiteralPath (Join-Path $extensionRoot "src") -File -Recurse
-        Get-ChildItem -LiteralPath (Join-Path $extensionRoot "popup") -File -Recurse
-    )
+    $files = @(Get-ChildItem -LiteralPath $extensionRoot -File -Recurse | Where-Object {
+        $_.FullName -ne (Join-Path $extensionRoot "LICENSE")
+    })
 
     foreach ($file in $files) {
         $relativePath = $file.FullName.Substring($extensionRoot.Length + 1).Replace("\", "/")
@@ -45,6 +51,13 @@ try {
             [System.IO.Compression.CompressionLevel]::Optimal
         ) | Out-Null
     }
+
+    [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+        $archive,
+        (Join-Path $root "LICENSE"),
+        "LICENSE",
+        [System.IO.Compression.CompressionLevel]::Optimal
+    ) | Out-Null
 }
 finally {
     $archive.Dispose()
@@ -58,7 +71,7 @@ try {
         throw "ZIP contains non-standard backslash entry names."
     }
 
-    foreach ($required in @("manifest.json", "README.md", "LICENSE", "assets/danmaku-echo-icon.png", "assets/icons/icon-128.png", "background/service-worker.js", "src/shared.js", "src/content.js", "src/douyin-bootstrap.js", "src/douyin-page-hook.js", "src/douyin-content.js", "src/douyin-content.css", "popup/popup.html")) {
+    foreach ($required in @("manifest.json", "LICENSE", "index.html", "assets/danmaku-echo-icon.png", "assets/icons/icon-128.png", "background/service-worker.js", "src/shared.js", "src/content.js", "src/douyin-bootstrap.js", "src/douyin-page-hook.js", "src/douyin-content.js", "src/douyin-content.css")) {
         if ($entryNames -notcontains $required) {
             throw "ZIP is missing required entry: $required"
         }

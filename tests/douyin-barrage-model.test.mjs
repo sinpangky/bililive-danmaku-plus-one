@@ -68,7 +68,7 @@ const track = trackContext.DanmakuEchoDouyinTrackModel;
 
 test("clips the DOM barrage renderer to the native Canvas viewport", () => {
   const stylesheet = readFileSync(
-    resolve(root, "src", "styles", "douyin-content.css"),
+    resolve(root, "src", "assets", "styles", "douyin-content.css"),
     "utf8"
   );
   const pageHook = readFileSync(

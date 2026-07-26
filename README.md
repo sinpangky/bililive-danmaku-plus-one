@@ -1,11 +1,11 @@
 # Danmaku Echo / 弹幕回声
 
 <p align="center">
-  <img src="assets/danmaku-echo-icon.png" width="180" alt="Danmaku Echo icon">
+  <img src="public/assets/danmaku-echo-icon.png" width="180" alt="Danmaku Echo icon">
 </p>
 
-> 为虎牙直播、哔哩哔哩直播和抖音直播带来类似斗鱼的弹幕 `+1` 体验。
-> One-click danmaku echoing for Huya Live, Bilibili Live, and Douyin Live.
+> 为虎牙直播、哔哩哔哩直播、抖音直播和斗鱼直播提供弹幕 `+1`、回复与本地收藏。
+> Danmaku echoing, replies, and local favorites for Huya, Bilibili, Douyin, and Douyu Live.
 
 [中文](#中文) · [English](#english) · [隐私权政策](PRIVACY.md)
 
@@ -26,6 +26,7 @@ Danmaku Echo（弹幕回声）是一个适用于 Chrome 和 Edge 的 Manifest V3
 | 虎牙直播 | ✅ | ✅ | ✅ |
 | 哔哩哔哩直播 | ✅ | ✅ | ✅ |
 | 抖音直播 | ✅ | ✅（Canvas） | ✅ |
+| 斗鱼直播 | ✅ | ✅ | ✅ |
 
 ### 弹幕收藏
 
@@ -52,7 +53,8 @@ Danmaku Echo（弹幕回声）是一个适用于 Chrome 和 Edge 的 Manifest V3
 - 点击“收藏”会把文字、Unicode Emoji、平台图片表情和混排内容完整保存到浏览器本地，不会把图片表情降级成替代文字。
 - 收藏跨直播间可用且本房优先；短按 `Alt + Q` 打开列表，长按呼出鼠标轮盘，全屏模式同样可用。
 - 回复会按显示模式选择输入面：普通模式写入侧边聊天框，全屏模式优先写入播放器快捷回复栏。
-- 虎牙与哔哩哔哩的视频弹幕悬停后暂停，移出操作缓冲区后从原位置继续移动。
+- 虎牙、哔哩哔哩与斗鱼的视频弹幕悬停后暂停，移出操作缓冲区后从原位置继续移动。
+- 斗鱼播放器自带的 `+1`、回复与收藏胶囊默认关闭，可在“平台详情 → 斗鱼播放器原生胶囊”中恢复显示。
 - 抖音视频弹幕由安全 DOM 层连续渲染，单条悬停暂停、从原位原速续行，且 `+1` 始终位于并绑定当前条目后方。
 - 避免相邻或重叠的后续弹幕抢占当前选择。
 - 过滤清晰度、设置菜单等播放器控件，只识别真实弹幕。
@@ -61,7 +63,7 @@ Danmaku Echo（弹幕回声）是一个适用于 Chrome 和 Edge 的 Manifest V3
 - 支持抖音首次进入直播间、SPA 切房和 Worker/OffscreenCanvas 弹幕，无需二次刷新页面。
 - 自动适配原生全屏，并在发送后释放官方输入框焦点。
 - 提供 `Alt + 单击` 通用回退操作，应对直播站点类名调整。
-- 可分别为虎牙、哔哩哔哩和抖音设置 `+1` 按钮、选中高亮、提示浮层及状态颜色；留空时使用内置默认值。
+- 可分别为虎牙、哔哩哔哩、抖音和斗鱼设置 `+1` 按钮、选中高亮、提示浮层及状态颜色；留空时使用内置默认值。
 - 设置通过 `chrome.storage.sync` 保存，不读取账号凭据。
 
 ### 安装
@@ -99,7 +101,9 @@ npm run build
 
 如需收藏，点击操作条中的“收藏”。短按 `Alt + Q` 打开本房收藏列表；“其他直播间”和“全部”会先显示直播间名称，点击任意直播间后进入它的弹幕选择页。列表支持搜索、发送次数/时间正序/时间倒序排序、数字键 `1–9` 快速发送、加入本房和删除。长按 `Alt + Q` 约 0.18 秒会在鼠标位置打开圆形轮盘，移动指针选择后松开即可发送，移回中心或按 `Esc` 取消。
 
-虎牙和 Bilibili 的侧边聊天栏弹幕胶囊默认关闭，可在“平台详情 → 侧边聊天栏弹幕胶囊”中分别启用。胶囊包含 `+1`、回复和收藏三个按钮；该设置只影响侧边聊天消息，视频画面弹幕仍由全局功能开关控制。
+四个平台的侧边聊天栏弹幕胶囊默认关闭，可在“平台详情 → 侧边聊天栏弹幕胶囊”中分别启用。胶囊包含 `+1`、回复和收藏三个按钮；该设置只影响侧边聊天消息，视频画面弹幕仍由全局功能开关控制。
+
+斗鱼播放器原生的 `+1`、回复和收藏胶囊也默认关闭，并有独立开关；开启后可能与扩展提供的视频弹幕快捷操作同时显示。
 
 点击浏览器工具栏中的扩展图标，可以总开关扩展、分别启用平台以及开关 `Alt + 单击` 回退功能。
 
@@ -138,20 +142,22 @@ npm run package
 ### 项目结构
 
 ```text
-manifest.json              Manifest V3 清单（构建时原样复制）
+public/manifest.json       Manifest V3 清单，由 Vite publicDir 原样复制
+index.html                 create-vue 标准 HTML 入口，同时作为扩展设置页
 src/core/                  跨平台共享类型、文本清洗和设置合并
 src/entries/               后台、内容脚本和页面 Hook 的 Vite 构建入口
 src/features/favorites/    本地收藏仓库、房间识别、排序、Vue 面板与轮盘运行时
 src/platforms/live/        通用直播平台配置
 src/platforms/bilibili/    哔哩哔哩 DOM 选择器与平台适配配置
 src/platforms/douyin/      抖音协议、弹幕轨迹、富文本和消息模型
-src/popup/                 Vue 3 扩展设置页面及其入口
-src/popup/components/      设置开关、平台状态和颜色编辑 Vue 组件
-src/popup/composables/     设置读取、同步保存和页面状态
-src/ui/                    直播间操作条、提示框和抖音卡片 Vue 组件
-src/styles/                各内容脚本对应的页面样式
+src/App.vue、src/main.ts   create-vue 标准 Vue 3 设置页与应用入口
+src/assets/                设置页与直播内容脚本的样式资源
+src/components/            设置页组件及 components/live 直播浮层组件
+src/composables/           设置读取、同步保存和页面状态
+docs/DESIGN_SYSTEM.md      当前界面的设计规范
 scripts/package.ps1        可复现的发布包生成脚本
-scripts/build-extension.mjs Vite 多入口扩展构建脚本
+vite.config.ts             官方 Vite CLI 的多入口扩展构建配置
+vitest.config.ts           create-vue 标准 Vitest 单元测试配置
 build/extension/           可加载、可发布的生成产物（不提交）
 tests/                     清单校验、单元测试和浏览器测试夹具
 ```
@@ -161,7 +167,7 @@ tests/                     清单校验、单元测试和浏览器测试夹具
 - 申请 `storage` 权限保存扩展设置及本地弹幕收藏；设置使用 `chrome.storage.sync`，收藏使用 `chrome.storage.local` 且不会上传。
 - 申请 `scripting` 权限仅用于抖音首次进房和 SPA 进房时补注入直播运行时。
 - 抖音主机权限覆盖 `live.douyin.com/*` 与 `www.douyin.com/*`；普通抖音页面只运行不读取页面内容的轻量 URL 启动器，完整功能仅在直播路由启用，不覆盖其他网站。
-- 完整功能脚本仅在虎牙直播、哔哩哔哩直播和抖音直播页面启用。
+- 完整功能脚本仅在虎牙直播、哔哩哔哩直播、抖音直播和斗鱼直播页面启用。
 - 不读取 Cookie、密码或登录令牌，不调用私有直播接口。
 - 不收集、上传或出售用户数据。
 
@@ -183,7 +189,7 @@ Copyright © 2026 sadUnicorn.
 
 ### 免责声明
 
-本项目与虎牙、哔哩哔哩、抖音及其关联公司无关。请遵守各平台服务条款和社区规则，避免高频复读或骚扰行为。软件按“原样”提供，不附带任何保证。
+本项目与虎牙、哔哩哔哩、抖音、斗鱼及其关联公司无关。请遵守各平台服务条款和社区规则，避免高频复读或骚扰行为。软件按“原样”提供，不附带任何保证。
 
 ---
 
@@ -200,12 +206,13 @@ Danmaku Echo is a Manifest V3 browser extension for Chrome and Edge. It adds a `
 | Huya Live | ✅ | ✅ | ✅ |
 | Bilibili Live | ✅ | ✅ | ✅ |
 | Douyin Live | ✅ | ✅ (Canvas) | ✅ |
+| Douyu Live | ✅ | ✅ | ✅ |
 
 ### v1.1.4 release notes
 
 This release adds the first version of danmaku favorites. Favorites stay in `chrome.storage.local`; they are neither uploaded nor synchronized between devices. Equal normalized text is stored once globally while retaining its platform and room origins. The launcher focuses the current room by default; **Other rooms** and **All** first show a room list, then open a separate message picker after a room is selected.
 
-The first version accepts ordinary text, Unicode emoji, and regular punctuation only. Bilibili image emotes, Douyin platform-image emoji, stickers, and other rich assets are explicitly rejected instead of being downgraded to alt text.
+All recognizable messages can be favorited, including plain text, Unicode emoji, platform image emotes, and mixed text/emote content. Rich favorites preserve their display text, content order, and platform resource identity while remaining compatible with legacy plain-text data.
 
 Short-press `Alt + Q` in a live room to open the fixed panel, where search, send-count/collection-time sorting, number keys `1–9` for the current message page, add-to-room, and delete are available. Hold `Alt + Q` to open a cursor-centered radial menu with circular, icon-free choices: current-room favorites send directly on release, while **Other favorites** and **More** open the corresponding room list. In native fullscreen the launcher mounts inside `document.fullscreenElement`.
 
@@ -223,10 +230,11 @@ The native Canvas is hidden with `visibility: hidden` only after the first DOM n
 
 - Shows a `+1` action when a danmaku is hovered and sends the same content automatically.
 - The Reply action inserts `@sender `, focuses the official editor, and waits for user input without sending automatically.
-- The Favorite action stores plain text, Unicode emoji, and regular punctuation locally while rejecting platform image emotes and other rich assets.
+- The Favorite action stores plain text, Unicode emoji, platform image emotes, and mixed content locally.
 - Favorites work across rooms with current-room priority; short-press `Alt + Q` for the panel or hold it for the radial menu, including in fullscreen.
 - Reply targets the side-chat editor in normal mode and the visible in-player quick editor in fullscreen mode.
-- Pauses Huya and Bilibili on-video danmaku on hover, then resumes it from the held position after the pointer leaves.
+- Pauses Huya, Bilibili, and Douyu on-video danmaku on hover, then resumes it from the held position after the pointer leaves.
+- Keeps Douyu's native **+1**, **Reply**, and **Favorite** capsule off by default, with an independent switch under Platform details.
 - Continuously renders Douyin danmaku in a safe DOM layer with per-item hover pause, same-speed resume from the held position, and a correctly bound trailing `+1` action.
 - Keeps adjacent or overlapping danmaku from stealing the current selection.
 - Rejects player controls such as quality and settings menus.
@@ -235,7 +243,7 @@ The native Canvas is hidden with `visibility: hidden` only after the first DOM n
 - Supports first room entry, SPA room changes, and Worker/OffscreenCanvas danmaku on Douyin without a second refresh.
 - Supports native fullscreen and releases official editor focus after sending.
 - Includes an `Alt + click` fallback for future site markup changes.
-- Provides independent Huya, Bilibili, and Douyin colors for the `+1` action, selection highlight, overlays, and status feedback; blank values keep the built-in defaults.
+- Provides independent Huya, Bilibili, Douyin, and Douyu colors for the `+1` action, selection highlight, overlays, and status feedback; blank values keep the built-in defaults.
 - Stores settings with `chrome.storage.sync` and never reads account credentials.
 
 ### Installation
@@ -272,7 +280,7 @@ Use the toolbar popup to enable or disable the extension, toggle individual plat
 
 Click **Favorite** in a danmaku action bar to store it. Short-press `Alt + Q` for the current-room list; search, number-key sending, other-room browsing, add-to-room, and deletion are available there. Hold `Alt + Q` for about 0.18 seconds to open the cursor-centered radial menu, point to an item, and release to send; move back to the center or press `Esc` to cancel.
 
-The side-chat action capsule is disabled by default for Huya and Bilibili. Enable each platform independently under **Platform details → Side-chat danmaku capsule**. The capsule contains **+1**, **Reply**, and **Favorite**; these switches affect side-chat messages only, while on-video danmaku continues to follow the global action settings.
+The side-chat action capsule is disabled by default on all four platforms. Enable each platform independently under **Platform details → Side-chat danmaku capsule**. The capsule contains **+1**, **Reply**, and **Favorite**; these switches affect side-chat messages only, while on-video danmaku continues to follow the global action settings.
 
 For Douyin diagnostics, press `Ctrl + Alt + D` in a live room. Startup, Canvas instances, DOM-takeover state, active-node counts, fallback reasons, and recent events are written to DevTools with the `[Danmaku Echo]` prefix.
 
@@ -309,20 +317,22 @@ The archive is built from `build/extension` and written to `dist/danmaku-echo-v<
 ### Project layout
 
 ```text
-manifest.json              Manifest V3 definition (copied during the build)
+public/manifest.json       Manifest V3 definition copied by Vite publicDir
+index.html                 Standard create-vue HTML entry and extension settings page
 src/core/                  Cross-platform types, text parsing, and settings
 src/entries/               Vite entries for background, content scripts, and page hooks
 src/features/favorites/    Local repository, room identity, ranking, Vue panel, and radial runtime
 src/platforms/live/        Shared live-platform configuration
 src/platforms/bilibili/    Bilibili DOM selectors and adapter configuration
 src/platforms/douyin/      Douyin protocol, trajectory, rich-data, and message models
-src/popup/                 Vue 3 extension settings page and entry
-src/popup/components/      Vue settings, platform, and color controls
-src/popup/composables/     Settings loading, sync persistence, and page state
-src/ui/                    Vue action bars, feedback toasts, and Douyin card UI
-src/styles/                Page styles associated with each content script
+src/App.vue, src/main.ts   Standard create-vue Vue 3 settings app and entry
+src/assets/                Settings and live content-script styles
+src/components/            Settings components and components/live overlays
+src/composables/           Settings loading, sync persistence, and page state
+docs/DESIGN_SYSTEM.md      Current interface design specification
 scripts/package.ps1        Reproducible release packaging
-scripts/build-extension.mjs Vite multi-entry extension build script
+vite.config.ts             Multi-entry extension config driven by the official Vite CLI
+vitest.config.ts           Standard create-vue Vitest unit-test configuration
 build/extension/           Loadable, releasable build output (not committed)
 tests/                     Manifest checks, unit tests, and browser fixtures
 ```
@@ -332,7 +342,7 @@ tests/                     Manifest checks, unit tests, and browser fixtures
 - Requests `storage` for synchronized settings and local favorites. Favorites use `chrome.storage.local` and are never uploaded.
 - Requests `scripting` only to recover the Douyin live runtime on direct and SPA room entry.
 - Its Douyin host permission covers `live.douyin.com/*` and `www.douyin.com/*`. Ordinary Douyin pages run only a lightweight URL bootstrap that does not read page content; the complete runtime activates only on live routes and never on unrelated sites.
-- Activates complete feature scripts only on Huya Live, Bilibili Live, and Douyin Live pages.
+- Activates complete feature scripts only on Huya Live, Bilibili Live, Douyin Live, and Douyu Live pages.
 - Does not read cookies, passwords, or login tokens and does not call private live APIs.
 - Does not collect, upload, or sell user data.
 
@@ -354,4 +364,4 @@ Issues and pull requests are welcome. Run `npm run check` before submitting chan
 
 ### Disclaimer
 
-This project is not affiliated with Huya, Bilibili, Douyin, or their respective companies. Follow each platform's terms and community rules, and avoid abusive or high-frequency echoing. The software is provided “as is”, without warranty.
+This project is not affiliated with Huya, Bilibili, Douyin, Douyu, or their respective companies. Follow each platform's terms and community rules, and avoid abusive or high-frequency echoing. The software is provided “as is”, without warranty.

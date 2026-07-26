@@ -29,7 +29,8 @@ function isFavoriteWriteRequest(value: unknown): value is FavoriteWriteRequest {
         && Array.from(request.text).length <= 1_000
       : typeof request.id === "string" && request.id.length > 0 && request.id.length <= 200)
     && Boolean(room && typeof room === "object"
-      && (room.platform === "bilibili" || room.platform === "douyin" || room.platform === "huya")
+      && (room.platform === "bilibili" || room.platform === "douyin"
+        || room.platform === "douyu" || room.platform === "huya")
       && typeof room.roomId === "string" && room.roomId.length > 0 && room.roomId.length <= 300
       && typeof room.roomKey === "string" && room.roomKey.length <= 320
       && typeof room.roomName === "string" && room.roomName.length > 0 && room.roomName.length <= 500
@@ -43,6 +44,7 @@ function senderMatchesPlatform(senderUrl: unknown, platform: PlatformId): boolea
     const host = url.hostname.toLowerCase();
     if (platform === "bilibili") return host === "live.bilibili.com";
     if (platform === "huya") return host === "huya.com" || host.endsWith(".huya.com");
+    if (platform === "douyu") return host === "douyu.com" || host.endsWith(".douyu.com");
     return isDouyinLiveUrl(url.href);
   } catch {
     return false;

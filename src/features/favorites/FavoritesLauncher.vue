@@ -366,6 +366,7 @@ function confirmRemove(id: string): void {
 function platformLabel(platform: PlatformId): string {
   if (platform === "bilibili") return "Bilibili";
   if (platform === "douyin") return "抖音";
+  if (platform === "douyu") return "斗鱼";
   return "虎牙";
 }
 

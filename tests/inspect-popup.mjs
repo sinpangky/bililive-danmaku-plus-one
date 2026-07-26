@@ -51,7 +51,7 @@ function send(method, params = {}) {
 await send("Runtime.enable");
 await send("Log.enable");
 await send("Page.enable");
-await send("Page.navigate", { url: `chrome-extension://${extensionId}/popup/popup.html` });
+await send("Page.navigate", { url: `chrome-extension://${extensionId}/index.html` });
 await delay(2_000);
 
 const evaluation = await send("Runtime.evaluate", {
@@ -70,6 +70,7 @@ const evaluation = await send("Runtime.evaluate", {
       "action-reply",
       "action-favorite",
       "side-chat-capsule-bilibili",
+      "side-chat-capsule-douyu",
       "side-chat-capsule-huya"
     ].map((id) => ({
       id,

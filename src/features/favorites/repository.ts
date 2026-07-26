@@ -39,6 +39,7 @@ function favoriteId(): string {
 export function normalizeFavoriteText(value: unknown, maxLength = 1_000): string {
   const normalized = String(value == null ? "" : value)
     .normalize("NFKC")
+    // oxlint-disable-next-line no-control-regex -- storage text must reject C0 controls.
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
     // Preserve U+200D: it joins many valid Unicode emoji sequences such as
     // family and profession emoji.  Only remove invisible formatting marks
@@ -182,6 +183,10 @@ function assetKey(asset: FavoriteAsset): string {
     if (key) return key;
   }
   return asset.keys.slice().sort()[0] || asset.token.toLowerCase() || asset.src.toLowerCase();
+}
+
+function richAssetSignature(payload: FavoritePayload): string {
+  return payload.assets.map(assetKey).sort().join("\u0002");
 }
 
 export function favoriteKey(value: unknown, payloadValue?: unknown): string {
@@ -485,6 +490,18 @@ export function createFavoritesRepository(area: StorageAreaLike) {
       return mutate(() => {
         const now = Date.now();
         let item = database.items.find((entry) => entry.normalizedText === key);
+        if (!item && payload.assets.length && !payload.plainText) {
+          const signature = richAssetSignature(payload);
+          item = database.items.find((entry) =>
+            !entry.payload.plainText
+            && GENERIC_RICH_LABEL.test(entry.text)
+            && richAssetSignature(entry.payload) === signature);
+          if (item) {
+            item.normalizedText = key;
+            item.payload = payload;
+            item.text = text;
+          }
+        }
         const added = !item;
         if (!item) {
           item = {

@@ -34,7 +34,7 @@ context.globalThis = context;
 vm.runInNewContext(source, context, { filename: "douyin-own-message.js" });
 const ownMessage = context.DanmakuEchoDouyinOwnMessage;
 const douyinStyles = readFileSync(
-  resolve(root, "src", "styles", "douyin-content.css"),
+  resolve(root, "src", "assets", "styles", "douyin-content.css"),
   "utf8"
 );
 

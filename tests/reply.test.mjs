@@ -65,3 +65,24 @@ test("uses stable Douyin user ids when a nickname is unavailable", () => {
   assert.equal(reply.extractSenderFromRecord({ sender_id: 7312345 }), "7312345");
   assert.equal(reply.extractSenderFromRecord({ id: "renderer-track-id" }), "");
 });
+
+test("extracts senders from newer nested platform metadata shapes", () => {
+  assert.equal(reply.extractSenderFromRecord({
+    args: {
+      roomMessage: {
+        userData: {
+          profile: {
+            author_name: "新版结构用户"
+          }
+        }
+      }
+    }
+  }), "新版结构用户");
+  assert.equal(reply.extractSenderFromRecord({
+    payload: {
+      member: {
+        user_nickname: "成员昵称"
+      }
+    }
+  }), "成员昵称");
+});

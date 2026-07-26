@@ -243,6 +243,39 @@ test("upgrades an existing generic rich favorite to its saved image name on load
   assert.equal(repository.database.items[0].normalizedText.includes("害羞"), true);
 });
 
+test("re-favoriting an opaque legacy image upgrades its name without creating a duplicate", async () => {
+  const repository = favorites.createFavoritesRepository(memoryStorage());
+  await repository.load();
+  const opaque = {
+    keys: ["file:4fe19d82280f42ab.webp"],
+    src: "https://example.com/4fe19d82280f42ab.webp",
+    token: ""
+  };
+  await repository.favorite("图片表情", roomA, {
+    text: "图片表情",
+    plainText: "",
+    assets: [opaque],
+    parts: [{ type: "emoji", asset: opaque }]
+  });
+
+  const named = {
+    ...opaque,
+    keys: [...opaque.keys, "name:哇"],
+    token: "[哇]"
+  };
+  const upgraded = await repository.favorite("[哇]", roomA, {
+    text: "[哇]",
+    plainText: "",
+    assets: [named],
+    parts: [{ type: "emoji", asset: named }]
+  });
+
+  assert.equal(upgraded.added, false);
+  assert.equal(repository.database.items.length, 1);
+  assert.equal(repository.database.items[0].text, "[哇]");
+  assert.equal(repository.database.items[0].payload.assets[0].token, "[哇]");
+});
+
 test("sorts favorites by send count by default while preserving room filters", async () => {
   const repository = favorites.createFavoritesRepository(memoryStorage());
   await repository.load();
@@ -442,14 +475,39 @@ test("derives stable platform room identifiers from live URLs", () => {
     "923572354274"
   );
   assert.equal(favorites.roomIdFromLocation("huya", "https://www.huya.com/some-room"), "some-room");
+  assert.equal(favorites.roomIdFromLocation("douyu", "https://www.douyu.com/12152200"), "12152200");
 });
 
 test("keeps only the themed outer ring on the favorites radial menu", () => {
-  const styles = readFileSync(resolve(root, "src", "styles", "favorites.css"), "utf8");
+  const styles = readFileSync(
+    resolve(root, "src", "assets", "styles", "favorites.css"),
+    "utf8"
+  );
   assert.doesNotMatch(styles, /\.bcp-favorites-panel::before/);
   assert.match(styles, /\.bcp-favorites-radial::before\s*\{[\s\S]*?border:\s*2px solid var\(--bcp-favorite-accent\)/);
   assert.match(styles, /\.bcp-favorites-radial-item\s*\{[\s\S]*?border:\s*0;/);
   assert.doesNotMatch(styles, /\.bcp-favorites-radial-item\.is-selected\s*\{[\s\S]*?border-color:/);
+});
+
+test("uses the packaged Telegram SVG for favorite send buttons", () => {
+  const row = readFileSync(
+    resolve(root, "src", "features", "favorites", "FavoriteItemRow.vue"),
+    "utf8"
+  );
+  const styles = readFileSync(
+    resolve(root, "src", "assets", "styles", "favorites.css"),
+    "utf8"
+  );
+  const icon = readFileSync(
+    resolve(root, "src", "assets", "icons", "telegram.svg"),
+    "utf8"
+  );
+
+  assert.match(row, /import telegramIconUrl from "\.\.\/\.\.\/assets\/icons\/telegram\.svg"/);
+  assert.match(row, /class="bcp-favorites-send-icon"[\s\S]*?:src="telegramIconUrl"/);
+  assert.doesNotMatch(row, /d="m4\.75 5 14\.5 7/);
+  assert.match(styles, /\.bcp-favorites-send-icon\s*\{[\s\S]*?width:\s*16px/);
+  assert.match(icon, /viewBox="0 0 1024 1024"/);
 });
 
 test("routes long-lived capsule writes through the wakeable background service", () => {

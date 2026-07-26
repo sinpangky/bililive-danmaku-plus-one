@@ -14,9 +14,7 @@
         <span :class="['bcp-favorites-scope', { 'is-local': item.belongsToCurrentRoom }]">
           {{ item.belongsToCurrentRoom ? '本房' : '跨房' }}
         </span>
-        <span v-if="item.payload.assets.length">
-          图片表情{{ item.payload.assets.length > 1 ? ` × ${item.payload.assets.length}` : '' }}
-        </span>
+        <span v-if="item.payload.assets.length">{{ assetNamesLabel }}</span>
         <span :title="item.sourceLabel">{{ item.sourceLabel }}</span>
         <span :title="collectedAtTitle">收藏 {{ collectedAtLabel }}</span>
         <span>已发送 {{ item.totalSendCount }} 次</span>
@@ -45,9 +43,12 @@
         :title="`发送：${item.text}`"
         @click="emit('send', item.id)"
       >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="m4.75 5 14.5 7-14.5 7 2-7zM6.75 12h7" />
-        </svg>
+        <img
+          class="bcp-favorites-send-icon"
+          :src="telegramIconUrl"
+          alt=""
+          aria-hidden="true"
+        >
         <span>发送</span>
       </button>
       <button
@@ -68,6 +69,8 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import telegramIconUrl from "../../assets/icons/telegram.svg";
+import { favoriteAssetDisplayName } from "./repository";
 import type { FavoriteDisplayItem } from "./types";
 
 const props = defineProps<{
@@ -82,6 +85,13 @@ const emit = defineEmits<{
   send: [id: string];
 }>();
 
+const assetNamesLabel = computed(() => {
+  const names = props.item.payload.assets.map(favoriteAssetDisplayName).filter(Boolean);
+  if (names.length) return `表情 ${names.join(" ")}`;
+  return `图片表情${props.item.payload.assets.length > 1
+    ? ` × ${props.item.payload.assets.length}`
+    : ""}`;
+});
 const collectedAt = computed(() => new Date(props.item.sortTimestamp));
 const collectedAtLabel = computed(() => new Intl.DateTimeFormat("zh-CN", {
   month: "2-digit",
