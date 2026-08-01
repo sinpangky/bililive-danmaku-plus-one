@@ -5,7 +5,10 @@ import {
   shouldHideNativeDanmakuCapsule,
   visibleActionsForSurface,
 } from '../platforms/live/action-visibility'
-import { unicodeEmojiFallbackText } from '../platforms/live/emoji-fallback'
+import {
+  orderedBracketEmojiText,
+  unicodeEmojiFallbackText,
+} from '../platforms/live/emoji-fallback'
 import { SenderCorrelationCache } from '../platforms/live/sender-correlation'
 import {
   DOUYU_NATIVE_DANMAKU_ACTION_MARKER,
@@ -27,26 +30,6 @@ import {
   isBilibiliAdvertisementLabel,
   isBilibiliAdvertisementMarker,
 } from '../platforms/bilibili/dom-config'
-import {
-  BILIBILI_EXCLUSIVE_ASSET_KEY_PREFIX,
-  BILIBILI_EXCLUSIVE_EMOJI_ATTRIBUTES,
-} from '../platforms/bilibili/emoji-payload'
-import {
-  BilibiliDanmakuCorrelationCache,
-  bilibiliDescriptorFromChatElement,
-  bilibiliDescriptorFromFavoritePayload,
-  bilibiliOverlayMatchesDescriptor,
-  bilibiliOverlaySignature,
-  bilibiliPayloadFromDescriptor,
-  normalizeBilibiliAssetUrl,
-  selectBilibiliOwnOverlayCandidate,
-} from '../platforms/bilibili/danmaku'
-import {
-  BILIBILI_CONTENT_MESSAGE_SOURCE,
-  BILIBILI_PAGE_MESSAGE_SOURCE,
-  BilibiliSendGate,
-  formatBilibiliSendError,
-} from '../platforms/bilibili/send-protocol'
 import { normalizedAssetKeys as normalizedRichAssetKeys } from '../platforms/douyin/rich-data'
 import { createFavoritesRuntime } from '../features/favorites/launcher'
 import { createContentOverlay } from '../components/live/content-overlay'
@@ -182,6 +165,7 @@ import { createContentOverlay } from '../components/live/content-overlay'
     '[data-emoticon-text]',
     '[data-emoticon-unique]',
     '[data-emoticon-id]',
+    '[data-file-id]',
     "[class*='emoji-item' i]",
     "[class*='emojiItem']",
     "[class*='emote-item' i]",
@@ -224,8 +208,20 @@ import { createContentOverlay } from '../components/live/content-overlay'
     'data-emoji-code',
     'data-emoji-id',
     'data-emoticon-id',
+    'data-file-id',
     'data-id',
   ]
+  const BILIBILI_NATIVE_PANEL_IDENTITY_ATTRIBUTES = [
+    'data-file-id',
+    'data-emoticon-unique',
+    'data-emoji-unique',
+    'data-room-emoticon',
+    'data-room-emoji',
+    'data-anchor-emoticon',
+    'data-anchor-emoji',
+  ]
+  const NATIVE_PANEL_ASSET_KEY_PREFIX = 'native-panel:'
+  const LEGACY_BILIBILI_EXCLUSIVE_ASSET_KEY_PREFIX = 'bili-exclusive:'
   const EMOJI_DISPLAY_ATTRIBUTES = new Set([
     'data-text',
     'data-emoji-name',
@@ -249,16 +245,6 @@ import { createContentOverlay } from '../components/live/content-overlay'
     sender: '',
     selectedAt: 0,
     senderCorrelation: new SenderCorrelationCache(),
-    bilibiliCorrelation: new BilibiliDanmakuCorrelationCache(),
-    bilibiliDescriptor: null,
-    bilibiliResolutionStatus: null,
-    bilibiliObservedElements: new WeakMap(),
-    bilibiliPendingRequests: new Map(),
-    bilibiliSendGate: new BilibiliSendGate(),
-    bilibiliOwnOverlayExpectations: [],
-    bilibiliOwnOverlayObservations: new WeakMap(),
-    bilibiliOwnOverlayScanTimer: 0,
-    bilibiliOwnOverlaySenders: new WeakMap(),
     douyuNativeCapsuleVisibility: new DouyuNativeCapsuleVisibilityController(),
     douyuNativeCapsuleMutationRoots: new Set(),
     senderObserver: null,
@@ -995,18 +981,25 @@ import { createContentOverlay } from '../components/live/content-overlay'
     append(element)
 
     let current = (image || element).parentElement
-    for (let depth = 0; current && depth < 4; depth += 1) {
+    for (let depth = 0; current && depth < 12; depth += 1) {
       const marker = elementMarker(current)
       if (
         /(?:emoji|emote|emoticon|emotion|face|sticker|表情)/i.test(marker) ||
-        EMOJI_METADATA_ATTRIBUTES.some((attribute) => current.hasAttribute(attribute))
+        EMOJI_METADATA_ATTRIBUTES.some((attribute) => current.hasAttribute(attribute)) ||
+        (platformId === 'bilibili' && current.getAttribute('data-type') === '1')
       ) {
         append(current)
       }
-      if (
+      const isMessageBoundary =
         closestMatching(current, config.messages) === current ||
         closestMatching(current, config.overlayMessages) === current
-      ) {
+      const hasBilibiliImageIdentity =
+        platformId === 'bilibili' &&
+        (current.getAttribute('data-type') === '1' ||
+          BILIBILI_NATIVE_PANEL_IDENTITY_ATTRIBUTES.some((attribute) =>
+            current.hasAttribute(attribute),
+          ))
+      if (isMessageBoundary && (platformId !== 'bilibili' || hasBilibiliImageIdentity)) {
         break
       }
       current = current.parentElement
@@ -1014,13 +1007,17 @@ import { createContentOverlay } from '../components/live/content-overlay'
     return elements
   }
 
+  function isGenericEmojiLabel(value) {
+    const normalized = shared.normalizeWhitespace(value).replace(/^\[|\]$/g, '')
+    return /^(?:图片|图片表情|表情|表情包|emoji|emote|emoticon|image|sticker)$/i.test(normalized)
+  }
+
   function normalizedEmojiToken(value, marker) {
     const normalized = shared.normalizeWhitespace(value)
-    if (!normalized) return ''
+    if (!normalized || isGenericEmojiLabel(normalized)) return ''
     if (/^\[[^\]\n]{1,40}\]$/.test(normalized)) return normalized
     if (/\p{Extended_Pictographic}/u.test(normalized)) return normalized
     if (
-      /^(?:图片|图片表情|表情|表情包|emoji|emote|emoticon|image|sticker)$/i.test(normalized) ||
       /^(?:data|blob|https?):/i.test(normalized) ||
       /[\\/]/.test(normalized) ||
       Array.from(normalized).length > 40
@@ -1071,7 +1068,6 @@ import { createContentOverlay } from '../components/live/content-overlay'
     const sources = []
     const displayMetadata = []
     const identityMetadata = []
-    const exclusiveMetadata = []
     metadataElements.forEach((metadataElement) => {
       const sourceValues = [
         metadataElement instanceof HTMLImageElement && metadataElement.currentSrc,
@@ -1082,12 +1078,6 @@ import { createContentOverlay } from '../components/live/content-overlay'
         metadataElement.getAttribute('data-image-url'),
       ]
       sourceValues.filter(Boolean).forEach((value) => sources.push(value))
-      if (platformId === 'bilibili') {
-        BILIBILI_EXCLUSIVE_EMOJI_ATTRIBUTES.forEach((attribute) => {
-          const value = shared.normalizeWhitespace(metadataElement.getAttribute(attribute))
-          if (value) exclusiveMetadata.push(value)
-        })
-      }
       EMOJI_METADATA_ATTRIBUTES.forEach((attribute) => {
         const value = metadataElement.getAttribute(attribute)
         if (!value) return
@@ -1102,11 +1092,46 @@ import { createContentOverlay } from '../components/live/content-overlay'
         }
       })
     })
-    const token = emojiTokenFromElement(element)
+    const authoritativeBilibiliToken =
+      platformId === 'bilibili'
+        ? metadataElements
+            .filter(
+              (metadataElement) =>
+                metadataElement.getAttribute('data-type') === '1' ||
+                BILIBILI_NATIVE_PANEL_IDENTITY_ATTRIBUTES.some((attribute) =>
+                  metadataElement.hasAttribute(attribute),
+                ),
+            )
+            .map((metadataElement) =>
+              shared.normalizeWhitespace(metadataElement.getAttribute('data-danmaku')),
+            )
+            .find((value) => /^\[[^\]\n]{1,40}\]$/.test(value)) || ''
+        : ''
+    const token = authoritativeBilibiliToken || emojiTokenFromElement(element)
     const keys = new Set()
-    exclusiveMetadata.forEach((value) => {
-      keys.add(`${BILIBILI_EXCLUSIVE_ASSET_KEY_PREFIX}${String(value).toLowerCase().slice(0, 256)}`)
-    })
+    if (platformId === 'bilibili') {
+      let nativePanelIdentity = ''
+      let isNativePanelAsset = false
+      metadataElements.forEach((metadataElement) => {
+        if (metadataElement.getAttribute('data-type') === '1') {
+          isNativePanelAsset = true
+        }
+        BILIBILI_NATIVE_PANEL_IDENTITY_ATTRIBUTES.forEach((attribute) => {
+          const value = shared.normalizeWhitespace(metadataElement.getAttribute(attribute))
+          if (!value) return
+          isNativePanelAsset = true
+          if (!nativePanelIdentity) nativePanelIdentity = value
+        })
+      })
+      if (isNativePanelAsset) {
+        keys.add(
+          `${NATIVE_PANEL_ASSET_KEY_PREFIX}${String(nativePanelIdentity || sources[0] || 'type-1')
+            .trim()
+            .toLowerCase()
+            .slice(0, 220)}`,
+        )
+      }
+    }
     sources
       .concat(displayMetadata)
       .concat(token || [])
@@ -1182,92 +1207,7 @@ import { createContentOverlay } from '../components/live/content-overlay'
     return candidate
   }
 
-  function bilibiliChatRow(element) {
-    if (platformId !== 'bilibili' || !(element instanceof Element)) return null
-    return element.matches('[data-danmaku]') ? element : element.closest('[data-danmaku]')
-  }
-
-  function bilibiliRowObservedAt(row, fallback) {
-    const signature = [
-      row.getAttribute('data-id_str'),
-      row.getAttribute('data-danmaku'),
-      row.getAttribute('data-file-id'),
-      row.getAttribute('data-uid'),
-    ].join('\u0001')
-    const existing = state.bilibiliObservedElements.get(row)
-    if (existing && existing.signature === signature) return existing.observedAt
-    const observedAt = Number(fallback) || Date.now()
-    state.bilibiliObservedElements.set(row, { observedAt, signature })
-    return observedAt
-  }
-
-  function rememberBilibiliChatElement(element, fallbackObservedAt) {
-    const row = bilibiliChatRow(element)
-    if (!row) return null
-    const descriptor = bilibiliDescriptorFromChatElement(
-      row,
-      bilibiliRowObservedAt(row, fallbackObservedAt),
-    )
-    if (descriptor) state.bilibiliCorrelation.remember(descriptor)
-    return descriptor
-  }
-
-  function scanBilibiliDescriptorCache() {
-    if (platformId !== 'bilibili') return
-    const rows = queryAllDeep(['[data-danmaku]']).slice(-300)
-    const now = Date.now()
-    rows.forEach((row, index) => {
-      if (isOwned(row) || isBilibiliChatAdvertisement(row)) return
-      rememberBilibiliChatElement(row, now - (rows.length - index) * 8)
-    })
-  }
-
-  function resolveBilibiliCandidateDescriptor(candidate, kind) {
-    if (platformId !== 'bilibili') return { descriptor: null, status: null }
-    const direct = rememberBilibiliChatElement(candidate)
-    if (direct) return { descriptor: direct, status: 'matched' }
-    if (kind !== 'overlay') return { descriptor: null, status: 'missing' }
-    scanBilibiliDescriptorCache()
-    const resolution = state.bilibiliCorrelation.resolveOverlay(candidate)
-    return {
-      descriptor: resolution.descriptor || null,
-      status: resolution.status,
-    }
-  }
-
-  function bilibiliOverlayCatalogDescriptor(payload) {
-    if (!payload || !Array.isArray(payload.assets) || !payload.assets.length) return null
-    const identities = new Set(
-      payload.assets.map((asset) => {
-        const url = normalizeBilibiliAssetUrl(asset && asset.src)
-        if (url) return `url:${url}`
-        return `keys:${Array.isArray(asset && asset.keys) ? asset.keys.slice().sort().join('|') : ''}`
-      }),
-    )
-    if (identities.size !== 1) return null
-    const asset = payload.assets[0]
-    const token = String((asset && asset.token) || '').trim()
-    const plainText = shared.normalizeWhitespace(payload.plainText)
-    const fallbackOnly = token && plainText && !plainText.split(token).join('').replace(/\s+/g, '')
-    const generic = /^(?:图片|图片表情|表情|emoji|emote|image|sticker|贴纸)$/i.test(plainText)
-    if (plainText && !fallbackOnly && !generic) return null
-    const descriptor = bilibiliDescriptorFromFavoritePayload({
-      assets: [asset],
-      parts: [{ asset, type: 'emoji' }],
-      plainText: '',
-      text: token || payload.text,
-    })
-    if (descriptor && descriptor.kind === 'image') descriptor.source = 'overlay'
-    return descriptor && descriptor.kind === 'image' ? descriptor : null
-  }
-
   function richPayloadFromCandidate(candidate) {
-    if (platformId === 'bilibili') {
-      const descriptor = rememberBilibiliChatElement(candidate)
-      if (descriptor) {
-        return bilibiliPayloadFromDescriptor(descriptor)
-      }
-    }
     const element = messageElementFromCandidate(candidate)
     if (!element) {
       return { text: '', plainText: '', assets: [], parts: [] }
@@ -1333,6 +1273,32 @@ import { createContentOverlay } from '../components/live/content-overlay'
     return parts
   }
 
+  function isBilibiliNativePanelAsset(asset) {
+    return Boolean(
+      asset &&
+        Array.isArray(asset.keys) &&
+        asset.keys.some((key) => {
+          const normalized = String(key || '').toLowerCase()
+          return (
+            normalized.startsWith(NATIVE_PANEL_ASSET_KEY_PREFIX) ||
+            normalized.startsWith(LEGACY_BILIBILI_EXCLUSIVE_ASSET_KEY_PREFIX)
+          )
+        }),
+    )
+  }
+
+  function bilibiliInlineEmojiText(payload) {
+    if (
+      platformId !== 'bilibili' ||
+      !payload ||
+      !Array.isArray(payload.assets) ||
+      payload.assets.some(isBilibiliNativePanelAsset)
+    ) {
+      return ''
+    }
+    return orderedBracketEmojiText(payload)
+  }
+
   function assetMatchScore(element, asset) {
     const descriptor = assetDescriptorFromElement(element)
     if (!descriptor || !asset || !Array.isArray(asset.keys)) {
@@ -1385,17 +1351,80 @@ import { createContentOverlay } from '../components/live/content-overlay'
     }
   }
 
-  async function enrichRichPayloadAssetNames(payload) {
+  function refreshRichPayloadText(payload) {
+    if (!payload || !Array.isArray(payload.assets) || !payload.assets.length) return ''
+    const parts = Array.isArray(payload.parts) ? payload.parts : []
+    let unresolvedEmoji = false
+    const resolvedText = parts.length
+      ? parts
+          .map((part) => {
+            if (!part || typeof part !== 'object') return ''
+            if (part.type === 'text') return String(part.text || '')
+            if (part.type === 'emoji' && part.asset) {
+              const token = normalizedEmojiToken(part.asset.token, 'emoji')
+              if (!token) unresolvedEmoji = true
+              return token
+            }
+            return ''
+          })
+          .join('')
+      : payload.assets
+          .map((asset) => {
+            const token = normalizedEmojiToken(asset && asset.token, 'emoji')
+            if (!token) unresolvedEmoji = true
+            return token
+          })
+          .join('')
+    if (unresolvedEmoji) return payload.text || ''
+    const normalized = shared.parseMessageText(resolvedText, config.maxLength)
+    if (shared.isPlausibleMessage(normalized, config.maxLength)) {
+      payload.text = normalized
+    }
+    return payload.text || ''
+  }
+
+  async function enrichRichPayloadAssetNames(payload, options) {
     if (!payload || !Array.isArray(payload.assets) || !payload.assets.length) return payload
-    const input = findInput()
+    const resolveBilibiliNative = Boolean(options && options.resolveBilibiliNative)
+    let resolvedSingleBilibiliItem = null
+    const input =
+      platformId === 'bilibili' ? findBilibiliEmojiEditor() || findInput() : findInput()
     for (let index = 0; index < payload.assets.length; index += 1) {
       const asset = payload.assets[index]
-      if (emojiTokenQuality(asset && asset.token) >= 3) continue
-      let item = findMatchingPlatformEmoji(asset)
+      const shouldResolveNative =
+        platformId === 'bilibili' &&
+        resolveBilibiliNative &&
+        !isBilibiliNativePanelAsset(asset)
+      if (emojiTokenQuality(asset && asset.token) >= 3 && !shouldResolveNative) continue
+      let item =
+        platformId === 'bilibili'
+          ? findUniqueBilibiliPlatformEmoji(asset, fullscreenActive())
+          : findMatchingPlatformEmoji(asset)
       if (!item && input) {
-        item = await openPlatformEmojiForAsset(input, asset)
+        item =
+          platformId === 'bilibili'
+            ? await openUniqueBilibiliPlatformEmoji(input, asset)
+            : await openPlatformEmojiForAsset(input, asset)
       }
-      if (item) enrichRichPayloadAsset(payload, index, item)
+      if (item) {
+        enrichRichPayloadAsset(payload, index, item)
+        if (platformId === 'bilibili' && payload.assets.length === 1) {
+          resolvedSingleBilibiliItem = item
+        }
+      }
+    }
+    refreshRichPayloadText(payload)
+    if (
+      resolveBilibiliNative &&
+      resolvedSingleBilibiliItem &&
+      bilibiliFavoriteImagePayload(payload) &&
+      !payload.assets.some(isBilibiliNativePanelAsset)
+    ) {
+      // Some fullscreen-rendered image Emoji and current Bilibili panel items
+      // expose only an image URL plus a bracketed display name. Finding one
+      // unique official item is still authoritative: force this single-image
+      // payload through that item instead of submitting "[name]" as text.
+      markBilibiliPayloadAsNativePanel(payload, resolvedSingleBilibiliItem)
     }
     return payload
   }
@@ -1590,7 +1619,6 @@ import { createContentOverlay } from '../components/live/content-overlay'
       clearTimeout(state.senderScanTimer)
       state.senderScanTimer = 0
     }
-    scanBilibiliDescriptorCache()
     const rows = queryAllDeep(config.messages).slice(-160)
     const now = Date.now()
     rows.forEach((row, index) => {
@@ -1622,241 +1650,6 @@ import { createContentOverlay } from '../components/live/content-overlay'
       if (name) return name
     }
     return ''
-  }
-
-  function bilibiliOwnOverlayFrameTarget(element) {
-    if (platformId !== 'bilibili' || !(element instanceof Element)) return null
-    const root = element.closest(
-      [
-        '.bili-danmaku-x-dm',
-        '.b-danmaku',
-        "[class*='video-danmaku-item']",
-        ".bilibili-live-player-video-danmaku [class*='danmaku-item']",
-        ".bpx-player-dm-wrap [class*='danmaku-item']",
-      ].join(','),
-    )
-    return root || element
-  }
-
-  function bilibiliOwnOverlaySender(candidate) {
-    if (platformId !== 'bilibili' || !(candidate instanceof Element)) return ''
-    const target = candidate.closest("[data-bcp-bilibili-own-overlay='true']")
-    return target ? state.bilibiliOwnOverlaySenders.get(target) || '' : ''
-  }
-
-  function bilibiliSenderForDescriptor(descriptor) {
-    if (platformId !== 'bilibili' || !descriptor) return ''
-    const rows = queryAllDeep(['[data-danmaku]']).slice(-300)
-    for (let index = rows.length - 1; index >= 0; index -= 1) {
-      const row = rows[index]
-      const candidate = bilibiliDescriptorFromChatElement(row)
-      if (!candidate) continue
-      const sameMessage = descriptor.messageId
-        ? candidate.messageId === descriptor.messageId
-        : candidate.senderUid === descriptor.senderUid &&
-          candidate.kind === descriptor.kind &&
-          (candidate.kind === 'image'
-            ? candidate.emoticonUnique === descriptor.emoticonUnique
-            : candidate.text === descriptor.text)
-      if (!sameMessage) continue
-      const sender = senderFromChatContext(row)
-      if (sender) return sender
-    }
-    return ''
-  }
-
-  function observeBilibiliOverlayTarget(target, observedAt = Date.now()) {
-    const signature = bilibiliOverlaySignature(target)
-    const existing = state.bilibiliOwnOverlayObservations.get(target)
-    if (existing && existing.signature === signature) return existing
-    const observation = {
-      firstSeenAt: observedAt,
-      signature,
-    }
-    state.bilibiliOwnOverlayObservations.set(target, observation)
-    return observation
-  }
-
-  function snapshotBilibiliMatchingOverlays(descriptor, sentAt) {
-    const matches = new WeakMap()
-    if (platformId !== 'bilibili' || !descriptor) return matches
-    const targets = new Set(
-      queryAllDeep(config.overlayMessages)
-        .slice(-240)
-        .map(bilibiliOwnOverlayFrameTarget)
-        .filter((target) => target && !isOwned(target)),
-    )
-    if (state.candidateKind === 'overlay' && state.candidate) {
-      const selectedTarget = bilibiliOwnOverlayFrameTarget(state.candidate)
-      if (selectedTarget) targets.add(selectedTarget)
-    }
-    targets.forEach((target) => {
-      const observation = observeBilibiliOverlayTarget(target, sentAt - 1)
-      if (bilibiliOverlayMatchesDescriptor(target, descriptor)) {
-        matches.set(target, observation.signature)
-      }
-    })
-    return matches
-  }
-
-  function createBilibiliOwnOverlayExpectation(descriptor, result, sentAt, preexistingMatches) {
-    if (platformId !== 'bilibili' || !descriptor || result.status !== 'accepted') return null
-    const kind = Number(result.dmType) === 1 ? 'image' : 'inline'
-    const text = String(result.content || descriptor.text || '')
-    const expectation = {
-      completed: false,
-      descriptor: {
-        ...descriptor,
-        emoticonUnique: result.emoticonUnique || descriptor.emoticonUnique,
-        kind,
-        messageId: result.messageId || descriptor.messageId,
-        observedAt: sentAt,
-        plainText:
-          kind === 'inline'
-            ? shared.normalizeWhitespace(
-                descriptor.plainText || text.replace(/\[[^\]\n]{1,40}\]/g, ''),
-              )
-            : '',
-        senderUid: result.uid || descriptor.senderUid,
-        source: 'overlay',
-        text,
-      },
-      expiresAt: Date.now() + 30000,
-      frameLogged: false,
-      chatConfirmed: false,
-      matchedElement: null,
-      messageId: result.messageId || '',
-      preexistingMatches: preexistingMatches || new WeakMap(),
-      requestId: result.requestId,
-      sender: '',
-      sentAt,
-    }
-    state.bilibiliOwnOverlayExpectations.push(expectation)
-    state.bilibiliOwnOverlayExpectations = state.bilibiliOwnOverlayExpectations.slice(-20)
-    scheduleBilibiliOwnOverlayScan(0)
-    return expectation
-  }
-
-  function confirmBilibiliOwnOverlayExpectation(expectation, echo) {
-    if (!expectation || !echo) return
-    expectation.descriptor = {
-      ...expectation.descriptor,
-      ...echo,
-      imageUrl: echo.imageUrl || expectation.descriptor.imageUrl,
-      imageUrls:
-        echo.imageUrls && echo.imageUrls.length ? echo.imageUrls : expectation.descriptor.imageUrls,
-    }
-    expectation.messageId = echo.messageId || expectation.messageId
-    expectation.sender = bilibiliSenderForDescriptor(echo)
-    expectation.chatConfirmed = true
-    scheduleBilibiliOwnOverlayScan(0)
-  }
-
-  function cancelBilibiliOwnOverlayExpectation(expectation) {
-    if (!expectation) return
-    expectation.completed = true
-    scheduleBilibiliOwnOverlayScan(0)
-  }
-
-  function scanBilibiliOwnOverlays() {
-    if (state.bilibiliOwnOverlayScanTimer) {
-      clearTimeout(state.bilibiliOwnOverlayScanTimer)
-      state.bilibiliOwnOverlayScanTimer = 0
-    }
-    if (platformId !== 'bilibili') return
-
-    const now = Date.now()
-    const activeTargets = new Set()
-    const candidates = Array.from(
-      new Set(
-        queryAllDeep(config.overlayMessages)
-          .slice(-240)
-          .filter(isOverlayMessageElement)
-          .map(bilibiliOwnOverlayFrameTarget)
-          .filter(Boolean),
-      ),
-    ).map((element) => ({
-      element,
-      ...observeBilibiliOverlayTarget(element, now),
-    }))
-
-    for (const expectation of state.bilibiliOwnOverlayExpectations) {
-      if (expectation.completed || expectation.expiresAt <= now) {
-        expectation.completed = true
-        continue
-      }
-
-      if (!expectation.chatConfirmed) continue
-
-      let target = expectation.matchedElement
-      if (target) {
-        if (
-          !target.isConnected ||
-          !bilibiliOverlayMatchesDescriptor(target, expectation.descriptor, expectation.messageId)
-        ) {
-          expectation.completed = true
-          target = null
-        }
-      } else {
-        const selection = selectBilibiliOwnOverlayCandidate(
-          candidates
-            .filter(({ element }) => !activeTargets.has(element))
-            .map((candidate) => ({
-              ...candidate,
-              preexisting:
-                expectation.preexistingMatches.get(candidate.element) === candidate.signature,
-            })),
-          expectation.descriptor,
-          {
-            expectedMessageId: expectation.messageId,
-            sentAt: expectation.sentAt,
-          },
-        )
-        if (selection.status === 'ambiguous') {
-          expectation.completed = true
-          postBilibiliDebugResult(expectation.requestId, 'overlay-ambiguous', {
-            kind: expectation.descriptor.kind,
-            message: '播放器出现多个同内容候选，已取消框选以避免标错用户',
-            messageId: expectation.messageId,
-          })
-          continue
-        }
-        target = selection.element || null
-        if (target) expectation.matchedElement = target
-      }
-
-      if (!target) continue
-      target.setAttribute('data-bcp-bilibili-own-overlay', 'true')
-      activeTargets.add(target)
-      if (!expectation.frameLogged) {
-        expectation.frameLogged = true
-        postBilibiliDebugResult(expectation.requestId, 'overlay-framed', {
-          kind: expectation.descriptor.kind,
-          message: '已匹配并框选播放器中的本人弹幕',
-          messageId: expectation.messageId,
-        })
-      }
-      if (expectation.sender) {
-        state.bilibiliOwnOverlaySenders.set(target, expectation.sender)
-      }
-    }
-
-    queryAllDeep(["[data-bcp-bilibili-own-overlay='true']"]).forEach((target) => {
-      if (activeTargets.has(target)) return
-      target.removeAttribute('data-bcp-bilibili-own-overlay')
-      state.bilibiliOwnOverlaySenders.delete(target)
-    })
-    state.bilibiliOwnOverlayExpectations = state.bilibiliOwnOverlayExpectations.filter(
-      (expectation) => !expectation.completed && expectation.expiresAt > now,
-    )
-    if (state.bilibiliOwnOverlayExpectations.length) {
-      state.bilibiliOwnOverlayScanTimer = setTimeout(scanBilibiliOwnOverlays, 80)
-    }
-  }
-
-  function scheduleBilibiliOwnOverlayScan(delay) {
-    if (platformId !== 'bilibili' || state.bilibiliOwnOverlayScanTimer) return
-    state.bilibiliOwnOverlayScanTimer = setTimeout(scanBilibiliOwnOverlays, Number(delay) || 0)
   }
 
   function douyuNativeCapsuleBoundary(element) {
@@ -2008,8 +1801,6 @@ import { createContentOverlay } from '../components/live/content-overlay'
   }
 
   function senderFromCandidate(candidate, message, kind, observedAt) {
-    const ownOverlaySender = kind === 'overlay' ? bilibiliOwnOverlaySender(candidate) : ''
-    if (ownOverlaySender) return ownOverlaySender
     const direct = kind === 'chat' ? senderFromChatContext(candidate) : senderFromElement(candidate)
     const values = replyMessageValues(message, state.richPayload)
     const ids = messageIdsFromElement(candidate)
@@ -2096,10 +1887,16 @@ import { createContentOverlay } from '../components/live/content-overlay'
     ) {
       return
     }
-    const message = state.message
+    let message = state.message
     const payload = state.richPayload
     if (payload && payload.assets && payload.assets.length) {
-      await enrichRichPayloadAssetNames(payload)
+      await enrichRichPayloadAssetNames(payload, { resolveBilibiliNative: true })
+      if (shared.isPlausibleMessage(payload.text, config.maxLength)) {
+        message = payload.text
+        if (payload === state.richPayload) {
+          state.message = message
+        }
+      }
     }
     await state.favoritesRuntime.favoriteText(message, payload)
   }
@@ -2116,8 +1913,6 @@ import { createContentOverlay } from '../components/live/content-overlay'
     // custom elements or clonable shadow roots that initialize a new media
     // pipeline during a deep DOM clone, before media descendants can be removed.
     const snapshot = createInertOverlaySnapshot(candidate)
-    // The live candidate is hidden while hovered, so its selection outline is
-    // invisible. Keep the outline on the inert snapshot shown in its place.
     snapshot.classList.add('bcp-one-frozen', 'bcp-one-target')
     snapshot.dataset.bcpOneOwned = 'true'
 
@@ -2229,43 +2024,17 @@ import { createContentOverlay } from '../components/live/content-overlay'
       return false
     }
 
-    const bilibiliResolution = resolveBilibiliCandidateDescriptor(candidate, candidateKind)
-    const richPayload = bilibiliResolution.descriptor
-      ? bilibiliPayloadFromDescriptor(bilibiliResolution.descriptor)
-      : richPayloadFromCandidate(candidate)
+    const richPayload = richPayloadFromCandidate(candidate)
     const message = (richPayload && richPayload.text) || textFromCandidate(candidate)
     if (!shared.isPlausibleMessage(message, config.maxLength)) {
       return false
     }
-    let bilibiliDescriptor = bilibiliResolution.descriptor
-    let bilibiliResolutionStatus = bilibiliResolution.status
-    if (
-      platformId === 'bilibili' &&
-      !bilibiliDescriptor &&
-      bilibiliResolutionStatus !== 'ambiguous' &&
-      (!richPayload.assets || !richPayload.assets.length)
-    ) {
-      bilibiliDescriptor = bilibiliDescriptorFromFavoritePayload(richPayload)
-      if (bilibiliDescriptor) bilibiliDescriptor.source = candidateKind
-    }
-    if (
-      platformId === 'bilibili' &&
-      !bilibiliDescriptor &&
-      bilibiliResolutionStatus === 'missing' &&
-      candidateKind === 'overlay'
-    ) {
-      bilibiliDescriptor = bilibiliOverlayCatalogDescriptor(richPayload)
-      if (bilibiliDescriptor) bilibiliResolutionStatus = 'catalog'
-    }
-
     cancelHide()
     clearSelection()
     state.candidate = candidate
     state.candidateKind = candidateKind
     state.message = message
     state.richPayload = richPayload
-    state.bilibiliDescriptor = bilibiliDescriptor
-    state.bilibiliResolutionStatus = bilibiliResolutionStatus
     state.selectedAt = Date.now()
     state.sender = senderFromCandidate(candidate, message, state.candidateKind, state.selectedAt)
     candidate.classList.add('bcp-one-target')
@@ -2275,7 +2044,6 @@ import { createContentOverlay } from '../components/live/content-overlay'
 
     ensureButton()
     state.ui.showActionBar(message, state.sender)
-    state.ui.setSending(platformId === 'bilibili' && state.bilibiliSendGate.active)
     requestAnimationFrame(updateButtonPosition)
     return true
   }
@@ -2292,8 +2060,6 @@ import { createContentOverlay } from '../components/live/content-overlay'
     state.sender = ''
     state.selectedAt = 0
     state.richPayload = null
-    state.bilibiliDescriptor = null
-    state.bilibiliResolutionStatus = null
     if (state.ui) state.ui.hideActionBar()
   }
 
@@ -2410,6 +2176,35 @@ import { createContentOverlay } from '../components/live/content-overlay'
       return usable[0] || null
     }
     return null
+  }
+
+  function findBilibiliEmojiEditor() {
+    if (platformId !== 'bilibili') return null
+    const fullscreen = fullscreenElement()
+    const candidates = queryAllDeep(config.inputs).filter((element) => {
+      const disabled =
+        element.matches(':disabled') ||
+        element.getAttribute('aria-disabled') === 'true' ||
+        element.getAttribute('contenteditable') === 'false'
+      const insideFullscreen = Boolean(
+        fullscreen && (fullscreen === element || fullscreen.contains(element)),
+      )
+      return (
+        !disabled &&
+        element.isConnected &&
+        element.matches(TEXT_EDITOR_SELECTOR) &&
+        !insideFullscreen &&
+        !isBilibiliQuickInputRegion(element)
+      )
+    })
+    candidates.sort((first, second) => {
+      const score = (element) =>
+        (element.matches('textarea.chat-input,.chat-input-ctnr textarea,.chat-input') ? 1200 : 0) +
+        (closestMatching(element, config.chatRoots) ? 600 : 0) +
+        (isVisible(element) ? 120 : 0)
+      return score(second) - score(first)
+    })
+    return candidates[0] || null
   }
 
   function activateBilibiliQuickInput() {
@@ -3066,6 +2861,7 @@ import { createContentOverlay } from '../components/live/content-overlay'
             '[data-emoticon-name]',
             '[data-emoticon-text]',
             '[data-emoticon-unique]',
+            '[data-file-id]',
             "[role='button']",
             'button',
             'li',
@@ -3089,19 +2885,55 @@ import { createContentOverlay } from '../components/live/content-overlay'
     if (!best || bestScore < 4) {
       return null
     }
-    const interactive = best.closest("button,[role='button'],li")
-    if (interactive) return interactive
-    const parentItem =
-      best.parentElement && best.parentElement.closest(PLATFORM_EMOJI_ITEM_SELECTORS.join(','))
-    return parentItem || best.closest(PLATFORM_EMOJI_ITEM_SELECTORS.join(',')) || best
+    return platformEmojiInteractiveItem(best)
   }
 
-  function platformEmojiCategoryCandidates() {
+  function platformEmojiInteractiveItem(element) {
+    const interactive = element.closest("button,[role='button'],li")
+    if (interactive) return interactive
+    const parentItem =
+      element.parentElement && element.parentElement.closest(PLATFORM_EMOJI_ITEM_SELECTORS.join(','))
+    return parentItem || element.closest(PLATFORM_EMOJI_ITEM_SELECTORS.join(',')) || element
+  }
+
+  function findUniqueBilibiliPlatformEmoji(asset, includeHidden = false) {
+    if (platformId !== 'bilibili') return null
+    const matches = new Map()
+    platformEmojiItemCandidates(includeHidden).forEach((element) => {
+      const score = assetMatchScore(element, asset)
+      if (score < 4) return
+      const item = platformEmojiInteractiveItem(element)
+      const descriptor = assetDescriptorFromElement(element)
+      const resourceIdentity = descriptor?.keys?.find((key) => {
+        const normalized = String(key || '').toLowerCase()
+        return (
+          normalized.startsWith(NATIVE_PANEL_ASSET_KEY_PREFIX) ||
+          normalized.startsWith(LEGACY_BILIBILI_EXCLUSIVE_ASSET_KEY_PREFIX)
+        )
+      })
+      const matchKey = resourceIdentity || item
+      const previous = matches.get(matchKey)
+      if (
+        !previous ||
+        score > previous.score ||
+        (score === previous.score && isVisible(item) && !isVisible(previous.item))
+      ) {
+        matches.set(matchKey, { item, score })
+      }
+    })
+    const ranked = Array.from(matches.values()).sort((first, second) => second.score - first.score)
+    if (!ranked.length) return null
+    const bestScore = ranked[0].score
+    const best = ranked.filter((match) => match.score === bestScore)
+    return best.length === 1 ? best[0].item : null
+  }
+
+  function platformEmojiCategoryCandidates(includeHidden = false) {
     const results = []
     const seen = new Set()
     queryAllDeep(platformEmojiSurfaceSelectors()).forEach((surface) => {
       if (
-        !isVisible(surface) ||
+        (!includeHidden && !isVisible(surface)) ||
         closestMatching(surface, config.messages) ||
         closestMatching(surface, config.overlayMessages)
       )
@@ -3110,7 +2942,7 @@ import { createContentOverlay } from '../components/live/content-overlay'
         if (
           !(element instanceof Element) ||
           seen.has(element) ||
-          !isVisible(element) ||
+          (!includeHidden && !isVisible(element)) ||
           isOwned(element) ||
           element.getAttribute('aria-selected') === 'true'
         ) {
@@ -3123,21 +2955,35 @@ import { createContentOverlay } from '../components/live/content-overlay'
     return results.slice(0, 16)
   }
 
-  function findPlatformEmojiToggle(input) {
+  function findPlatformEmojiToggle(input, includeHidden = false) {
     const inputRect = input && input.getBoundingClientRect()
     const candidates = queryAllDeep(platformEmojiToggleSelectors()).filter(
       (element) =>
-        isVisible(element) && !closestMatching(element, config.messages) && !isOwned(element),
+        element.isConnected &&
+        (includeHidden || isVisible(element)) &&
+        !closestMatching(element, config.messages) &&
+        !isOwned(element),
     )
     candidates.sort((first, second) => {
       const score = (element) => {
         const marker = elementMarker(element)
         const rect = element.getBoundingClientRect()
-        const distance = inputRect
+        const visible = isVisible(element)
+        const distance = inputRect && visible
           ? Math.abs(rect.left - inputRect.right) + Math.abs(rect.top - inputRect.top)
           : 0
+        let scopeBonus = 0
+        let parent = input && input.parentElement
+        for (let depth = 0; parent && depth < 6; depth += 1, parent = parent.parentElement) {
+          if (parent.contains(element)) {
+            scopeBonus = 1200 - depth * 160
+            break
+          }
+        }
         return (
+          scopeBonus +
           (/(emoji|emoticon|emotion|face|表情)/i.test(marker) ? 500 : 0) -
+          (visible ? 0 : 180) -
           Math.min(300, distance / 5)
         )
       }
@@ -3156,6 +3002,38 @@ import { createContentOverlay } from '../components/live/content-overlay'
     return match
   }
 
+  async function waitForUniqueBilibiliPlatformEmoji(asset, timeout, includeHidden = false) {
+    const deadline = Date.now() + timeout
+    let match = findUniqueBilibiliPlatformEmoji(asset, includeHidden)
+    while (!match && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      match = findUniqueBilibiliPlatformEmoji(asset, includeHidden)
+    }
+    return match
+  }
+
+  async function openUniqueBilibiliPlatformEmoji(input, asset) {
+    const includeHidden = fullscreenActive()
+    let item =
+      findUniqueBilibiliPlatformEmoji(asset) ||
+      (includeHidden ? findUniqueBilibiliPlatformEmoji(asset, true) : null)
+    if (item) return item
+    const toggle = findPlatformEmojiToggle(input, includeHidden)
+    if (toggle && typeof toggle.click === 'function') {
+      toggle.click()
+      state.emojiPanelOpenedByPlugin = true
+      item = await waitForUniqueBilibiliPlatformEmoji(asset, 900, includeHidden)
+      if (item) return item
+    }
+    for (const category of platformEmojiCategoryCandidates(includeHidden)) {
+      if (!category.isConnected || typeof category.click !== 'function') continue
+      category.click()
+      item = await waitForUniqueBilibiliPlatformEmoji(asset, 320, includeHidden)
+      if (item) return item
+    }
+    return findUniqueBilibiliPlatformEmoji(asset, true)
+  }
+
   async function findPlatformEmojiAcrossCategories(asset) {
     let match = findMatchingPlatformEmoji(asset)
     if (match || platformId !== 'bilibili') return match
@@ -3169,7 +3047,7 @@ import { createContentOverlay } from '../components/live/content-overlay'
 
     // Some Bilibili builds keep every pack mounted and hide inactive packs
     // without exposing semantic tab markup. A programmatic click on the exact
-    // hidden native item still runs Bilibili's own React handler.
+    // hidden native item still runs Bilibili's own event handler.
     return findMatchingPlatformEmoji(asset, true)
   }
 
@@ -3260,12 +3138,9 @@ import { createContentOverlay } from '../components/live/content-overlay'
         clickedItem &&
         (!clickedItem.isConnected || !isVisible(clickedItem))
       ) {
-        if (!dispatchedAt) {
-          dispatchedAt = Date.now()
-        }
-        // Bilibili closes its Emoji panel before React commits the selected
-        // image into the editor. Keep observing briefly so an insert-then-send
-        // action is not mistaken for a direct native dispatch.
+        if (!dispatchedAt) dispatchedAt = Date.now()
+        // Bilibili closes its native Emoji panel before committing a delayed
+        // insert into the editor. Keep observing that native update window.
         if (platformId !== 'bilibili' || Date.now() - dispatchedAt >= 600) {
           return 'dispatched'
         }
@@ -3358,233 +3233,54 @@ import { createContentOverlay } from '../components/live/content-overlay'
     return submission
   }
 
-  function bilibiliRequestId() {
-    if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
-      return globalThis.crypto.randomUUID()
-    }
-    return `bili-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`
-  }
-
-  function bilibiliRoomHint() {
-    const values = [location.pathname, document.referrer]
-    try {
-      values.unshift(window.top && window.top.location && window.top.location.pathname)
-    } catch {
-      // Cross-origin Bilibili activity frames use their referrer instead.
-    }
-    return values.find((value) => /(?:^|\/)\d+(?:\/|$)/.test(String(value || ''))) || ''
-  }
-
-  function onBilibiliBridgeMessage(event) {
-    if (
-      platformId !== 'bilibili' ||
-      event.source !== window ||
-      !event.data ||
-      event.data.source !== BILIBILI_PAGE_MESSAGE_SOURCE ||
-      event.data.type !== 'send-result'
-    ) {
-      return
-    }
-    const requestId = String(event.data.requestId || '')
-    const pending = state.bilibiliPendingRequests.get(requestId)
-    if (!pending) return
-    state.bilibiliPendingRequests.delete(requestId)
-    clearTimeout(pending.timer)
-    pending.resolve(event.data)
-  }
-
-  function requestBilibiliSend(intent) {
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        state.bilibiliPendingRequests.delete(intent.requestId)
-        resolve({
-          message: '页面发送桥未在 9 秒内返回，发送状态未知，请勿立即重发',
-          requestId: intent.requestId,
-          status: 'transport-error',
-        })
-      }, 9000)
-      state.bilibiliPendingRequests.set(intent.requestId, { resolve, timer })
-      window.postMessage(
-        {
-          intent,
-          source: BILIBILI_CONTENT_MESSAGE_SOURCE,
-          type: 'send',
-        },
-        '*',
-      )
-    })
-  }
-
-  function postBilibiliDebugResult(requestId, stage, details) {
-    window.postMessage(
-      {
-        details,
-        requestId,
-        source: BILIBILI_CONTENT_MESSAGE_SOURCE,
-        stage,
-        type: 'debug-result',
-      },
-      '*',
-    )
-  }
-
-  function currentBilibiliUserUid() {
-    if (platformId !== 'bilibili') return ''
-    const selectors = [
-      '#chat-control-panel [data-uid]',
-      '.chat-input-ctnr [data-uid]',
-      "[class*='control-panel'] [data-uid]",
-      "[class*='chat-input'] [data-uid]",
-    ]
-    for (const element of queryAllDeep(selectors)) {
-      const uid = String(element.getAttribute('data-uid') || '').trim()
-      if (/^\d+$/.test(uid)) return uid
-    }
-    return ''
-  }
-
-  async function waitForBilibiliEcho(expectation, timeout = 6000) {
-    const deadline = Date.now() + timeout
-    while (Date.now() < deadline) {
-      scanBilibiliDescriptorCache()
-      const echo = state.bilibiliCorrelation.findEcho(expectation)
-      if (echo) return echo
-      await new Promise((resolve) => setTimeout(resolve, 100))
-    }
-    scanBilibiliDescriptorCache()
-    return state.bilibiliCorrelation.findEcho(expectation)
-  }
-
-  async function repeatBilibiliPayload(payload, selectedDescriptor, resolutionStatus) {
-    if (platformId !== 'bilibili') return false
-    if (state.bilibiliSendGate.active) {
-      showToast('上一条 Bilibili 弹幕仍在确认中，请稍候', 'warning')
-      return false
-    }
-    if (resolutionStatus === 'ambiguous') {
-      showToast('匹配到多条可能的图片表情，已取消 +1 以避免发错内容', 'error')
-      return false
-    }
-    if (
-      resolutionStatus === 'missing' &&
-      state.candidateKind === 'overlay' &&
-      payload &&
-      Array.isArray(payload.assets) &&
-      payload.assets.length
-    ) {
-      showToast('未能将视频图片表情唯一关联到聊天栏，已取消 +1', 'error')
-      return false
-    }
-
-    const descriptor = selectedDescriptor || bilibiliDescriptorFromFavoritePayload(payload)
-    if (!descriptor) {
-      showToast('无法恢复这条 Bilibili 弹幕的精确内容，已取消发送', 'error')
-      return false
-    }
-    if (descriptor.kind === 'inline' && !descriptor.text) {
-      showToast('Bilibili 弹幕内容为空，已取消发送', 'error')
-      return false
-    }
-
-    const now = Date.now()
-    if (now - state.lastActionAt < 700) {
-      showToast('操作太快，请稍后再试', 'warning')
-      return false
-    }
-    if (!state.bilibiliSendGate.begin()) {
-      showToast('上一条 Bilibili 弹幕仍在确认中，请稍候', 'warning')
-      return false
-    }
-    state.lastActionAt = now
-    if (state.ui) state.ui.setSending(true)
-    try {
-      scanBilibiliDescriptorCache()
-      const sentAt = Date.now()
-      const preexistingOwnOverlays = snapshotBilibiliMatchingOverlays(descriptor, sentAt)
-      const requestId = bilibiliRequestId()
-      const intent = {
-        emojiName: descriptor.emojiName,
-        emoticonUnique: descriptor.emoticonUnique,
-        imageUrl: descriptor.imageUrl || descriptor.imageUrls[0],
-        kind: descriptor.kind,
-        legacyInlineFallback: descriptor.legacyInlineFallback,
-        requestId,
-        roomHint: bilibiliRoomHint(),
-        text: descriptor.text,
-      }
-      const result = await requestBilibiliSend(intent)
-      if (result.status !== 'accepted') {
-        showToast(
-          formatBilibiliSendError(result),
-          result.status === 'unconfirmed' ? 'warning' : 'error',
-        )
-        return false
-      }
-
-      const ownOverlayExpectation = createBilibiliOwnOverlayExpectation(
-        descriptor,
-        result,
-        sentAt,
-        preexistingOwnOverlays,
-      )
-      showToast('Bilibili 已接收，正在等待聊天栏确认', 'info')
-      const uid = String(result.uid || currentBilibiliUserUid() || '')
-      const echoedKind = Number(result.dmType) === 1 ? 'image' : 'inline'
-      const echo = await waitForBilibiliEcho({
-        emoticonUnique: result.emoticonUnique || descriptor.emoticonUnique,
-        kind: echoedKind,
-        messageId: result.messageId,
-        sentAt,
-        text: result.content || descriptor.text,
-        uid,
-      })
-      if (!echo) {
-        cancelBilibiliOwnOverlayExpectation(ownOverlayExpectation)
-        const message = '平台已接收，但聊天栏未确认，请勿立即重发'
-        showToast(message, 'warning')
-        postBilibiliDebugResult(requestId, 'unconfirmed', {
-          kind: descriptor.kind,
-          message,
-          messageId: result.messageId || '',
-        })
-        return false
-      }
-
-      confirmBilibiliOwnOverlayExpectation(ownOverlayExpectation, echo)
-      showToast('已发送 +1', 'success')
-      postBilibiliDebugResult(requestId, 'confirmed', {
-        kind: descriptor.kind,
-        message: '聊天栏已确认本人弹幕',
-        messageId: echo.messageId || result.messageId || '',
-      })
-      return true
-    } finally {
-      state.bilibiliSendGate.finish()
-      if (state.ui) state.ui.setSending(false)
-    }
-  }
-
   async function repeatPlatformRichPayload(payload) {
-    if (platformId === 'bilibili') {
-      return repeatBilibiliPayload(payload)
-    }
     const unicodeFallback = unicodeEmojiFallbackText(payload)
     if (unicodeFallback) {
       return repeatMessage(unicodeFallback)
     }
+    const shouldResolveBilibiliSingleImage = Boolean(bilibiliFavoriteImagePayload(payload))
+    if (
+      platformId === 'bilibili' &&
+      payload &&
+      Array.isArray(payload.assets) &&
+      payload.assets.length &&
+      (fullscreenActive() || shouldResolveBilibiliSingleImage)
+    ) {
+      // Player-rendered image danmaku frequently exposes only its image URL.
+      // Resolve it against Bilibili's own (hidden while fullscreen) Emoji
+      // panel before deciding whether a lossless native-image send is possible.
+      await enrichRichPayloadAssetNames(payload, { resolveBilibiliNative: true })
+    }
+    const bilibiliSingleImagePayload = bilibiliFavoriteImagePayload(payload)
+    const bilibiliInlineText = bilibiliSingleImagePayload ? '' : bilibiliInlineEmojiText(payload)
+    if (bilibiliInlineText) {
+      return repeatMessage(bilibiliInlineText)
+    }
+    const asset = payload && Array.isArray(payload.assets) ? payload.assets[0] : null
+    const nativeBilibiliAsset =
+      platformId === 'bilibili' && isBilibiliNativePanelAsset(asset)
+    if (bilibiliSingleImagePayload && !nativeBilibiliAsset) {
+      showToast(
+        `未找到唯一的官方表情“${bilibiliSingleImagePayload.text}”，已取消 +1，未发送表情名称`,
+        'error',
+      )
+      return false
+    }
     const now = Date.now()
     if (now - state.lastActionAt < 700) {
       showToast('操作太快，请稍后再试', 'warning')
       return false
     }
     state.lastActionAt = now
-    const asset = payload && Array.isArray(payload.assets) ? payload.assets[0] : null
-    const input = findInput()
+    const input = nativeBilibiliAsset ? findBilibiliEmojiEditor() || findInput() : findInput()
     if (!asset || !input) {
       showToast(`未找到${config.name}图片 Emoji 资源或弹幕输入框`, 'error')
       return false
     }
-    const item = await openPlatformEmojiForAsset(input, asset)
+    const item =
+      nativeBilibiliAsset
+        ? await openUniqueBilibiliPlatformEmoji(input, asset)
+        : await openPlatformEmojiForAsset(input, asset)
     if (!item || typeof item.click !== 'function') {
       showToast(`未在${config.name}表情面板中找到对应 Emoji，已取消 +1`, 'error')
       return false
@@ -3632,15 +3328,93 @@ import { createContentOverlay } from '../components/live/content-overlay'
     return true
   }
 
-  async function repeatMessage(message) {
-    if (platformId === 'bilibili') {
-      return repeatBilibiliPayload({
-        assets: [],
-        parts: [{ text: String(message || ''), type: 'text' }],
-        plainText: String(message || ''),
-        text: String(message || ''),
+  function bilibiliFavoriteImagePayload(payload) {
+    if (platformId !== 'bilibili' || !payload) return null
+    const assets = Array.isArray(payload.assets) ? payload.assets : []
+    if (assets.length > 1) return null
+    const asset = assets[0] || null
+    const token = shared.normalizeWhitespace((asset && asset.token) || payload.text)
+    if (!/^\[[^\]\n]{1,40}\]$/.test(token)) return null
+
+    if (Array.isArray(payload.parts) && payload.parts.length) {
+      const meaningfulParts = payload.parts.filter((part) => {
+        if (!part || typeof part !== 'object') return false
+        if (part.type === 'emoji') return true
+        return part.type === 'text' && Boolean(shared.normalizeWhitespace(part.text))
       })
+      const isSingleEmojiPart =
+        meaningfulParts.length === 1 &&
+        (meaningfulParts[0].type === 'emoji' ||
+          (assets.length === 0 &&
+            meaningfulParts[0].type === 'text' &&
+            shared.normalizeWhitespace(meaningfulParts[0].text) === token))
+      if (!isSingleEmojiPart) return null
     }
+
+    const runtimeAsset = asset || {
+      keys: normalizedRichAssetKeys(token, location.href),
+      src: '',
+      token,
+    }
+    return {
+      ...payload,
+      assets: [runtimeAsset],
+      parts: [{ asset: runtimeAsset, type: 'emoji' }],
+      plainText: '',
+      text: token,
+    }
+  }
+
+  function markBilibiliPayloadAsNativePanel(payload, item) {
+    enrichRichPayloadAsset(payload, 0, item)
+    const asset = payload && Array.isArray(payload.assets) ? payload.assets[0] : null
+    if (!asset || isBilibiliNativePanelAsset(asset)) return
+    const identity = shared
+      .normalizeWhitespace(asset.token || asset.src || 'resolved')
+      .toLowerCase()
+      .slice(0, 180)
+    const marker = `${NATIVE_PANEL_ASSET_KEY_PREFIX}resolved:${identity}`
+    asset.keys = Array.from(new Set([marker, ...(Array.isArray(asset.keys) ? asset.keys : [])])).slice(
+      0,
+      48,
+    )
+    const emojiPart = Array.isArray(payload.parts)
+      ? payload.parts.find((part) => part && part.type === 'emoji' && part.asset)
+      : null
+    if (emojiPart && emojiPart.asset !== asset) {
+      emojiPart.asset.keys = Array.from(
+        new Set([marker, ...(Array.isArray(emojiPart.asset.keys) ? emojiPart.asset.keys : [])]),
+      ).slice(0, 48)
+    }
+  }
+
+  async function repeatBilibiliFavoritePayload(payload) {
+    const imagePayload = bilibiliFavoriteImagePayload(payload)
+    if (!imagePayload) {
+      return payload.assets.length ? repeatPlatformRichPayload(payload) : repeatMessage(payload.text)
+    }
+    if (imagePayload.assets.some(isBilibiliNativePanelAsset)) {
+      return repeatPlatformRichPayload(imagePayload)
+    }
+
+    const input = findBilibiliEmojiEditor() || findInput()
+    if (!input) {
+      showToast(`未找到${config.name}弹幕输入框，请确认已登录并展开聊天区`, 'error')
+      return false
+    }
+    const item = await openUniqueBilibiliPlatformEmoji(input, imagePayload.assets[0])
+    if (!item) {
+      showToast(
+        `未找到官方表情“${imagePayload.text}”，已取消发送`,
+        'error',
+      )
+      return false
+    }
+    markBilibiliPayloadAsNativePanel(imagePayload, item)
+    return repeatPlatformRichPayload(imagePayload)
+  }
+
+  async function repeatMessage(message) {
     const now = Date.now()
     if (now - state.lastActionAt < 700) {
       showToast('操作太快，请稍后再试', 'warning')
@@ -3701,9 +3475,7 @@ import { createContentOverlay } from '../components/live/content-overlay'
     }
     const message = state.message
     const richPayload = state.richPayload
-    if (platformId === 'bilibili' && richPayload) {
-      repeatBilibiliPayload(richPayload, state.bilibiliDescriptor, state.bilibiliResolutionStatus)
-    } else if (richPayload && richPayload.assets.length) {
+    if (richPayload && richPayload.assets.length) {
       repeatPlatformRichPayload(richPayload)
     } else if (message) {
       repeatMessage(message)
@@ -3888,15 +3660,7 @@ import { createContentOverlay } from '../components/live/content-overlay'
 
     event.preventDefault()
     event.stopPropagation()
-    if (platformId === 'bilibili' && state.richPayload) {
-      repeatBilibiliPayload(
-        state.richPayload,
-        state.bilibiliDescriptor,
-        state.bilibiliResolutionStatus,
-      )
-    } else {
-      repeatMessage(state.message)
-    }
+    repeatMessage(state.message)
     scheduleHide()
   }
 
@@ -3927,8 +3691,6 @@ import { createContentOverlay } from '../components/live/content-overlay'
     renderActionBar()
     if (!isEnabled()) {
       clearSelection()
-      state.bilibiliOwnOverlayExpectations = []
-      scheduleBilibiliOwnOverlayScan(0)
     }
   }
 
@@ -3977,7 +3739,6 @@ import { createContentOverlay } from '../components/live/content-overlay'
       })
       if (relevant) {
         scheduleSenderCacheScan(40)
-        scheduleBilibiliOwnOverlayScan(0)
       }
       if (relevant || nativeCapsuleRelevant) {
         scanDouyuNativeDanmakuCapsules()
@@ -4002,7 +3763,6 @@ import { createContentOverlay } from '../components/live/content-overlay'
     }
     state.senderObserver.observe(document.documentElement, observerOptions)
     scheduleSenderCacheScan(0)
-    scheduleBilibiliOwnOverlayScan(0)
     scanDouyuNativeDanmakuCapsules()
   }
 
@@ -4015,14 +3775,13 @@ import { createContentOverlay } from '../components/live/content-overlay'
     platform: platformId,
     sendFavorite: (payload) =>
       platformId === 'bilibili'
-        ? repeatBilibiliPayload(payload)
+        ? repeatBilibiliFavoritePayload(payload)
         : payload.assets.length
           ? repeatPlatformRichPayload(payload)
           : repeatMessage(payload.text),
     showToast,
   })
   document.addEventListener('pointerover', onPointerOver, true)
-  window.addEventListener('message', onBilibiliBridgeMessage)
   document.addEventListener('pointermove', onPointerMove, true)
   document.addEventListener('pointerout', onPointerOut, true)
   document.addEventListener('click', onAltClick, true)

@@ -99,17 +99,6 @@
         "*://live.bilibili.com/*"
       ],
       "js": [
-        "src/bilibili-page-hook.js"
-      ],
-      "run_at": "document_start",
-      "world": "MAIN",
-      "all_frames": true
-    },
-    {
-      "matches": [
-        "*://live.bilibili.com/*"
-      ],
-      "js": [
         "src/shared.js",
         "src/content.js"
       ],

@@ -121,6 +121,29 @@ test("stores image Emoji and mixed content as a resendable favorite payload", as
   assert.equal(saved.item.text, "晚上好 [主播挥手]");
 });
 
+test("preserves Bilibili native-panel identity for streamer Emoji favorites", () => {
+  const payload = favorites.normalizeFavoritePayload({
+    assets: [{
+      keys: ["native-panel:room-happy-42", "raw:[主播表情9]", "file:room-happy.webp"],
+      src: "https://example.com/room-happy.webp",
+      token: "[主播表情9]"
+    }],
+    parts: [{
+      type: "emoji",
+      asset: {
+        keys: ["native-panel:room-happy-42", "raw:[主播表情9]"],
+        src: "https://example.com/room-happy.webp",
+        token: "[主播表情9]"
+      }
+    }],
+    plainText: "",
+    text: "[主播表情9]"
+  });
+
+  assert.equal(payload.assets[0].keys[0], "native-panel:room-happy-42");
+  assert.equal(payload.parts[0].asset.keys[0], "native-panel:room-happy-42");
+});
+
 test("shows platform image names from tokens and metadata instead of generic labels", async () => {
   assert.equal(favorites.favoriteAssetDisplayName({
     keys: ["file:emoji_100.webp"],

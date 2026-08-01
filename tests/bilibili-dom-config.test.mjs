@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
 import vm from "node:vm";
@@ -61,27 +60,4 @@ test("discovers current Bilibili image Emoji panels and pack containers", () => 
     selector.includes("emoticon-wrap")), true);
   assert.equal(config.BILIBILI_EMOJI_SURFACE_SELECTORS.some((selector) =>
     selector.includes("face-list")), true);
-});
-
-test("tracks and frames self-sent Bilibili video danmaku", () => {
-  const contentSource = readFileSync(
-    resolve(root, "src", "entries", "content.ts"),
-    "utf8"
-  );
-  const contentCss = readFileSync(
-    resolve(root, "src", "assets", "styles", "content.css"),
-    "utf8"
-  );
-
-  assert.match(contentSource, /createBilibiliOwnOverlayExpectation/);
-  assert.match(contentSource, /confirmBilibiliOwnOverlayExpectation/);
-  assert.match(contentSource, /bilibiliOverlayMatchesDescriptor/);
-  assert.match(contentSource, /if \(!expectation\.chatConfirmed\) continue/);
-  assert.match(
-    contentSource,
-    /selectedTarget = bilibiliOwnOverlayFrameTarget\(state\.candidate\)/,
-  );
-  assert.match(contentSource, /selectBilibiliOwnOverlayCandidate/);
-  assert.match(contentCss, /\[data-bcp-bilibili-own-overlay='true'\]/);
-  assert.match(contentCss, /outline-offset:\s*5px/);
 });

@@ -28,11 +28,6 @@ const extensionEntries: Record<string, ExtensionEntry> = {
     fileName: 'src/content.js',
     name: 'DanmakuEchoContent',
   },
-  'bilibili-page-hook': {
-    entry: 'src/entries/bilibili-page-hook.ts',
-    fileName: 'src/bilibili-page-hook.js',
-    name: 'DanmakuEchoBilibiliPageHook',
-  },
   'douyin-bootstrap': {
     entry: 'src/entries/douyin-bootstrap.ts',
     fileName: 'src/douyin-bootstrap.js',

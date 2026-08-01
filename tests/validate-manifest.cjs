@@ -97,12 +97,11 @@ const bilibiliPageHook = manifest.content_scripts.find((entry) =>
   (entry.matches || []).includes("*://live.bilibili.com/*")
   && (entry.js || []).includes("src/bilibili-page-hook.js")
 );
-if (!bilibiliPageHook || bilibiliPageHook.run_at !== "document_start"
-    || bilibiliPageHook.world !== "MAIN" || bilibiliPageHook.all_frames !== true) {
-  throw new Error("Bilibili send bridge must run in MAIN at document_start in every frame");
+if (bilibiliPageHook) {
+  throw new Error("Bilibili must use its native editor instead of a MAIN-world send bridge");
 }
 if ((manifest.host_permissions || []).some((match) => match.includes("bilibili.com"))) {
-  throw new Error("Bilibili MAIN-world sending must not add a host permission");
+  throw new Error("Bilibili native-editor sending must not add a host permission");
 }
 
 const douyuContentScript = manifest.content_scripts.find((entry) =>

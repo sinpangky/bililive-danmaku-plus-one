@@ -1,9 +1,17 @@
 interface EmojiAssetLike {
+  keys?: unknown;
   token?: unknown;
+}
+
+interface RichPartLike {
+  asset?: unknown;
+  text?: unknown;
+  type?: unknown;
 }
 
 interface RichPayloadLike {
   assets?: unknown;
+  parts?: unknown;
   text?: unknown;
 }
 
@@ -33,4 +41,39 @@ export function unicodeEmojiFallbackText(payload: RichPayloadLike | null | undef
   }
   const text = String(payload.text || "").trim();
   return containsUnicodeEmoji(text) ? text : "";
+}
+
+/**
+ * Rebuild a mixed text/bracket-Emoji message from its ordered DOM parts.
+ * Whether bracket tokens can be submitted as text is platform-specific, so
+ * callers must opt into this fallback only when the native editor supports it.
+ */
+export function orderedBracketEmojiText(payload: RichPayloadLike | null | undefined): string {
+  if (!payload || !Array.isArray(payload.assets) || !payload.assets.length
+      || !Array.isArray(payload.parts) || !payload.parts.length) {
+    return "";
+  }
+
+  const assetTokens = payload.assets.map((asset) => {
+    if (!asset || typeof asset !== "object") return "";
+    return String((asset as EmojiAssetLike).token || "").trim();
+  });
+  if (assetTokens.some((token) => !/^\[[^\]\n]{1,80}\]$/.test(token))) {
+    return "";
+  }
+
+  let emojiCount = 0;
+  const ordered = (payload.parts as RichPartLike[]).map((part) => {
+    if (!part || typeof part !== "object") return null;
+    if (part.type === "text") return String(part.text || "");
+    if (part.type !== "emoji" || !part.asset || typeof part.asset !== "object") return null;
+    const token = String((part.asset as EmojiAssetLike).token || "").trim();
+    if (!/^\[[^\]\n]{1,80}\]$/.test(token)) return null;
+    emojiCount += 1;
+    return token;
+  });
+  if (ordered.some((part) => part === null) || emojiCount !== payload.assets.length) {
+    return "";
+  }
+  return ordered.join("").replace(/\s+/g, " ").trim();
 }

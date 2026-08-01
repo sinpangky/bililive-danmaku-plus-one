@@ -19,12 +19,11 @@
   "scripts": {
     "dev": "vite",
     "build": "run-p type-check \"build-only {@}\" --",
-    "build-only": "run-s build:popup build:background build:shared build:content build:bilibili-page-hook build:douyin-bootstrap build:douyin-content build:douyin-page-hook",
+    "build-only": "run-s build:popup build:background build:shared build:content build:douyin-bootstrap build:douyin-content build:douyin-page-hook",
     "build:popup": "vite build --mode popup",
     "build:background": "vite build --mode background",
     "build:shared": "vite build --mode shared",
     "build:content": "vite build --mode content",
-    "build:bilibili-page-hook": "vite build --mode bilibili-page-hook",
     "build:douyin-bootstrap": "vite build --mode douyin-bootstrap",
     "build:douyin-content": "vite build --mode douyin-content",
     "build:douyin-page-hook": "vite build --mode douyin-page-hook",
@@ -40,7 +39,7 @@
     "lint:check:oxlint": "oxlint .",
     "lint:check:eslint": "eslint .",
     "format": "prettier --write --experimental-cli src/",
-    "validate:build": "node tests/validate-manifest.cjs build/extension && node tests/validate-vue-architecture.cjs && node --check build/extension/src/content.js && node --check build/extension/src/bilibili-page-hook.js && node --check build/extension/src/douyin-page-hook.js && node --check build/extension/src/douyin-content.js && node --check tests/fixture-server.cjs && node --check tests/inspect-live-dom.cjs && node --check tests/inspect-popup.mjs",
+    "validate:build": "node tests/validate-manifest.cjs build/extension && node tests/validate-vue-architecture.cjs && node --check build/extension/src/content.js && node --check build/extension/src/douyin-page-hook.js && node --check build/extension/src/douyin-content.js && node --check tests/fixture-server.cjs && node --check tests/inspect-live-dom.cjs && node --check tests/inspect-popup.mjs",
     "check": "run-s type-check lint:check build-only validate:build test:unit test:regression",
     "package": "node scripts/sync-version.cjs && npm run check && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1"
   },

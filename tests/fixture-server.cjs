@@ -186,6 +186,7 @@ const bilibiliHtml = String.raw`<!doctype html>
     </style>
   </head>
   <body>
+    <main class="live-player-mounter">
     <section class="bpx-player-container">
       <div class="bilibili-live-player-video-danmaku">
         <div class="bili-danmaku-x-dm">
@@ -210,12 +211,14 @@ const bilibiliHtml = String.raw`<!doctype html>
           </span>
         </div>
         <div class="bili-danmaku-x-dm fixture-bili-extra-emote-row"
-          style="display:none;top:260px">
-          <span class="bili-danmaku-x-dm-content">
-            <img class="bili-danmaku-x-dm-img fixture-exclusive-emote"
-              data-emoticon-unique="room-happy-42"
-              src="/fixture/bili-room-happy.webp?source=chat">
-          </span>
+          data-fixture-raw-exclusive="true" style="display:none;top:260px">
+          <span class="bili-danmaku-x-dm-content"><span class="fixture-exclusive-depth-1"><span
+            class="fixture-exclusive-depth-2"><span class="fixture-exclusive-depth-3"><span
+              class="fixture-exclusive-depth-4"><span class="fixture-exclusive-depth-5">
+                <img class="bili-danmaku-x-dm-img fixture-exclusive-emote"
+                  alt="[图片表情]"
+                  src="/fixture/bili-room-happy.webp?source=chat">
+              </span></span></span></span></span></span>
         </div>
         <div class="bili-danmaku-x-dm fixture-bili-extra-emote-row"
           style="display:none;top:300px">
@@ -233,8 +236,15 @@ const bilibiliHtml = String.raw`<!doctype html>
               data-emoji-name="[大哭]" data-emoticon-id="official-cry"
               src="/fixture/bili-cry.webp?source=chat-a"><img
               class="bili-danmaku-x-dm-img"
-              data-emoji-name="[大哭]" data-emoticon-id="official-cry"
-              src="/fixture/bili-cry.webp?source=chat-b"></span>
+               data-emoji-name="[大哭]" data-emoticon-id="official-cry"
+               src="/fixture/bili-cry.webp?source=chat-b"></span>
+        </div>
+        <div class="bili-danmaku-x-dm fixture-bili-extra-emote-row"
+          data-fixture-raw-exclusive-favorite="true" style="display:none;top:380px">
+          <span class="bili-danmaku-x-dm-content"><img
+            class="bili-danmaku-x-dm-img fixture-exclusive-favorite-emote"
+            alt="[图片表情]"
+            src="/fixture/bili-room-happy.webp?source=favorite"></span>
         </div>
       </div>
       <div class="bili-danmaku-x-dm bpx-player-ctrl-dm-input" style="display:none;position:absolute;left:20px;top:auto;bottom:20px;z-index:2">
@@ -277,16 +287,31 @@ const bilibiliHtml = String.raw`<!doctype html>
             <img data-emoticon-id="official-wow"
               src="/fixture/bili-wow.webp?source=panel">
           </button>
+          <button class="emoticon-item fixture-cry-item"
+            data-emoticon-id="official-cry" title="[大哭]" type="button">
+            <img data-emoticon-id="official-cry" alt="[大哭]"
+              src="/fixture/bili-cry.webp?source=panel">
+          </button>
         </div>
         <div class="fixture-exclusive-pack" hidden>
           <button class="emoticon-item fixture-exclusive-item"
-            data-emoticon-unique="room-happy-42" title="[主播开心]" type="button">
-            <img data-emoticon-unique="room-happy-42"
+            data-type="1" data-file-id="room-happy-42"
+            data-fixture-resource-id="room-happy-42" title="[主播表情9]" type="button">
+            <img data-file-id="room-happy-42" alt="[主播表情9]"
               src="/fixture/bili-room-happy.webp?source=panel">
+          </button>
+        </div>
+        <div class="fixture-exclusive-duplicate-pack" hidden>
+          <button class="emoticon-item fixture-exclusive-item-duplicate"
+            data-type="1" data-file-id="room-happy-42"
+            data-fixture-resource-id="room-happy-42" title="[主播表情9]" type="button">
+            <img data-file-id="room-happy-42" alt="[主播表情9]"
+              src="/fixture/bili-room-happy.webp?source=panel-duplicate">
           </button>
         </div>
       </div>
     </div>
+    </main>
     <script>
       const player = document.querySelector(".bpx-player-container");
       const container = document.querySelector(".bilibili-live-player-video-danmaku");
@@ -304,10 +329,29 @@ const bilibiliHtml = String.raw`<!doctype html>
       const commonPack = document.querySelector(".fixture-common-pack");
       const exclusivePack = document.querySelector(".fixture-exclusive-pack");
       const wowItem = document.querySelector(".fixture-wow-item");
+      const cryItem = document.querySelector(".fixture-cry-item");
       const exclusiveItem = document.querySelector(".fixture-exclusive-item");
+      const exclusiveItemDuplicate = document.querySelector(".fixture-exclusive-item-duplicate");
       const richChat = document.querySelector("#chat-history-list");
+      let exclusiveEmojiArmed = false;
       const parameters = new URLSearchParams(location.search);
       const lazyQuickMode = parameters.get("lazyquick") === "1";
+      const lazyEmojiMode = parameters.get("lazyemoji") === "1";
+      const nameOnlyPanelMode = parameters.get("nameonlypanel") === "1";
+      if (nameOnlyPanelMode) {
+        exclusiveItem.removeAttribute("data-type");
+        exclusiveItem.removeAttribute("data-file-id");
+        exclusiveItem.querySelector("img")?.removeAttribute("data-file-id");
+        exclusiveItemDuplicate.closest(".fixture-exclusive-duplicate-pack")?.remove();
+      }
+      const lazyEmojiNodes = lazyEmojiMode ? Array.from(emojiPanel.childNodes) : [];
+      if (lazyEmojiMode) emojiPanel.replaceChildren();
+      if (parameters.get("legacyexclusive") === "1") {
+        const legacyExclusiveRow = document.querySelector(".fixture-exclusive-emote")
+          ?.closest(".fixture-bili-extra-emote-row");
+        legacyExclusiveRow?.removeAttribute("data-type");
+        legacyExclusiveRow?.removeAttribute("data-file-id");
+      }
       if (parameters.get("rich") === "1") {
         document.querySelector(".fixture-video-emote-row").style.display = "block";
         document.querySelectorAll(".fixture-bili-extra-emote-row")
@@ -317,6 +361,9 @@ const bilibiliHtml = String.raw`<!doctype html>
         document.body.dataset.bilibiliEmojiToggleClicks = String(
           Number(document.body.dataset.bilibiliEmojiToggleClicks || 0) + 1
         );
+        if (lazyEmojiMode && !emojiPanel.childNodes.length) {
+          emojiPanel.append(...lazyEmojiNodes);
+        }
         emojiPanel.hidden = false;
       });
       commonTab.addEventListener("click", () => {
@@ -341,7 +388,9 @@ const bilibiliHtml = String.raw`<!doctype html>
         row.appendChild(content);
         richChat.appendChild(row);
         document.body.dataset.bilibiliEmojiSent =
-          image.getAttribute(identityAttribute) || "";
+          image.getAttribute(identityAttribute)
+          || nativeItem.getAttribute("data-fixture-resource-id")
+          || "";
         emojiPanel.hidden = true;
       };
       const recordEmojiItemClick = () => {
@@ -355,6 +404,7 @@ const bilibiliHtml = String.raw`<!doctype html>
       };
       const insertEmojiItem = (nativeItem) => {
         recordEmojiItemClick();
+        exclusiveEmojiArmed = true;
         const value = nativeItem.getAttribute("title") || "";
         emojiPanel.hidden = true;
         send.disabled = true;
@@ -377,7 +427,9 @@ const bilibiliHtml = String.raw`<!doctype html>
       };
       emojiItem.addEventListener("click", () => sendEmojiItem(emojiItem, "data-emoticon"));
       wowItem.addEventListener("click", () => sendEmojiItem(wowItem, "data-emoticon-id"));
+      cryItem.addEventListener("click", () => sendEmojiItem(cryItem, "data-emoticon-id"));
       exclusiveItem.addEventListener("click", () => insertEmojiItem(exclusiveItem));
+      exclusiveItemDuplicate.addEventListener("click", () => insertEmojiItem(exclusiveItemDuplicate));
       if (parameters.get("hashed") === "1" && !lazyQuickMode) {
         quickControls.className = "x7Qk2m";
         quickInput.className = "p9Lm4n";
@@ -396,8 +448,9 @@ const bilibiliHtml = String.raw`<!doctype html>
         }
         document.body.dataset.bilibiliSendMethod = "button";
         document.body.dataset.bilibiliSent = input.value;
-        if (input.value === "[主播开心]") {
-          appendEmojiEcho(exclusiveItem, "data-emoticon-unique");
+        if (input.value === "[主播表情9]" && exclusiveEmojiArmed) {
+          appendEmojiEcho(exclusiveItem, "data-file-id");
+          exclusiveEmojiArmed = false;
         }
         input.value = "";
       });
@@ -407,8 +460,9 @@ const bilibiliHtml = String.raw`<!doctype html>
         }
         document.body.dataset.bilibiliSendMethod = "enter";
         document.body.dataset.bilibiliSent = input.value;
-        if (input.value === "[主播开心]") {
-          appendEmojiEcho(exclusiveItem, "data-emoticon-unique");
+        if (input.value === "[主播表情9]" && exclusiveEmojiArmed) {
+          appendEmojiEcho(exclusiveItem, "data-file-id");
+          exclusiveEmojiArmed = false;
         }
         input.value = "";
       });
@@ -489,6 +543,7 @@ const bilibiliHtml = String.raw`<!doctype html>
           configurable: true,
           get: () => player
         });
+        document.querySelector(".chat-input-ctnr").style.display = "none";
         input.style.display = "none";
         send.style.display = "none";
         quickControls.style.display = "flex";

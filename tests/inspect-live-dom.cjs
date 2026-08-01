@@ -20,6 +20,7 @@ const extensionOnlyPlatform = injectPlatform.endsWith("-extension")
 const normalizedInjectPlatform = lateDouyinHook
   ? "douyin"
   : extensionOnlyPlatform || injectPlatform;
+const compactOutput = process.argv.includes("--compact");
 const targetParameters = new URL(targetUrl).searchParams;
 const expectedDouyinReplyMention = targetParameters.get("nativefill") === "1"
   ? "@native用户ID "
@@ -314,7 +315,8 @@ async function inspect() {
     await delay(lateDouyinHook ? 3_200 : 2_000);
   }
 
-  if (extensionOnlyPlatform && targetParameters.get("fullscreen") === "1") {
+  if (extensionOnlyPlatform && targetParameters.get("fullscreen") === "1"
+      && targetParameters.get("simulatedfullscreen") !== "1") {
     await send("Runtime.evaluate", {
       expression: `document.querySelector('.bpx-player-container,#player-wrap')?.requestFullscreen?.()`,
       awaitPromise: true,
@@ -1942,6 +1944,11 @@ async function inspect() {
       && new URL(targetUrl).searchParams.get("rich") === "1") {
     bilibiliRichRegression = await evaluateValue(`(async () => {
       const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+      const legacyExclusiveMode =
+        new URL(location.href).searchParams.get("legacyexclusive") === "1";
+      const lazyEmojiMode = new URL(location.href).searchParams.get("lazyemoji") === "1";
+      const nameOnlyPanelMode =
+        new URL(location.href).searchParams.get("nameonlypanel") === "1";
       const image = document.querySelector(".fixture-video-emote");
       const fullscreenMode = new URL(location.href).searchParams.get("fullscreen") === "1";
       const replyInput = document.querySelector(fullscreenMode
@@ -2040,7 +2047,8 @@ async function inspect() {
         selector,
         expectedIdentity,
         nativeImage = true,
-        waitBeforeClick = 760
+        waitBeforeClick = 760,
+        favoriteFirst = true
       ) => {
         delete document.body.dataset.bilibiliEmojiSent;
         delete document.body.dataset.bilibiliSent;
@@ -2056,8 +2064,10 @@ async function inspect() {
         const favorite = actionRoot?.querySelector(
           ".bcp-one-action[data-action='favorite']"
         );
-        if (favorite) favorite.click();
-        await delay(1_350);
+        if (favoriteFirst && favorite) {
+          favorite.click();
+          await delay(1_350);
+        }
         await delay(waitBeforeClick);
         const toggleClicksBefore = Number(
           document.body.dataset.bilibiliEmojiToggleClicks || 0
@@ -2103,7 +2113,9 @@ async function inspect() {
       );
       const cryEmoji = await exerciseBilibiliEmoji(
         ".fixture-cry-emote",
-        "[大哭]",
+        "official-cry",
+        true,
+        760,
         false
       );
       const mixedCryEmoji = await exerciseBilibiliEmoji(
@@ -2113,8 +2125,45 @@ async function inspect() {
       );
       const exclusiveEmoji = await exerciseBilibiliEmoji(
         ".fixture-exclusive-emote",
-        "room-happy-42"
+        "room-happy-42",
+        true,
+        760,
+        false
       );
+      const exclusiveFavoriteSource = document.querySelector(
+        ".fixture-exclusive-favorite-emote"
+      );
+      exclusiveFavoriteSource?.dispatchEvent(new PointerEvent("pointerover", {
+        bubbles: true,
+        composed: true,
+        pointerType: "mouse"
+      }));
+      await delay(120);
+      const exclusiveFavoriteSourceButton = document.querySelector(
+        ".bcp-one-actions:not([hidden]) .bcp-one-action[data-action='favorite']"
+      );
+      exclusiveFavoriteSourceButton?.click();
+      await delay(1_500);
+      if (legacyExclusiveMode) {
+        const stored = await chrome.storage.local.get("danmakuEchoFavoritesV1");
+        const database = structuredClone(stored.danmakuEchoFavoritesV1);
+        const favorite = database?.items?.find((item) =>
+          String(item.text || "").includes("[主播表情9]")
+        );
+        const stripNativeIdentity = (asset) => {
+          if (!asset || !Array.isArray(asset.keys)) return;
+          asset.keys = asset.keys.filter((key) =>
+            !String(key || "").startsWith("native-panel:")
+            && !String(key || "").startsWith("bili-exclusive:")
+          );
+        };
+        favorite?.payload?.assets?.forEach(stripNativeIdentity);
+        favorite?.payload?.parts?.forEach((part) => stripNativeIdentity(part?.asset));
+        if (database && favorite) {
+          await chrome.storage.local.set({ danmakuEchoFavoritesV1: database });
+          await delay(120);
+        }
+      }
       document.dispatchEvent(new KeyboardEvent("keydown", {
         altKey: true, bubbles: true, code: "KeyQ", key: "q"
       }));
@@ -2128,7 +2177,50 @@ async function inspect() {
       const favoriteNames = Array.from(
         namedFavoritesRoot.querySelectorAll(".bcp-favorites-text")
       ).map((item) => String(item.textContent || "").trim());
+      const exclusiveFavoriteText = Array.from(
+        namedFavoritesRoot.querySelectorAll(".bcp-favorites-text")
+      ).find((item) => String(item.textContent || "").includes("[主播表情9]"));
+      const exclusiveFavoriteSend = exclusiveFavoriteText
+        ?.closest("li")
+        ?.querySelector(".bcp-favorites-send");
+      delete document.body.dataset.bilibiliEmojiSent;
+      delete document.body.dataset.bilibiliSent;
+      const favoriteItemClicksBefore = Number(
+        document.body.dataset.bilibiliEmojiItemClicks || 0
+      );
+      exclusiveFavoriteSend?.click();
+      for (let attempt = 0; attempt < 50
+          && document.body.dataset.bilibiliEmojiSent !== "room-happy-42"; attempt += 1) {
+        await delay(80);
+      }
+      const exclusiveFavoriteSentAsImage =
+        document.body.dataset.bilibiliEmojiSent === "room-happy-42";
+      const exclusiveFavoriteUsedNativePanel = Number(
+        document.body.dataset.bilibiliEmojiItemClicks || 0
+      ) > favoriteItemClicksBefore;
+      const exclusiveFavoriteToast = String(
+        document.querySelector(".bcp-one-toast.is-visible")?.textContent || ""
+      ).trim();
+      const feedbackToast = document.querySelector(".bcp-one-toast");
+      const previousToastText = feedbackToast?.textContent || "";
+      let longToastFullyVisible = false;
+      if (feedbackToast) {
+        feedbackToast.textContent =
+          "未找到官方表情“[会飞的猪]”，已取消发送。请确认当前直播间仍提供此主播专属表情";
+        feedbackToast.classList.add("is-visible");
+        const toastStyle = getComputedStyle(feedbackToast);
+        longToastFullyVisible =
+          feedbackToast.scrollWidth <= feedbackToast.clientWidth + 1
+          && feedbackToast.scrollHeight <= feedbackToast.clientHeight + 1
+          && feedbackToast.getBoundingClientRect().height > 40
+          && toastStyle.whiteSpace === "normal"
+          && toastStyle.overflow !== "hidden";
+        feedbackToast.textContent = previousToastText;
+      }
       return {
+        legacyExclusiveMode,
+        lazyEmojiMode,
+        nameOnlyPanelMode,
         videoImageSelected: Boolean(image && image.closest(".bilibili-live-player-video-danmaku")),
         selectedImageMessage,
         favoriteButtonAvailable: Boolean(favoriteButton),
@@ -2178,9 +2270,23 @@ async function inspect() {
         exclusiveEmojiSent: exclusiveEmoji.sent,
         exclusiveEmojiInputCleared: exclusiveEmoji.inputCleared,
         exclusiveEmojiNoConfirmationError: exclusiveEmoji.noConfirmationError,
+        exclusiveEmojiNoAssetLookupError:
+          !exclusiveEmoji.immediateToast.includes("未在哔哩哔哩直播表情面板中找到对应 Emoji")
+          && !exclusiveEmoji.toast.includes("未在哔哩哔哩直播表情面板中找到对应 Emoji"),
         exclusiveEmojiFavoriteNamed: favoriteNames.some(
-          (name) => name.includes("[主播开心]")
+          (name) => name.includes("[主播表情9]")
         ),
+        exclusiveFavoriteNameResolved:
+          favoriteNames.some((name) => name.includes("[主播表情9]"))
+          && !favoriteNames.some((name) => name === "图片表情"),
+        exclusiveFavoriteSourceFavoriteAvailable: Boolean(exclusiveFavoriteSourceButton),
+        exclusiveFavoriteSendAvailable: Boolean(exclusiveFavoriteSend),
+        exclusiveFavoriteSentAsImage,
+        exclusiveFavoriteUsedNativePanel,
+        exclusiveFavoriteNoAssetLookupError:
+          !exclusiveFavoriteToast.includes("未在哔哩哔哩直播表情面板中找到对应 Emoji")
+          && !exclusiveFavoriteToast.includes("未找到官方表情"),
+        longToastFullyVisible,
         favoriteNames,
         emojiToggleClicks: Number(document.body.dataset.bilibiliEmojiToggleClicks || 0),
         emojiItemClicks: Number(document.body.dataset.bilibiliEmojiItemClicks || 0)
@@ -2208,7 +2314,15 @@ async function inspect() {
       "exclusiveEmojiSent",
       "exclusiveEmojiInputCleared",
       "exclusiveEmojiNoConfirmationError",
-      "exclusiveEmojiFavoriteNamed"
+      "exclusiveEmojiNoAssetLookupError",
+      "exclusiveEmojiFavoriteNamed",
+      "exclusiveFavoriteNameResolved",
+      "exclusiveFavoriteSourceFavoriteAvailable",
+      "exclusiveFavoriteSendAvailable",
+      "exclusiveFavoriteSentAsImage",
+      "exclusiveFavoriteUsedNativePanel",
+      "exclusiveFavoriteNoAssetLookupError",
+      "longToastFullyVisible"
     ].filter((key) => bilibiliRichRegression[key] !== true);
   }
 
@@ -2402,7 +2516,14 @@ async function inspect() {
 
 inspect()
   .then((result) => {
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    const output = compactOutput
+      ? {
+          bilibiliRichRegression: result.bilibiliRichRegression,
+          douyinRichRegression: result.douyinRichRegression,
+          sideChatRegression: result.sideChatRegression
+        }
+      : result;
+    process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
     if (result.douyinDomRegression
         && result.douyinDomRegression.assertionFailures
         && result.douyinDomRegression.assertionFailures.length) {

@@ -32,7 +32,7 @@ if (!source) throw new Error("Could not build Emoji fallback test module");
 const context = {};
 context.globalThis = context;
 vm.runInNewContext(source, context, { filename: "emoji-fallback.js" });
-const { unicodeEmojiFallbackText } = context.DanmakuEchoEmojiFallback;
+const { orderedBracketEmojiText, unicodeEmojiFallbackText } = context.DanmakuEchoEmojiFallback;
 
 test("uses the full message when every image asset has an exact Unicode Emoji token", () => {
   assert.equal(unicodeEmojiFallbackText({
@@ -60,6 +60,42 @@ test("requires a Unicode token for every image asset", () => {
   assert.equal(unicodeEmojiFallbackText({ text: "你好 👋", assets: [] }), "");
 });
 
+test("rebuilds Bilibili bracket Emoji in the original DOM order", () => {
+  assert.equal(orderedBracketEmojiText({
+    assets: [{ token: "[大哭]" }],
+    parts: [{ type: "emoji", asset: { token: "[大哭]" } }],
+    text: "[大哭]"
+  }), "[大哭]");
+  assert.equal(orderedBracketEmojiText({
+    assets: [{ token: "[大哭]" }, { token: "[大哭]" }],
+    parts: [
+      { type: "text", text: "加油啊" },
+      { type: "emoji", asset: { token: "[大哭]" } },
+      { type: "emoji", asset: { token: "[大哭]" } }
+    ],
+    text: "加油啊 [大哭] [大哭]"
+  }), "加油啊[大哭][大哭]");
+  assert.equal(orderedBracketEmojiText({
+    assets: [{ token: "[哇]" }, { token: "[大哭]" }],
+    parts: [
+      { type: "emoji", asset: { token: "[哇]" } },
+      { type: "text", text: "文字" },
+      { type: "emoji", asset: { token: "[大哭]" } }
+    ]
+  }), "[哇]文字[大哭]");
+});
+
+test("does not guess a bracket Emoji order from incomplete rich parts", () => {
+  assert.equal(orderedBracketEmojiText({
+    assets: [{ token: "[哇]" }, { token: "[大哭]" }],
+    parts: [{ type: "emoji", asset: { token: "[哇]" } }]
+  }), "");
+  assert.equal(orderedBracketEmojiText({
+    assets: [{ token: "[主播开心]" }],
+    parts: [{ type: "emoji", asset: { token: "" } }]
+  }), "");
+});
+
 test("all three live adapters use the shared lossless Emoji fallback", () => {
   const sharedLiveSource = readFileSync(resolve(root, "src", "entries", "content.ts"), "utf8");
   const douyinSource = readFileSync(resolve(root, "src", "entries", "douyin-content.ts"), "utf8");
@@ -69,24 +105,70 @@ test("all three live adapters use the shared lossless Emoji fallback", () => {
   assert.match(douyinSource, /reason: ["']unicode-emoji-fallback["']/);
 });
 
-test("Bilibili resolves image Emoji names and native items beyond the hovered message", () => {
+test("Bilibili uses its native editor and Emoji panel", () => {
   const contentSource = readFileSync(resolve(root, "src", "entries", "content.ts"), "utf8");
   const favoriteRowSource = readFileSync(
     resolve(root, "src", "features", "favorites", "FavoriteItemRow.vue"),
     "utf8"
   );
+  const fixtureSource = readFileSync(resolve(root, "tests", "fixture-server.cjs"), "utf8");
   assert.match(contentSource, /function emojiMetadataElements\(element, image\)/);
   assert.match(contentSource, /closestMatching\(element, config\.overlayMessages\)/);
   assert.match(contentSource, /async function findPlatformEmojiAcrossCategories\(asset\)/);
-  assert.match(contentSource, /enrichRichPayloadAssetNames\(payload\)/);
-  assert.match(contentSource, /async function submitInsertedPlatformEmoji\(input, asset, previousCount\)/);
-  assert.match(contentSource, /await waitForPlatformSendButton\(activeInput,/);
-  assert.match(contentSource, /await waitForPlatformEmojiSubmission\(/);
-  assert.match(contentSource, /const submission = await submitInsertedPlatformEmoji\(/);
-  assert.match(contentSource, /Date\.now\(\) - dispatchedAt >= 600/);
+  assert.match(contentSource, /enrichRichPayloadAssetNames\(payload, \{ resolveBilibiliNative: true \}\)/);
+  assert.match(contentSource, /function refreshRichPayloadText\(payload\)/);
+  assert.match(
+    contentSource,
+    /markBilibiliPayloadAsNativePanel\(payload, resolvedSingleBilibiliItem\)/
+  );
+  assert.match(contentSource, /async function repeatPlatformRichPayload\(payload\)/);
+  assert.match(
+    contentSource,
+    /const bilibiliInlineText = bilibiliSingleImagePayload \? ['"]['"] : bilibiliInlineEmojiText\(payload\)/
+  );
+  assert.match(contentSource, /return repeatMessage\(bilibiliInlineText\)/);
+  assert.match(contentSource, /已取消 \+1，未发送表情名称/);
+  assert.match(contentSource, /LEGACY_BILIBILI_EXCLUSIVE_ASSET_KEY_PREFIX/);
+  assert.match(contentSource, /current && depth < 12/);
+  assert.match(contentSource, /async function openUniqueBilibiliPlatformEmoji\(input, asset\)/);
+  assert.match(contentSource, /function findBilibiliEmojiEditor\(\)/);
+  const editorSource = contentSource.match(
+    /function findBilibiliEmojiEditor\(\)[\s\S]*?\n  }\n\n  function activateBilibiliQuickInput/
+  )?.[0] || "";
+  assert.doesNotMatch(editorSource, /closestMatching\(element, config\.videoRoots\)/);
+  assert.match(contentSource, /const includeHidden = fullscreenActive\(\)/);
+  assert.match(contentSource, /findPlatformEmojiToggle\(input, includeHidden\)/);
+  assert.match(contentSource, /async function repeatBilibiliFavoritePayload\(payload\)/);
+  assert.match(contentSource, /未找到官方表情/);
+  assert.match(contentSource, /platformId === ['"]bilibili['"]\s*\? repeatBilibiliFavoritePayload\(payload\)/);
+  assert.match(contentSource, /setNativeValue\(input, message\)/);
+  assert.match(contentSource, /item\.click\(\)/);
+  assert.match(contentSource, /button\.click\(\)/);
+  assert.doesNotMatch(contentSource, /repeatBilibiliPayload/);
+  assert.doesNotMatch(contentSource, /requestBilibiliSend/);
   assert.match(contentSource, /editor === input && fullscreenActive\(\) && playerCoversViewport/);
   assert.match(favoriteRowSource, /favoriteAssetDisplayName/);
   assert.match(favoriteRowSource, /表情 \$\{names\.join\(["'] ["']\)\}/);
+  assert.match(fixtureSource, /data-fixture-raw-exclusive=["']true["']/);
+  assert.doesNotMatch(
+    fixtureSource.match(/data-fixture-raw-exclusive=[\s\S]*?fixture-exclusive-emote[\s\S]*?>/)?.[0] || "",
+    /data-file-id|data-danmaku|data-type=/
+  );
+  assert.match(fixtureSource, /fixture-exclusive-emote[\s\S]*?alt=["']\[图片表情\]["']/);
+  assert.match(fixtureSource, /nameonlypanel/);
+  assert.match(fixtureSource, /data-fixture-resource-id=["']room-happy-42["']/);
+});
+
+test("common feedback toasts wrap long Bilibili errors instead of clipping them", () => {
+  const contentStyles = readFileSync(
+    resolve(root, "src", "assets", "styles", "content.css"),
+    "utf8"
+  );
+  const toastRule = contentStyles.match(/\.bcp-one-toast\s*\{([\s\S]*?)\n\}/)?.[1] || "";
+  assert.match(toastRule, /height:\s*auto/);
+  assert.match(toastRule, /overflow-wrap:\s*anywhere/);
+  assert.match(toastRule, /white-space:\s*normal/);
+  assert.doesNotMatch(toastRule, /overflow:\s*hidden/);
 });
 
 test("Douyin keeps native image-only Emoji renderable and confirms direct panel sends", () => {
