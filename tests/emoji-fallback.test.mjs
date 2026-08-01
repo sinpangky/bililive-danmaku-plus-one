@@ -107,10 +107,6 @@ test("all three live adapters use the shared lossless Emoji fallback", () => {
 
 test("Bilibili uses its native editor and Emoji panel", () => {
   const contentSource = readFileSync(resolve(root, "src", "entries", "content.ts"), "utf8");
-  const favoriteRowSource = readFileSync(
-    resolve(root, "src", "features", "favorites", "FavoriteItemRow.vue"),
-    "utf8"
-  );
   const fixtureSource = readFileSync(resolve(root, "tests", "fixture-server.cjs"), "utf8");
   assert.match(contentSource, /function emojiMetadataElements\(element, image\)/);
   assert.match(contentSource, /closestMatching\(element, config\.overlayMessages\)/);
@@ -147,8 +143,12 @@ test("Bilibili uses its native editor and Emoji panel", () => {
   assert.doesNotMatch(contentSource, /repeatBilibiliPayload/);
   assert.doesNotMatch(contentSource, /requestBilibiliSend/);
   assert.match(contentSource, /editor === input && fullscreenActive\(\) && playerCoversViewport/);
-  assert.match(favoriteRowSource, /favoriteAssetDisplayName/);
-  assert.match(favoriteRowSource, /表情 \$\{names\.join\(["'] ["']\)\}/);
+  const repositorySource = readFileSync(
+    resolve(root, "src", "features", "favorites", "repository.ts"),
+    "utf8"
+  );
+  assert.match(repositorySource, /favoriteAssetDisplayName/);
+  assert.match(repositorySource, /names\.length/);
   assert.match(fixtureSource, /data-fixture-raw-exclusive=["']true["']/);
   assert.doesNotMatch(
     fixtureSource.match(/data-fixture-raw-exclusive=[\s\S]*?fixture-exclusive-emote[\s\S]*?>/)?.[0] || "",

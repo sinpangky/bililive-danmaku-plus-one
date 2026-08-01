@@ -1,5 +1,5 @@
 <template>
-  <li :class="{ 'is-current-room': item.belongsToCurrentRoom }">
+  <li>
     <span
       v-if="shortcutIndex >= 0 && shortcutIndex < 9"
       class="bcp-favorites-shortcut"
@@ -12,11 +12,9 @@
       <strong class="bcp-favorites-text" :title="item.text">{{ item.text }}</strong>
       <span class="bcp-favorites-meta">
         <span :class="['bcp-favorites-scope', { 'is-local': item.belongsToCurrentRoom }]">
-          {{ item.belongsToCurrentRoom ? '本房' : '跨房' }}
+          {{ item.belongsToCurrentRoom ? '本房' : '其他' }}
         </span>
-        <span v-if="item.payload.assets.length">{{ assetNamesLabel }}</span>
-        <span :title="item.sourceLabel">{{ item.sourceLabel }}</span>
-        <span :title="collectedAtTitle">收藏 {{ collectedAtLabel }}</span>
+        <span :title="collectedAtTitle">收藏于 {{ collectedAtLabel }}</span>
         <span>已发送 {{ item.totalSendCount }} 次</span>
       </span>
     </span>
@@ -30,11 +28,7 @@
         title="加入本房"
         @click="emit('addToRoom', item.id)"
       >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M7.5 4.25h9a1 1 0 0 1 1 1v14.1l-5.5-3.2-5.5 3.2V5.25a1 1 0 0 1 1-1Z" />
-          <path d="M12 8v5M9.5 10.5h5" />
-        </svg>
-        <span>加入本房</span>
+        加入本房
       </button>
       <button
         type="button"
@@ -43,13 +37,7 @@
         :title="`发送：${item.text}`"
         @click="emit('send', item.id)"
       >
-        <img
-          class="bcp-favorites-send-icon"
-          :src="telegramIconUrl"
-          alt=""
-          aria-hidden="true"
-        >
-        <span>发送</span>
+        发送
       </button>
       <button
         type="button"
@@ -58,10 +46,7 @@
         :title="pendingRemoveId === item.id ? '再次点击确认删除' : '删除收藏'"
         @click="emit('requestRemove', item.id)"
       >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M5.5 7.5h13M9 7.5v-2h6v2M8 10.5v6M12 10.5v6M16 10.5v6M7 7.5l.75 12h8.5l.75-12" />
-        </svg>
-        <span v-if="pendingRemoveId === item.id">确认</span>
+        {{ pendingRemoveId === item.id ? '确认' : '删除' }}
       </button>
     </span>
   </li>
@@ -69,8 +54,6 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import telegramIconUrl from "../../assets/icons/telegram.svg";
-import { favoriteAssetDisplayName } from "./repository";
 import type { FavoriteDisplayItem } from "./types";
 
 const props = defineProps<{
@@ -85,13 +68,6 @@ const emit = defineEmits<{
   send: [id: string];
 }>();
 
-const assetNamesLabel = computed(() => {
-  const names = props.item.payload.assets.map(favoriteAssetDisplayName).filter(Boolean);
-  if (names.length) return `表情 ${names.join(" ")}`;
-  return `图片表情${props.item.payload.assets.length > 1
-    ? ` × ${props.item.payload.assets.length}`
-    : ""}`;
-});
 const collectedAt = computed(() => new Date(props.item.sortTimestamp));
 const collectedAtLabel = computed(() => new Intl.DateTimeFormat("zh-CN", {
   month: "2-digit",

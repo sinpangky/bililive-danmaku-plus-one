@@ -512,7 +512,7 @@ test("keeps only the themed outer ring on the favorites radial menu", () => {
   assert.doesNotMatch(styles, /\.bcp-favorites-radial-item\.is-selected\s*\{[\s\S]*?border-color:/);
 });
 
-test("uses the packaged Telegram SVG for favorite send buttons", () => {
+test("uses a compact text-only send button in favorite rows", () => {
   const row = readFileSync(
     resolve(root, "src", "features", "favorites", "FavoriteItemRow.vue"),
     "utf8"
@@ -521,16 +521,11 @@ test("uses the packaged Telegram SVG for favorite send buttons", () => {
     resolve(root, "src", "assets", "styles", "favorites.css"),
     "utf8"
   );
-  const icon = readFileSync(
-    resolve(root, "src", "assets", "icons", "telegram.svg"),
-    "utf8"
-  );
 
-  assert.match(row, /import telegramIconUrl from "\.\.\/\.\.\/assets\/icons\/telegram\.svg"/);
-  assert.match(row, /class="bcp-favorites-send-icon"[\s\S]*?:src="telegramIconUrl"/);
-  assert.doesNotMatch(row, /d="m4\.75 5 14\.5 7/);
-  assert.match(styles, /\.bcp-favorites-send-icon\s*\{[\s\S]*?width:\s*16px/);
-  assert.match(icon, /viewBox="0 0 1024 1024"/);
+  assert.match(row, /class="bcp-favorites-send"/);
+  assert.match(row, />\s*发送\s*</);
+  assert.doesNotMatch(row, /telegram/);
+  assert.match(styles, /\.bcp-favorites-send\s*\{[\s\S]*?border-radius:\s*14px/);
 });
 
 test("routes long-lived capsule writes through the wakeable background service", () => {

@@ -22,7 +22,6 @@
           <span class="bcp-favorites-brand-mark" aria-hidden="true">+1</span>
           <span class="bcp-favorites-heading">
             <strong id="bcp-favorites-title">收藏弹幕</strong>
-            <span class="bcp-favorites-eyebrow">收藏一次，换个直播间也能发</span>
           </span>
         </div>
         <button
@@ -32,26 +31,25 @@
           title="关闭（Esc）"
           @click="emit('close')"
         >
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
+          &#10005;
         </button>
       </header>
 
+      <div class="bcp-favorites-subtitle">收藏一次，换个直播间也能发</div>
+
+      <div class="bcp-favorites-divider" aria-hidden="true" />
+
       <div class="bcp-favorites-room">
-        <span class="bcp-favorites-room-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24">
-            <rect x="4" y="6" width="16" height="12" rx="3" />
-            <path d="m9 10 3 2 3-2M8 3.75h8" />
-          </svg>
-        </span>
+        <span class="bcp-favorites-room-icon" aria-hidden="true">&#127968;</span>
         <span class="bcp-favorites-room-copy">
-          <small>当前直播间</small>
           <strong :title="state.room.roomName">{{ state.room.roomName }}</strong>
         </span>
         <span class="bcp-favorites-room-count">
-          <strong>{{ state.currentCount }}</strong>
-          <small>条本房收藏</small>
+          <strong>{{ state.currentCount }} 条</strong>
         </span>
       </div>
+
+      <div class="bcp-favorites-divider" aria-hidden="true" />
 
       <div class="bcp-favorites-toolbar">
         <nav class="bcp-favorites-tabs" aria-label="收藏范围" role="tablist">
@@ -96,6 +94,8 @@
         </label>
       </div>
 
+      <div class="bcp-favorites-divider" aria-hidden="true" />
+
       <div class="bcp-favorites-list-heading">
         <span class="bcp-favorites-list-title">
           <button
@@ -106,13 +106,13 @@
             title="返回直播间列表（Esc）"
             @click="emit('backToRooms')"
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+            &#8249;
           </button>
           <strong :title="selectedRoom?.roomName">{{ selectedRoom?.roomName || activeTab.label }}</strong>
           <small>{{ listSummary }}</small>
         </span>
         <label class="bcp-favorites-sort">
-          <span>排序</span>
+          <span>排序:</span>
           <select
             :value="state.sort"
             aria-label="弹幕排序方式"
@@ -202,11 +202,25 @@
         />
       </ol>
 
+      <div class="bcp-favorites-divider" aria-hidden="true" />
+
       <footer class="bcp-favorites-footer">
-        <span><kbd>Alt</kbd><kbd>Q</kbd> 短按打开</span>
-        <span><kbd>Alt</kbd><kbd>Q</kbd> 长按轮盘</span>
-        <span><kbd>1–9</kbd> 快速发送</span>
-        <span><kbd>Esc</kbd> {{ selectedRoom ? '返回直播间' : '关闭' }}</span>
+        <span class="bcp-favorites-shortcut-group">
+          <kbd>Alt+Q</kbd>
+          <span>短按打开</span>
+        </span>
+        <span class="bcp-favorites-shortcut-group">
+          <kbd>Alt+Q</kbd>
+          <span>长按轮盘</span>
+        </span>
+        <span class="bcp-favorites-shortcut-group">
+          <kbd>1-9</kbd>
+          <span>快速发送</span>
+        </span>
+        <span class="bcp-favorites-shortcut-group">
+          <kbd>Esc</kbd>
+          <span>{{ selectedRoom ? '返回直播间' : '关闭' }}</span>
+        </span>
       </footer>
     </section>
 
