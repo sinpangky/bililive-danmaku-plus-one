@@ -1,5 +1,4 @@
 // @ts-nocheck -- platform DOM adapter; typed modules cover its stable boundaries.
-import '../assets/styles/content.css'
 import { LIVE_PLATFORM_CONFIG, isSupportedContentPlatform } from '../platforms/live/config'
 import {
   shouldHideNativeDanmakuCapsule,

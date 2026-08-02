@@ -1,6 +1,6 @@
 import { createApp, nextTick, reactive } from "vue";
 import type { PlatformId } from "../../core/types";
-import favoritesStyles from "../../assets/styles/favorites.css?inline";
+import favoritesStyles from "../../assets/styles/favorites.scss?inline";
 import FavoritesLauncher from "./FavoritesLauncher.vue";
 import { createFavoritesRepository } from "./repository";
 import { currentRoomContext } from "./room-context";

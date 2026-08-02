@@ -40,7 +40,9 @@
       <div class="bcp-favorites-divider" aria-hidden="true" />
 
       <div class="bcp-favorites-room">
-        <span class="bcp-favorites-room-icon" aria-hidden="true">&#127968;</span>
+        <span class="bcp-favorites-room-icon" aria-hidden="true">
+          <img src="../../../public/assets/icons/LiveStreamRoom.svg" alt="" style="height: 32px;width: 32px;">
+        </span>
         <span class="bcp-favorites-room-copy">
           <strong :title="state.room.roomName">{{ state.room.roomName }}</strong>
         </span>
@@ -342,7 +344,7 @@ const emptyState = computed(() => {
   if (props.state.view === "current") {
     return {
       title: "本房还没有收藏",
-      detail: "悬停一条支持收藏的弹幕并点击“收藏”，它会优先出现在这里。",
+      detail: '悬停一条支持收藏的弹幕并点击"收藏"，它会优先出现在这里。',
       action: props.state.otherCount
         ? { label: `查看其他直播间的 ${props.state.otherCount} 条收藏`, view: "other" as const }
         : null

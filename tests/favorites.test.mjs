@@ -503,7 +503,7 @@ test("derives stable platform room identifiers from live URLs", () => {
 
 test("keeps only the themed outer ring on the favorites radial menu", () => {
   const styles = readFileSync(
-    resolve(root, "src", "assets", "styles", "favorites.css"),
+    resolve(root, "src", "assets", "styles", "favorites.scss"),
     "utf8"
   );
   assert.doesNotMatch(styles, /\.bcp-favorites-panel::before/);
@@ -518,7 +518,7 @@ test("uses a compact text-only send button in favorite rows", () => {
     "utf8"
   );
   const styles = readFileSync(
-    resolve(root, "src", "assets", "styles", "favorites.css"),
+    resolve(root, "src", "assets", "styles", "favorites.scss"),
     "utf8"
   );
 

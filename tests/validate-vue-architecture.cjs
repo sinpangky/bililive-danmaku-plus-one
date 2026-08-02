@@ -66,7 +66,7 @@ const favoritesComponentSource = fs.readFileSync(
   "utf8"
 );
 const favoritesCssSource = fs.readFileSync(
-  path.join(root, "src", "assets", "styles", "favorites.css"),
+  path.join(root, "src", "assets", "styles", "favorites.scss"),
   "utf8"
 );
 const javascriptSources = sourceFiles.filter((file) => file.endsWith(".js"));

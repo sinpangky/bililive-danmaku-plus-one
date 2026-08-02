@@ -1,5 +1,4 @@
 // @ts-nocheck -- Douyin DOM adapter; typed modules cover its stable boundaries.
-import '../assets/styles/douyin-content.css'
 import {
   DOUYIN_CONTENT_SOURCE,
   DOUYIN_PAGE_SOURCE,

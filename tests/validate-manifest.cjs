@@ -61,7 +61,7 @@ const favoriteRuntimeEntries = manifest.content_scripts.filter((entry) =>
   || (entry.js || []).includes("src/douyin-content.js")
 );
 if (favoriteRuntimeEntries.length !== 4
-    || favoriteRuntimeEntries.some((entry) => (entry.css || []).includes("src/favorites.css"))) {
+    || favoriteRuntimeEntries.some((entry) => (entry.css || []).includes("src/favorites.scss"))) {
   throw new Error("Favorites styles must stay encapsulated in the Shadow DOM runtime");
 }
 
@@ -76,7 +76,7 @@ for (const [label, css] of [["shared", contentCss], ["Douyin", douyinContentCss]
       throw new Error(`${label} feedback styles are missing ${color}`);
     }
   }
-  if (!css.includes('data-action="plus-one"')
+  if (!/data-action[=~"']plus-one/.test(css)
       || !css.includes("font-size: 14.4px")
       || !css.includes("flex: 0 0 56px")
       || !css.includes("min-width: 56px")
@@ -151,7 +151,7 @@ const serviceWorkerSource = fs.readFileSync(
 );
 if (!serviceWorkerSource.includes("src/douyin-content.js")
     || !serviceWorkerSource.includes("src/douyin-content.css")
-    || serviceWorkerSource.includes("src/favorites.css")
+    || serviceWorkerSource.includes("src/favorites.scss")
     || !serviceWorkerSource.includes("chrome.tabs.onUpdated")) {
   throw new Error("Douyin SPA recovery must inject the complete runtime on history URL changes");
 }

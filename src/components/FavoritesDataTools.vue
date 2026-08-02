@@ -110,3 +110,91 @@ async function importBackup(event: Event): Promise<void> {
   }
 }
 </script>
+
+<style lang="scss">
+.favorites-data-tools {
+  align-items: center;
+  border-top: 1px solid #e4ded6;
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+  padding: 14px 20px;
+}
+
+.favorites-data-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.favorites-data-copy strong {
+  color: #222;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.favorites-data-copy small {
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 17px;
+}
+
+.favorites-data-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.favorites-data-actions button {
+  align-items: center;
+  background: #fff;
+  border: 1px solid rgb(253 129 1 / 32%);
+  border-radius: 16px;
+  color: #8f4a05;
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 600;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 12px;
+}
+
+.favorites-data-actions button:hover,
+.favorites-data-actions button:focus-visible {
+  background: #fff7ef;
+  border-color: #fd8101;
+}
+
+.favorites-data-actions button:disabled {
+  cursor: wait;
+  opacity: .55;
+}
+
+.favorites-data-actions svg {
+  fill: none;
+  height: 15px;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+  width: 15px;
+}
+
+.favorites-data-file {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .favorites-data-tools {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .favorites-data-actions button {
+    flex: 1;
+    justify-content: center;
+  }
+}
+</style>
+

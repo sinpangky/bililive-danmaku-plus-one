@@ -9,7 +9,7 @@
 
 [中文](#中文) · [English](#english) · [隐私权政策](PRIVACY.md)
 
-![Version](https://img.shields.io/badge/version-1.1.4-orange)
+![Version](https://img.shields.io/badge/version-2.1.1-orange)
 ![Manifest](https://img.shields.io/badge/Chrome-Manifest%20V3-blue)
 ![License](https://img.shields.io/badge/license-GPL--3.0--or--later-green)
 
@@ -54,7 +54,7 @@ Danmaku Echo（弹幕回声）是一个适用于 Chrome 和 Edge 的 Manifest V3
 - 收藏跨直播间可用且本房优先；短按 `Alt + Q` 打开列表，长按呼出鼠标轮盘，全屏模式同样可用。
 - 回复会按显示模式选择输入面：普通模式写入侧边聊天框，全屏模式优先写入播放器快捷回复栏。
 - 虎牙、哔哩哔哩与斗鱼的视频弹幕悬停后暂停，移出操作缓冲区后从原位置继续移动。
-- 斗鱼播放器自带的 `+1`、回复与收藏胶囊默认关闭，可在“平台详情 → 斗鱼播放器原生胶囊”中恢复显示。
+- 斗鱼播放器自带的 `+1`、回复与收藏胶囊默认关闭，可在“原生胶囊”设置页中恢复显示。
 - 抖音视频弹幕由安全 DOM 层连续渲染，单条悬停暂停、从原位原速续行，且 `+1` 始终位于并绑定当前条目后方。
 - 避免相邻或重叠的后续弹幕抢占当前选择。
 - 过滤清晰度、设置菜单等播放器控件，只识别真实弹幕。
@@ -101,7 +101,7 @@ npm run build
 
 如需收藏，点击操作条中的“收藏”。短按 `Alt + Q` 打开本房收藏列表；“其他直播间”和“全部”会先显示直播间名称，点击任意直播间后进入它的弹幕选择页。列表支持搜索、发送次数/时间正序/时间倒序排序、数字键 `1–9` 快速发送、加入本房和删除。长按 `Alt + Q` 约 0.18 秒会在鼠标位置打开圆形轮盘，移动指针选择后松开即可发送，移回中心或按 `Esc` 取消。
 
-四个平台的侧边聊天栏弹幕胶囊默认关闭，可在“平台详情 → 侧边聊天栏弹幕胶囊”中分别启用。胶囊包含 `+1`、回复和收藏三个按钮；该设置只影响侧边聊天消息，视频画面弹幕仍由全局功能开关控制。
+四个平台的侧边聊天栏弹幕胶囊默认关闭，可在“聊天栏胶囊”设置页中分别启用。胶囊包含 `+1`、回复和收藏三个按钮；该设置只影响侧边聊天消息，视频画面弹幕仍由全局功能开关控制。
 
 斗鱼播放器原生的 `+1`、回复和收藏胶囊也默认关闭，并有独立开关；开启后可能与扩展提供的视频弹幕快捷操作同时显示。
 
@@ -151,7 +151,7 @@ src/platforms/live/        通用直播平台配置
 src/platforms/bilibili/    哔哩哔哩 DOM 选择器与平台适配配置
 src/platforms/douyin/      抖音协议、弹幕轨迹、富文本和消息模型
 src/App.vue、src/main.ts   create-vue 标准 Vue 3 设置页与应用入口
-src/assets/                设置页与直播内容脚本的样式资源
+src/assets/                图标、平台 SVG 及直播间收藏 Shadow DOM 样式
 src/components/            设置页组件及 components/live 直播浮层组件
 src/composables/           设置读取、同步保存和页面状态
 docs/DESIGN_SYSTEM.md      当前界面的设计规范
@@ -208,7 +208,7 @@ Danmaku Echo is a Manifest V3 browser extension for Chrome and Edge. It adds a `
 | Douyin Live | ✅ | ✅ (Canvas) | ✅ |
 | Douyu Live | ✅ | ✅ | ✅ |
 
-### v1.1.4 release notes
+### v2.1 release notes
 
 This release adds the first version of danmaku favorites. Favorites stay in `chrome.storage.local`; they are neither uploaded nor synchronized between devices. Equal normalized text is stored once globally while retaining its platform and room origins. The launcher focuses the current room by default; **Other rooms** and **All** first show a room list, then open a separate message picker after a room is selected.
 
@@ -234,7 +234,7 @@ The native Canvas is hidden with `visibility: hidden` only after the first DOM n
 - Favorites work across rooms with current-room priority; short-press `Alt + Q` for the panel or hold it for the radial menu, including in fullscreen.
 - Reply targets the side-chat editor in normal mode and the visible in-player quick editor in fullscreen mode.
 - Pauses Huya, Bilibili, and Douyu on-video danmaku on hover, then resumes it from the held position after the pointer leaves.
-- Keeps Douyu's native **+1**, **Reply**, and **Favorite** capsule off by default, with an independent switch under Platform details.
+- Keeps Douyu's native **+1**, **Reply**, and **Favorite** capsule off by default, with an independent switch under the Native capsule settings page.
 - Continuously renders Douyin danmaku in a safe DOM layer with per-item hover pause, same-speed resume from the held position, and a correctly bound trailing `+1` action.
 - Keeps adjacent or overlapping danmaku from stealing the current selection.
 - Rejects player controls such as quality and settings menus.
@@ -280,7 +280,7 @@ Use the toolbar popup to enable or disable the extension, toggle individual plat
 
 Click **Favorite** in a danmaku action bar to store it. Short-press `Alt + Q` for the current-room list; search, number-key sending, other-room browsing, add-to-room, and deletion are available there. Hold `Alt + Q` for about 0.18 seconds to open the cursor-centered radial menu, point to an item, and release to send; move back to the center or press `Esc` to cancel.
 
-The side-chat action capsule is disabled by default on all four platforms. Enable each platform independently under **Platform details → Side-chat danmaku capsule**. The capsule contains **+1**, **Reply**, and **Favorite**; these switches affect side-chat messages only, while on-video danmaku continues to follow the global action settings.
+The side-chat action capsule is disabled by default on all four platforms. Enable each platform independently under **Settings → Chat capsule**. The capsule contains **+1**, **Reply**, and **Favorite**; these switches affect side-chat messages only, while on-video danmaku continues to follow the global action settings.
 
 For Douyin diagnostics, press `Ctrl + Alt + D` in a live room. Startup, Canvas instances, DOM-takeover state, active-node counts, fallback reasons, and recent events are written to DevTools with the `[Danmaku Echo]` prefix.
 
@@ -326,7 +326,7 @@ src/platforms/live/        Shared live-platform configuration
 src/platforms/bilibili/    Bilibili DOM selectors and adapter configuration
 src/platforms/douyin/      Douyin protocol, trajectory, rich-data, and message models
 src/App.vue, src/main.ts   Standard create-vue Vue 3 settings app and entry
-src/assets/                Settings and live content-script styles
+src/assets/                Icons, platform SVGs, and live-room favorites Shadow DOM style
 src/components/            Settings components and components/live overlays
 src/composables/           Settings loading, sync persistence, and page state
 docs/DESIGN_SYSTEM.md      Current interface design specification

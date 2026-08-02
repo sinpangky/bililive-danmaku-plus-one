@@ -394,12 +394,13 @@ input[role="switch"]:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 13px 16px;
+  padding: 48px 16px;
 }
 
 .platform-feature-heading strong {
+  padding-left: 24px;
   color: #1f1f1f;
-  font-size: 14px;
+  font-size: 108px;
   font-weight: 600;
   line-height: 20px;
 }

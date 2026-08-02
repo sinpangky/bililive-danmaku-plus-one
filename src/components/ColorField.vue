@@ -89,3 +89,109 @@ function reset(): void {
   emit("update:modelValue", "");
 }
 </script>
+
+<style lang="scss">
+.color-field {
+  border-bottom: 1px solid #dedfdf;
+  min-width: 0;
+  padding: 12px 16px 14px;
+}
+
+.color-field:nth-child(odd) {
+  border-right: 1px solid #dedfdf;
+}
+
+.color-field__label {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.color-field__label span {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.color-field__label small {
+  color: var(--text-muted);
+  font-family: Consolas, monospace;
+  font-size: 10px;
+  line-height: 16px;
+  margin-left: 8px;
+}
+
+.color-control {
+  align-items: stretch;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 34px minmax(0, 1fr) 46px;
+}
+
+.color-picker {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  width: 34px;
+}
+
+.color-picker::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.color-picker::-webkit-color-swatch {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.color-text {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  height: 32px;
+  min-width: 0;
+  padding: 0 9px;
+  text-transform: uppercase;
+}
+
+.color-text::placeholder {
+  color: #999c9c;
+  opacity: 1;
+  text-transform: none;
+}
+
+.color-text[aria-invalid="true"] {
+  border-color: var(--danger);
+  outline: 2px solid rgb(201 76 76 / 16%);
+}
+
+.color-reset,
+.platform-color-reset {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.color-reset:hover,
+.platform-color-reset:hover {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+.color-reset {
+  height: 32px;
+  padding: 0 8px;
+}
+</style>
+

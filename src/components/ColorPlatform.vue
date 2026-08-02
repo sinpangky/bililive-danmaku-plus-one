@@ -52,3 +52,147 @@ const emit = defineEmits<{
 
 const customCount = computed(() => Object.values(props.colors).filter(Boolean).length);
 </script>
+
+<style lang="scss">
+.color-section-heading {
+  align-items: flex-end;
+  display: flex;
+  justify-content: space-between;
+}
+
+.color-section-heading > div {
+  min-width: 0;
+}
+
+.color-section-heading p {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 20px;
+  margin: 4px 0 0;
+}
+
+.color-count {
+  color: var(--text-muted);
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 20px;
+  margin-left: 16px;
+}
+
+.color-platform-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.color-platform {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.color-platform summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  list-style: none;
+  min-height: 62px;
+  padding: 10px 16px;
+  transition: background-color 140ms ease;
+}
+
+.color-platform summary::-webkit-details-marker {
+  display: none;
+}
+
+.color-platform summary:hover {
+  background: rgb(255 255 255 / 58%);
+}
+
+.color-platform summary:focus-visible {
+  outline: 2px solid rgb(39 174 96 / 38%);
+  outline-offset: -2px;
+}
+
+.color-platform summary > svg {
+  fill: none;
+  height: 18px;
+  stroke: var(--text-muted);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+  transition: transform 140ms ease;
+  width: 18px;
+}
+
+.color-platform[open] summary > svg {
+  transform: rotate(180deg);
+}
+
+.color-platform__identity {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+}
+
+.color-platform__identity > span:last-child {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+}
+
+.color-platform__identity strong {
+  font-family: Inter, "Segoe UI", sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 22px;
+}
+
+.color-platform__identity small {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.color-platform__mark {
+  border-radius: 4px;
+  display: block;
+  flex: 0 0 30px;
+  height: 30px;
+  object-fit: contain;
+  width: 30px;
+}
+
+.color-platform__body {
+  border-top: 1px solid var(--border);
+}
+
+.color-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.color-text:focus,
+.color-picker:focus-visible,
+.color-reset:focus-visible,
+.platform-color-reset:focus-visible {
+  outline: 2px solid rgb(39 174 96 / 38%);
+  outline-offset: 1px;
+}
+
+.platform-color-reset {
+  display: block;
+  margin: 12px 16px;
+  min-height: 32px;
+  padding: 5px 10px;
+}
+
+.platform-color-reset:hover {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+</style>
+
