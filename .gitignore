@@ -14,7 +14,6 @@ dist/
 dist-ssr/
 coverage/
 test-results/
-coverage/
 *.local
 
 # Browser-extension signing material
