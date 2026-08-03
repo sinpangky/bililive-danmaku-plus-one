@@ -11,6 +11,7 @@ if (!fs.existsSync(workflowPath)) {
 const workflow = fs.readFileSync(workflowPath, 'utf8')
 const requirements = [
   ['read-only repository permission', /permissions:\s*\n\s+contents:\s*read/],
+  ['push limited to main and dev', /push:\s*\n\s+branches:\s*\n\s+- main\s*\n\s+- dev/],
   ['Windows runner', /runs-on:\s*windows-latest/],
   ['Fedora 44 container', /image:\s*fedora:44/],
   ['checkout action pinned to v6 SHA', /uses:\s*actions\/checkout@d23441a48e516b6c34aea4fa41551a30e30af803\s*#\s*v6/g],
