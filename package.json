@@ -30,7 +30,7 @@
     "preview": "vite preview",
     "type-check": "vue-tsc --build",
     "test:unit": "vitest run",
-    "test:regression": "node --test tests/shared.test.cjs tests/reply.test.mjs tests/douyin-barrage-model.test.mjs tests/douyin-rich-data.test.mjs tests/douyin-own-message.test.mjs tests/bilibili-dom-config.test.mjs tests/douyu-dom-config.test.mjs tests/content-media-safety.test.cjs tests/live-action-visibility.test.mjs tests/emoji-fallback.test.mjs tests/favorites.test.mjs",
+    "test:regression": "node --test tests/shared.test.cjs tests/reply.test.mjs tests/douyin-barrage-model.test.mjs tests/douyin-rich-data.test.mjs tests/douyin-own-message.test.mjs tests/bilibili-dom-config.test.mjs tests/douyu-dom-config.test.mjs tests/content-media-safety.test.cjs tests/live-action-visibility.test.mjs tests/emoji-fallback.test.mjs tests/favorites.test.mjs tests/package-entry.test.cjs",
     "test": "run-s build-only test:unit test:regression",
     "lint": "run-s \"lint:*\"",
     "lint:oxlint": "oxlint . --fix",
@@ -39,7 +39,7 @@
     "lint:check:oxlint": "oxlint .",
     "lint:check:eslint": "eslint .",
     "format": "prettier --write --experimental-cli src/",
-    "validate:build": "node tests/validate-manifest.cjs build/extension && node tests/validate-vue-architecture.cjs && node --check build/extension/src/content.js && node --check build/extension/src/douyin-page-hook.js && node --check build/extension/src/douyin-content.js && node --check tests/fixture-server.cjs && node --check tests/inspect-live-dom.cjs && node --check tests/inspect-popup.mjs",
+    "validate:build": "node tests/validate-manifest.cjs build/extension && node tests/validate-vue-architecture.cjs && node tests/validate-ci.cjs && node --check build/extension/src/content.js && node --check build/extension/src/douyin-page-hook.js && node --check build/extension/src/douyin-content.js && node --check tests/fixture-server.cjs && node --check tests/inspect-live-dom.cjs && node --check tests/inspect-popup.mjs",
     "check": "run-s type-check lint:check build-only validate:build test:unit test:regression",
     "package": "node scripts/sync-version.cjs && npm run check && node scripts/package.cjs"
   },

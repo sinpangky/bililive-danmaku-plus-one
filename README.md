@@ -12,6 +12,7 @@
 ![Version](https://img.shields.io/badge/version-2.1.1-orange)
 ![Manifest](https://img.shields.io/badge/Chrome-Manifest%20V3-blue)
 ![License](https://img.shields.io/badge/license-GPL--3.0--or--later-green)
+[![CI](https://github.com/SadUnicorn171/danmaku-echo/actions/workflows/ci.yml/badge.svg)](https://github.com/SadUnicorn171/danmaku-echo/actions/workflows/ci.yml)
 
 ## 中文
 
@@ -111,7 +112,7 @@ npm run build
 
 ### 开发与验证
 
-需要 Node.js 20.19 或更高版本（Vite 8 的要求）。
+建议使用 Node.js 22.20.0（CI 固定版本）；项目要求 Node.js 22.18+，或 24.12+。
 
 启动 Vue 设置页开发预览：
 
@@ -139,6 +140,8 @@ npm run package
 
 发布 ZIP 会从 `build/extension` 生成到 `dist/danmaku-echo-v<version>.zip`。
 
+每次推送和 Pull Request 都会通过 GitHub Actions 分别在 Windows 与 Fedora 44 中执行全量检查和打包。成功运行后可从该次 Actions 任务下载两套 ZIP 构建产物；它们保留 7 天，仅用于验证两种系统上的发布流程一致。
+
 ### 项目结构
 
 ```text
@@ -155,7 +158,8 @@ src/assets/                图标、平台 SVG 及直播间收藏 Shadow DOM 样
 src/components/            设置页组件及 components/live 直播浮层组件
 src/composables/           设置读取、同步保存和页面状态
 docs/DESIGN_SYSTEM.md      当前界面的设计规范
-scripts/package.ps1        可复现的发布包生成脚本
+.github/workflows/ci.yml   Windows 与 Fedora 持续集成工作流
+scripts/package.*          跨 Windows、Linux 的可复现发布包脚本
 vite.config.ts             官方 Vite CLI 的多入口扩展构建配置
 vitest.config.ts           create-vue 标准 Vitest 单元测试配置
 build/extension/           可加载、可发布的生成产物（不提交）
@@ -286,7 +290,7 @@ For Douyin diagnostics, press `Ctrl + Alt + D` in a live room. Startup, Canvas i
 
 ### Development and verification
 
-Node.js 20.19 or newer is required (the Vite 8 requirement).
+Node.js 22.20.0 is recommended and pinned in CI. The project requires Node.js 22.18+, or 24.12+.
 
 Start the Vue settings-page development preview with:
 
@@ -314,6 +318,8 @@ npm run package
 
 The archive is built from `build/extension` and written to `dist/danmaku-echo-v<version>.zip`.
 
+Every push and pull request runs the complete check and packaging flow on both Windows and Fedora 44 through GitHub Actions. A successful run exposes ZIP artifacts from both environments for seven days so that cross-platform release behavior can be compared.
+
 ### Project layout
 
 ```text
@@ -330,7 +336,8 @@ src/assets/                Icons, platform SVGs, and live-room favorites Shadow 
 src/components/            Settings components and components/live overlays
 src/composables/           Settings loading, sync persistence, and page state
 docs/DESIGN_SYSTEM.md      Current interface design specification
-scripts/package.ps1        Reproducible release packaging
+.github/workflows/ci.yml   Windows and Fedora continuous-integration workflow
+scripts/package.*          Reproducible packaging across Windows and Linux
 vite.config.ts             Multi-entry extension config driven by the official Vite CLI
 vitest.config.ts           Standard create-vue Vitest unit-test configuration
 build/extension/           Loadable, releasable build output (not committed)

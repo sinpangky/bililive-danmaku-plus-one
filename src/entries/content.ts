@@ -234,6 +234,10 @@ import { createContentOverlay } from '../components/live/content-overlay'
   ])
   const OVERLAY_HOVER_PADDING = 14
   const OVERLAY_LEAVE_DELAY = 160
+  const BILIBILI_OVERLAY_ROW_SELECTOR = '.bili-danmaku-x-dm'
+  const BILIBILI_OVERLAY_CACHE_TTL = 180
+  const BILIBILI_OVERLAY_CACHE_LIMIT = 240
+  const SENDER_SCAN_MIN_INTERVAL = 240
   const REPLY_RESOLVE_ATTEMPTS = 7
   const REPLY_RESOLVE_INTERVAL = 70
   const state = {
@@ -248,6 +252,7 @@ import { createContentOverlay } from '../components/live/content-overlay'
     douyuNativeCapsuleMutationRoots: new Set(),
     senderObserver: null,
     senderScanTimer: 0,
+    senderLastScanAt: 0,
     richPayload: null,
     hideTimer: 0,
     lastActionAt: 0,
@@ -266,6 +271,8 @@ import { createContentOverlay } from '../components/live/content-overlay'
     pointerFrame: 0,
     pointerX: 0,
     pointerY: 0,
+    bilibiliOverlayCandidates: [],
+    bilibiliOverlayCandidatesCachedAt: 0,
     hiddenBilibiliQuickBars: new Map(),
     bilibiliDismissToken: 0,
     emojiPanelOpenedByPlugin: false,
@@ -366,6 +373,67 @@ import { createContentOverlay } from '../components/live/content-overlay'
     }
 
     return results
+  }
+
+  function queryDocumentElements(selectors) {
+    const results = []
+    const seen = new Set()
+    let matches = []
+    try {
+      matches = document.querySelectorAll(selectors.join(','))
+    } catch {
+      for (const selector of selectors) {
+        try {
+          document.querySelectorAll(selector).forEach((match) => {
+            if (!seen.has(match)) {
+              seen.add(match)
+              results.push(match)
+            }
+          })
+        } catch {
+          // Ignore selectors unsupported by an older Chromium build.
+        }
+      }
+      return results
+    }
+    matches.forEach((match) => {
+      if (!seen.has(match)) {
+        seen.add(match)
+        results.push(match)
+      }
+    })
+    return results
+  }
+
+  function messageRows() {
+    if (platformId !== 'bilibili') {
+      return queryAllDeep(config.messages)
+    }
+    return queryDocumentElements(config.messages).filter(
+      (element) => !isInsideBilibiliVideoOverlay(element),
+    )
+  }
+
+  function overlayMessageCandidates() {
+    if (platformId !== 'bilibili') {
+      return queryAllDeep(config.overlayMessages)
+    }
+
+    const now = Date.now()
+    if (now - state.bilibiliOverlayCandidatesCachedAt < BILIBILI_OVERLAY_CACHE_TTL) {
+      return state.bilibiliOverlayCandidates
+    }
+    const seen = new Set()
+    state.bilibiliOverlayCandidates = queryDocumentElements(config.overlayMessages)
+      .map(normalizeOverlayCandidate)
+      .filter((element) => {
+        if (!element.isConnected || isOwned(element) || seen.has(element)) return false
+        seen.add(element)
+        return true
+      })
+      .slice(-BILIBILI_OVERLAY_CACHE_LIMIT)
+    state.bilibiliOverlayCandidatesCachedAt = now
+    return state.bilibiliOverlayCandidates
   }
 
   function matchesAny(element, selectors) {
@@ -697,6 +765,27 @@ import { createContentOverlay } from '../components/live/content-overlay'
     )
   }
 
+  function isInsideBilibiliVideoOverlay(element) {
+    return (
+      platformId === 'bilibili' &&
+      element instanceof Element &&
+      Boolean(closestMatching(element, config.overlayMessages))
+    )
+  }
+
+  function isInsideBilibiliPlayerOutsideChat(element) {
+    if (platformId !== 'bilibili' || !(element instanceof Element)) {
+      return false
+    }
+    if (isInsideBilibiliVideoOverlay(element)) {
+      return true
+    }
+    return (
+      Boolean(closestMatching(element, config.videoRoots)) &&
+      !closestMatching(element, config.chatRoots)
+    )
+  }
+
   function findChatRoot(path) {
     const inPath = closestFromPath(path, config.chatRoots)
     if (inPath) {
@@ -719,17 +808,20 @@ import { createContentOverlay } from '../components/live/content-overlay'
   }
 
   function findCandidate(path) {
+    const overlayMatch = closestFromPath(path, config.overlayMessages)
+    if (overlayMatch) {
+      const overlay = normalizeOverlayCandidate(overlayMatch)
+      return overlay && isOverlayMessageElement(overlay)
+        ? { element: overlay, kind: 'overlay' }
+        : null
+    }
+
     if (
       pathTouchesBilibiliQuickInput(path) ||
       pathTouchesBilibiliChatActions(path) ||
       pathTouchesBilibiliChatAdvertisement(path)
     ) {
       return null
-    }
-
-    const overlay = closestFromPath(path, config.overlayMessages)
-    if (overlay && isOverlayMessageElement(overlay)) {
-      return { element: overlay, kind: 'overlay' }
     }
 
     const known = closestFromPath(path, config.messages)
@@ -793,8 +885,33 @@ import { createContentOverlay } from '../components/live/content-overlay'
       : ''
   }
 
+  function normalizeOverlayCandidate(element) {
+    if (platformId !== 'bilibili' || !(element instanceof Element)) {
+      return element
+    }
+    const row = element.matches(BILIBILI_OVERLAY_ROW_SELECTOR)
+      ? element
+      : element.closest(BILIBILI_OVERLAY_ROW_SELECTOR)
+    return row || element
+  }
+
   function isOverlayMessageElement(element) {
-    if (!(element instanceof Element) || isOwned(element) || !isVisible(element)) {
+    if (!(element instanceof Element) || isOwned(element) || !element.isConnected) {
+      return false
+    }
+
+    const bilibiliOverlayRow =
+      platformId === 'bilibili' && element.matches(BILIBILI_OVERLAY_ROW_SELECTOR)
+    if (bilibiliOverlayRow) {
+      const rect = element.getBoundingClientRect()
+      return (
+        rect.height >= 8 &&
+        rect.height <= Math.min(120, innerHeight * 0.22) &&
+        rect.width >= 4
+      )
+    }
+
+    if (!isVisible(element)) {
       return false
     }
 
@@ -828,6 +945,9 @@ import { createContentOverlay } from '../components/live/content-overlay'
     for (const selector of config.overlayMessages) {
       try {
         if (element.querySelector(selector)) {
+          if (bilibiliOverlayRow && selector === '.bili-danmaku-x-dm-content') {
+            continue
+          }
           return false
         }
       } catch {
@@ -905,7 +1025,20 @@ import { createContentOverlay } from '../components/live/content-overlay'
       return state.candidate
     }
 
-    const exactCandidates = queryAllDeep(config.overlayMessages)
+    const pointElements =
+      typeof document.elementsFromPoint === 'function' ? document.elementsFromPoint(x, y) : []
+
+    for (const element of pointElements) {
+      const exact = normalizeOverlayCandidate(closestMatching(element, config.overlayMessages))
+      if (exact) {
+        return exact
+      }
+      if (isGenericOverlayElement(element)) {
+        return element
+      }
+    }
+
+    const exactCandidates = overlayMessageCandidates()
     const exactHits = []
 
     exactCandidates.forEach((candidate, index) => {
@@ -926,19 +1059,6 @@ import { createContentOverlay } from '../components/live/content-overlay'
     if (exactHits.length) {
       exactHits.sort((a, b) => a.score - b.score || b.index - a.index)
       return exactHits[0].candidate
-    }
-
-    const pointElements =
-      typeof document.elementsFromPoint === 'function' ? document.elementsFromPoint(x, y) : []
-
-    for (const element of pointElements) {
-      const exact = closestMatching(element, config.overlayMessages)
-      if (exact) {
-        return exact
-      }
-      if (isGenericOverlayElement(element)) {
-        return element
-      }
     }
 
     return null
@@ -1207,6 +1327,24 @@ import { createContentOverlay } from '../components/live/content-overlay'
   }
 
   function richPayloadFromCandidate(candidate) {
+    if (
+      platformId === 'bilibili' &&
+      candidate instanceof Element &&
+      candidate.matches(BILIBILI_OVERLAY_ROW_SELECTOR) &&
+      !candidate.querySelector('img')
+    ) {
+      const content = candidate.querySelector('.bili-danmaku-x-dm-content') || candidate
+      const text = shared.parseMessageText(
+        candidate.getAttribute('data-danmaku') ||
+          content.getAttribute('data-danmaku') ||
+          content.textContent,
+        config.maxLength,
+      )
+      if (shared.isPlausibleMessage(text, config.maxLength)) {
+        return { text, plainText: text, assets: [], parts: [{ type: 'text', text }] }
+      }
+    }
+
     const element = messageElementFromCandidate(candidate)
     if (!element) {
       return { text: '', plainText: '', assets: [], parts: [] }
@@ -1618,8 +1756,9 @@ import { createContentOverlay } from '../components/live/content-overlay'
       clearTimeout(state.senderScanTimer)
       state.senderScanTimer = 0
     }
-    const rows = queryAllDeep(config.messages).slice(-160)
     const now = Date.now()
+    state.senderLastScanAt = now
+    const rows = messageRows().slice(-160)
     rows.forEach((row, index) => {
       if (isOwned(row) || isBilibiliChatAdvertisement(row)) return
       const richPayload = richPayloadFromCandidate(row)
@@ -1777,11 +1916,14 @@ import { createContentOverlay } from '../components/live/content-overlay'
 
   function scheduleSenderCacheScan(delay) {
     if (state.senderScanTimer) return
-    state.senderScanTimer = setTimeout(scanSenderCache, Number(delay) || 0)
+    const requestedDelay = Math.max(0, Number(delay) || 0)
+    const elapsed = Date.now() - state.senderLastScanAt
+    const throttledDelay = Math.max(requestedDelay, SENDER_SCAN_MIN_INTERVAL - elapsed)
+    state.senderScanTimer = setTimeout(scanSenderCache, throttledDelay)
   }
 
   function senderFromMatchingChatRow(message, observedAt) {
-    const rows = queryAllDeep(config.messages).slice(-160)
+    const rows = messageRows().slice(-160)
     const expectedValues = replyMessageValues(message, null)
     rows.forEach((row, index) => {
       if (isOwned(row) || isBilibiliChatAdvertisement(row)) {
@@ -1799,7 +1941,8 @@ import { createContentOverlay } from '../components/live/content-overlay'
     return state.senderCorrelation.resolve(expectedValues, { observedAt })
   }
 
-  function senderFromCandidate(candidate, message, kind, observedAt) {
+  function senderFromCandidate(candidate, message, kind, observedAt, options) {
+    const scanDom = !options || options.scanDom !== false
     const direct = kind === 'chat' ? senderFromChatContext(candidate) : senderFromElement(candidate)
     const values = replyMessageValues(message, state.richPayload)
     const ids = messageIdsFromElement(candidate)
@@ -1810,10 +1953,10 @@ import { createContentOverlay } from '../components/live/content-overlay'
       })
       return direct
     }
-    if (kind === 'overlay') {
+    if (kind === 'overlay' && scanDom) {
       const matching = senderFromMatchingChatRow(message, observedAt)
       if (matching) return matching
-    } else {
+    } else if (kind !== 'overlay' && scanDom) {
       scanSenderCache()
     }
     return state.senderCorrelation.resolve(values, { ids, observedAt })
@@ -1932,6 +2075,7 @@ import { createContentOverlay } from '../components/live/content-overlay'
     snapshot.dataset.bcpOneOwned = 'true'
 
     snapshot.style.setProperty('position', 'fixed', 'important')
+    snapshot.style.setProperty('box-sizing', 'border-box', 'important')
     snapshot.style.setProperty('left', `${rect.left}px`, 'important')
     snapshot.style.setProperty('top', `${rect.top}px`, 'important')
     snapshot.style.setProperty('right', 'auto', 'important')
@@ -2036,11 +2180,18 @@ import { createContentOverlay } from '../components/live/content-overlay'
     state.message = message
     state.richPayload = richPayload
     state.selectedAt = Date.now()
-    state.sender = senderFromCandidate(candidate, message, state.candidateKind, state.selectedAt)
+    state.sender = ''
     candidate.classList.add('bcp-one-target')
     if (state.candidateKind === 'overlay') {
       freezeOverlayCandidate(candidate)
     }
+    state.sender = senderFromCandidate(
+      candidate,
+      message,
+      state.candidateKind,
+      state.selectedAt,
+      { scanDom: false },
+    )
 
     ensureButton()
     state.ui.showActionBar(message, state.sender)
@@ -2415,7 +2566,9 @@ import { createContentOverlay } from '../components/live/content-overlay'
     const observedAt = state.selectedAt
     let sender = state.sender
     for (let attempt = 0; !sender && attempt < REPLY_RESOLVE_ATTEMPTS; attempt += 1) {
-      sender = senderFromCandidate(candidate, message, kind, observedAt)
+      sender = senderFromCandidate(candidate, message, kind, observedAt, {
+        scanDom: attempt === 0,
+      })
       if (!sender && attempt + 1 < REPLY_RESOLVE_ATTEMPTS) {
         await new Promise((resolve) => setTimeout(resolve, REPLY_RESOLVE_INTERVAL))
       }
@@ -3493,13 +3646,6 @@ import { createContentOverlay } from '../components/live/content-overlay'
       return
     }
 
-    if (pathTouchesBilibiliChatActions(path) || pathTouchesBilibiliChatAdvertisement(path)) {
-      if (state.candidate) {
-        clearSelection()
-      }
-      return
-    }
-
     if (isInsideFrozenHoverZone(event.clientX, event.clientY)) {
       cancelHide()
       return
@@ -3509,6 +3655,13 @@ import { createContentOverlay } from '../components/live/content-overlay'
     if (found && found.element !== state.candidate) {
       selectCandidate(found.element, found.kind)
     } else if (!found && platformId === 'bilibili') {
+      if (
+        pathTouchesBilibiliChatActions(path) ||
+        pathTouchesBilibiliChatAdvertisement(path)
+      ) {
+        if (state.candidate) clearSelection()
+        return
+      }
       const elements = document.elementsFromPoint(event.clientX, event.clientY)
       const pointFound = findCandidate(elements)
       if (pointFound && pointFound.element !== state.candidate) {
@@ -3575,14 +3728,6 @@ import { createContentOverlay } from '../components/live/content-overlay'
       return
     }
 
-    const path = event.composedPath ? event.composedPath() : [event.target]
-    if (pathTouchesBilibiliChatActions(path)) {
-      if (state.candidate) {
-        clearSelection()
-      }
-      return
-    }
-
     if (isOwned(event.target)) {
       cancelHide()
       return
@@ -3599,6 +3744,14 @@ import { createContentOverlay } from '../components/live/content-overlay'
         scheduleHide()
       }
       return
+    }
+
+    if (state.candidateKind === 'chat') {
+      const path = event.composedPath ? event.composedPath() : [event.target]
+      if (pathTouchesBilibiliChatActions(path)) {
+        clearSelection()
+        return
+      }
     }
 
     if (state.pointerFrame) {
@@ -3716,6 +3869,9 @@ import { createContentOverlay } from '../components/live/content-overlay'
           mutation.target instanceof Element
             ? mutation.target
             : mutation.target && mutation.target.parentElement
+        if (target && isInsideBilibiliPlayerOutsideChat(target)) {
+          return false
+        }
         if (
           target &&
           (closestMatching(target, config.chatRoots) ||
@@ -3726,6 +3882,7 @@ import { createContentOverlay } from '../components/live/content-overlay'
         }
         return Array.from(mutation.addedNodes || []).some((node) => {
           if (!(node instanceof Element)) return false
+          if (isInsideBilibiliPlayerOutsideChat(node)) return false
           if (
             matchesAny(node, config.chatRoots) ||
             matchesAny(node, config.messages) ||

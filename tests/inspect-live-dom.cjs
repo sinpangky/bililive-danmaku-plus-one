@@ -1949,6 +1949,7 @@ async function inspect() {
       const lazyEmojiMode = new URL(location.href).searchParams.get("lazyemoji") === "1";
       const nameOnlyPanelMode =
         new URL(location.href).searchParams.get("nameonlypanel") === "1";
+      const longHoverMode = new URL(location.href).searchParams.get("longhover") === "1";
       const image = document.querySelector(".fixture-video-emote");
       const fullscreenMode = new URL(location.href).searchParams.get("fullscreen") === "1";
       const replyInput = document.querySelector(fullscreenMode
@@ -2217,10 +2218,88 @@ async function inspect() {
           && toastStyle.overflow !== "hidden";
         feedbackToast.textContent = previousToastText;
       }
+      let longHoverLatency = 0;
+      let longHoverLatencyBounded = true;
+      let longHoverPositionStable = true;
+      let longHoverUsesWholeRow = true;
+      if (longHoverMode) {
+        document.dispatchEvent(new PointerEvent("pointermove", {
+          bubbles: true,
+          clientX: 790,
+          clientY: 440,
+          pointerType: "mouse"
+        }));
+        await delay(240);
+        const stressHost = document.createElement("div");
+        stressHost.className = "fixture-long-hover-chat-stress";
+        const fragment = document.createDocumentFragment();
+        for (let index = 0; index < 1_400; index += 1) {
+          const row = document.createElement("div");
+          row.className = "danmaku-item";
+          const sender = document.createElement("span");
+          sender.className = "user-name";
+          sender.textContent = "长期用户" + index + "：";
+          const content = document.createElement("span");
+          content.className = "danmaku-content";
+          content.textContent = "运行一段时间后的聊天记录" + index;
+          row.append(sender, content);
+          fragment.appendChild(row);
+        }
+        stressHost.appendChild(fragment);
+        document.querySelector("#chat-history-list")?.appendChild(stressHost);
+        const churnContainer = document.querySelector(".bilibili-live-player-video-danmaku");
+        const churnTimer = setInterval(() => {
+          const transientRow = document.createElement("div");
+          transientRow.className = "bili-danmaku-x-dm";
+          transientRow.innerHTML = '<span class="bili-danmaku-x-dm-content">高频播放器弹幕</span>';
+          churnContainer?.appendChild(transientRow);
+          transientRow.remove();
+        }, 8);
+        await delay(3_200);
+
+        const hoverRow = document.querySelector(
+          ".bilibili-live-player-video-danmaku > .bili-danmaku-x-dm"
+        );
+        const hoverContent = hoverRow?.querySelector(".bili-danmaku-x-dm-content");
+        hoverRow.style.padding = "4px 9px";
+        const animation = hoverRow.animate(
+          [{ transform: "translateX(0)" }, { transform: "translateX(-160px)" }],
+          { duration: 8_000, iterations: Infinity }
+        );
+        await delay(80);
+        const beforeRect = hoverRow.getBoundingClientRect();
+        const contentRect = hoverContent.getBoundingClientRect();
+        const startedAt = performance.now();
+        hoverContent.dispatchEvent(new PointerEvent("pointerover", {
+          bubbles: true,
+          composed: true,
+          clientX: beforeRect.left + beforeRect.width / 2,
+          clientY: beforeRect.top + beforeRect.height / 2,
+          pointerType: "mouse"
+        }));
+        longHoverLatency = performance.now() - startedAt;
+        clearInterval(churnTimer);
+        const longHoverFrozen = document.querySelector(".bcp-one-frozen");
+        const frozenRect = longHoverFrozen?.getBoundingClientRect();
+        longHoverLatencyBounded = longHoverLatency < 32;
+        longHoverPositionStable = Boolean(frozenRect
+          && Math.abs(frozenRect.left - beforeRect.left) < 4
+          && Math.abs(frozenRect.top - beforeRect.top) < 4);
+        longHoverUsesWholeRow = Boolean(frozenRect
+          && Math.abs(frozenRect.width - beforeRect.width) < 3
+          && frozenRect.width >= contentRect.width + 12);
+        animation.cancel();
+        stressHost.remove();
+      }
       return {
         legacyExclusiveMode,
         lazyEmojiMode,
         nameOnlyPanelMode,
+        longHoverMode,
+        longHoverLatency,
+        longHoverLatencyBounded,
+        longHoverPositionStable,
+        longHoverUsesWholeRow,
         videoImageSelected: Boolean(image && image.closest(".bilibili-live-player-video-danmaku")),
         selectedImageMessage,
         favoriteButtonAvailable: Boolean(favoriteButton),
@@ -2292,38 +2371,49 @@ async function inspect() {
         emojiItemClicks: Number(document.body.dataset.bilibiliEmojiItemClicks || 0)
       };
     })()`);
-    bilibiliRichRegression.assertionFailures = [
-      "videoImageSelected",
-      "selectedImageMessage",
-      "favoriteButtonAvailable",
-      "favoriteRichAssetsAccepted",
-      "sentAsImage",
-      "echoImageRendered",
-      "videoReplyButtonAvailable",
-      "videoReplyPrefilled",
-      "videoReplyInputFocused",
-      "videoReplyDidNotSend",
-      "videoReplySurfaceCorrect",
-      "standardEmojiNameExtracted",
-      "standardEmojiFavoriteAvailable",
-      "standardEmojiSent",
-      "standardEmojiFavoriteNamed",
-      "singleCryEmojiSent",
-      "mixedCryEmojiSentInOrder",
-      "exclusiveEmojiFavoriteAvailable",
-      "exclusiveEmojiSent",
-      "exclusiveEmojiInputCleared",
-      "exclusiveEmojiNoConfirmationError",
-      "exclusiveEmojiNoAssetLookupError",
-      "exclusiveEmojiFavoriteNamed",
-      "exclusiveFavoriteNameResolved",
-      "exclusiveFavoriteSourceFavoriteAvailable",
-      "exclusiveFavoriteSendAvailable",
-      "exclusiveFavoriteSentAsImage",
-      "exclusiveFavoriteUsedNativePanel",
-      "exclusiveFavoriteNoAssetLookupError",
-      "longToastFullyVisible"
-    ].filter((key) => bilibiliRichRegression[key] !== true);
+    const bilibiliAssertionKeys = targetParameters.get("hoverperf") === "1"
+      ? [
+          "longHoverLatencyBounded",
+          "longHoverPositionStable",
+          "longHoverUsesWholeRow"
+        ]
+      : [
+          "videoImageSelected",
+          "selectedImageMessage",
+          "favoriteButtonAvailable",
+          "favoriteRichAssetsAccepted",
+          "sentAsImage",
+          "echoImageRendered",
+          "videoReplyButtonAvailable",
+          "videoReplyPrefilled",
+          "videoReplyInputFocused",
+          "videoReplyDidNotSend",
+          "videoReplySurfaceCorrect",
+          "standardEmojiNameExtracted",
+          "standardEmojiFavoriteAvailable",
+          "standardEmojiSent",
+          "standardEmojiFavoriteNamed",
+          "singleCryEmojiSent",
+          "mixedCryEmojiSentInOrder",
+          "exclusiveEmojiFavoriteAvailable",
+          "exclusiveEmojiSent",
+          "exclusiveEmojiInputCleared",
+          "exclusiveEmojiNoConfirmationError",
+          "exclusiveEmojiNoAssetLookupError",
+          "exclusiveEmojiFavoriteNamed",
+          "exclusiveFavoriteNameResolved",
+          "exclusiveFavoriteSourceFavoriteAvailable",
+          "exclusiveFavoriteSendAvailable",
+          "exclusiveFavoriteSentAsImage",
+          "exclusiveFavoriteUsedNativePanel",
+          "exclusiveFavoriteNoAssetLookupError",
+          "longToastFullyVisible",
+          "longHoverLatencyBounded",
+          "longHoverPositionStable",
+          "longHoverUsesWholeRow"
+        ];
+    bilibiliRichRegression.assertionFailures = bilibiliAssertionKeys
+      .filter((key) => bilibiliRichRegression[key] !== true);
   }
 
   const expression = String.raw`(() => {

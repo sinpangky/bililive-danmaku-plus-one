@@ -69,10 +69,12 @@ const emit = defineEmits<{
 }>();
 
 const collectedAt = computed(() => new Date(props.item.sortTimestamp));
-const collectedAtLabel = computed(() => new Intl.DateTimeFormat("zh-CN", {
-  month: "2-digit",
-  day: "2-digit"
-}).format(collectedAt.value));
+const collectedAtLabel = computed(() => {
+  const now = new Date();
+  return collectedAt.value.getFullYear() === now.getFullYear()
+    ? new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit" }).format(collectedAt.value)
+    : new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }).format(collectedAt.value);
+});
 const collectedAtTitle = computed(() => new Intl.DateTimeFormat("zh-CN", {
   dateStyle: "medium",
   timeStyle: "short"

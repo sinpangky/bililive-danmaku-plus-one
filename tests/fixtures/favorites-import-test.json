@@ -1,0 +1,199 @@
+{
+  "format": "danmaku-echo-favorites",
+  "schemaVersion": 2,
+  "exportedAt": 1785681000000,
+  "database": {
+    "items": [
+      {
+        "id": "test-001",
+        "text": "今年八月初的收藏",
+        "normalizedText": "今年八月初的收藏",
+        "createdAt": 1785542400000,
+        "updatedAt": 1785542400000,
+        "lastSentAt": 1785600000000,
+        "totalSendCount": 5,
+        "globalPinned": false,
+        "origins": [
+          {
+            "collectedAt": 1785542400000,
+            "platform": "bilibili",
+            "roomId": "12345",
+            "roomKey": "bilibili:12345",
+            "roomName": "测试直播间A"
+          }
+        ],
+        "roomStats": {
+          "bilibili:12345": {
+            "sendCount": 5,
+            "lastSentAt": 1785600000000,
+            "pinned": false
+          }
+        },
+        "payload": {
+          "text": "今年八月初的收藏",
+          "plainText": "今年八月初的收藏",
+          "assets": []
+        }
+      },
+      {
+        "id": "test-002",
+        "text": "今年春天的弹幕 🌸",
+        "normalizedText": "今年春天的弹幕 🌸",
+        "createdAt": 1772150400000,
+        "updatedAt": 1772150400000,
+        "lastSentAt": 1775347200000,
+        "totalSendCount": 3,
+        "globalPinned": false,
+        "origins": [
+          {
+            "collectedAt": 1772150400000,
+            "platform": "douyin",
+            "roomId": "67890",
+            "roomKey": "douyin:67890",
+            "roomName": "抖音直播间B"
+          }
+        ],
+        "roomStats": {
+          "douyin:67890": {
+            "sendCount": 3,
+            "lastSentAt": 1775347200000,
+            "pinned": false
+          }
+        },
+        "payload": {
+          "text": "今年春天的弹幕 🌸",
+          "plainText": "今年春天的弹幕 🌸",
+          "assets": []
+        }
+      },
+      {
+        "id": "test-003",
+        "text": "去年圣诞快乐 🎄",
+        "normalizedText": "去年圣诞快乐 🎄",
+        "createdAt": 1766620800000,
+        "updatedAt": 1766620800000,
+        "lastSentAt": 1767283200000,
+        "totalSendCount": 12,
+        "globalPinned": false,
+        "origins": [
+          {
+            "collectedAt": 1766620800000,
+            "platform": "huya",
+            "roomId": "11111",
+            "roomKey": "huya:11111",
+            "roomName": "虎牙跨年直播间"
+          }
+        ],
+        "roomStats": {
+          "huya:11111": {
+            "sendCount": 12,
+            "lastSentAt": 1767283200000,
+            "pinned": false
+          }
+        },
+        "payload": {
+          "text": "去年圣诞快乐 🎄",
+          "plainText": "去年圣诞快乐 🎄",
+          "assets": []
+        }
+      },
+      {
+        "id": "test-004",
+        "text": "给主播加鸡腿 🍗",
+        "normalizedText": "给主播加鸡腿 🍗",
+        "createdAt": 1749859200000,
+        "updatedAt": 1749859200000,
+        "lastSentAt": 1756684800000,
+        "totalSendCount": 8,
+        "globalPinned": false,
+        "origins": [
+          {
+            "collectedAt": 1749859200000,
+            "platform": "douyu",
+            "roomId": "22222",
+            "roomKey": "douyu:22222",
+            "roomName": "斗鱼游戏频道"
+          }
+        ],
+        "roomStats": {
+          "douyu:22222": {
+            "sendCount": 8,
+            "lastSentAt": 1756684800000,
+            "pinned": false
+          }
+        },
+        "payload": {
+          "text": "给主播加鸡腿 🍗",
+          "plainText": "给主播加鸡腿 🍗",
+          "assets": []
+        }
+      },
+      {
+        "id": "test-005",
+        "text": "前年的经典666",
+        "normalizedText": "前年的经典666",
+        "createdAt": 1731254400000,
+        "updatedAt": 1731254400000,
+        "lastSentAt": 1740931200000,
+        "totalSendCount": 20,
+        "globalPinned": false,
+        "origins": [
+          {
+            "collectedAt": 1731254400000,
+            "platform": "bilibili",
+            "roomId": "33333",
+            "roomKey": "bilibili:33333",
+            "roomName": "B站老直播间"
+          }
+        ],
+        "roomStats": {
+          "bilibili:33333": {
+            "sendCount": 20,
+            "lastSentAt": 1740931200000,
+            "pinned": false
+          }
+        },
+        "payload": {
+          "text": "前年的经典666",
+          "plainText": "前年的经典666",
+          "assets": []
+        }
+      },
+      {
+        "id": "test-006",
+        "text": "今天刚收藏的 🎉",
+        "normalizedText": "今天刚收藏的 🎉",
+        "createdAt": 1785681000000,
+        "updatedAt": 1785681000000,
+        "lastSentAt": 1785681000000,
+        "totalSendCount": 1,
+        "globalPinned": false,
+        "origins": [
+          {
+            "collectedAt": 1785681000000,
+            "platform": "bilibili",
+            "roomId": "12345",
+            "roomKey": "bilibili:12345",
+            "roomName": "测试直播间A"
+          }
+        ],
+        "roomStats": {
+          "bilibili:12345": {
+            "sendCount": 1,
+            "lastSentAt": 1785681000000,
+            "pinned": false
+          }
+        },
+        "payload": {
+          "text": "今天刚收藏的 🎉",
+          "plainText": "今天刚收藏的 🎉",
+          "assets": []
+        }
+      }
+    ],
+    "revision": 0,
+    "schemaVersion": 2,
+    "updatedAt": 1785681000000,
+    "writeId": "test-import-fixture"
+  }
+}
