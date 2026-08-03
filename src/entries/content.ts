@@ -1907,6 +1907,22 @@ import { createContentOverlay } from '../components/live/content-overlay'
   }
 
   function freezeOverlayCandidate(candidate) {
+    state.pausedAnimations =
+      typeof candidate.getAnimations === 'function'
+        ? candidate.getAnimations({ subtree: true }).map((animation) => ({
+            animation,
+            shouldResume: animation.playState === 'running',
+          }))
+        : []
+
+    for (const item of state.pausedAnimations) {
+      try {
+        item.animation.pause()
+      } catch {
+        // The site may discard an animation between discovery and pausing.
+      }
+    }
+
     const rect = candidate.getBoundingClientRect()
     // Never deep-clone live-site DOM here. Huya advertisements can contain
     // custom elements or clonable shadow roots that initialize a new media
@@ -1933,21 +1949,6 @@ import { createContentOverlay } from '../components/live/content-overlay'
     state.originalVisibility = {
       value: candidate.style.getPropertyValue('visibility'),
       priority: candidate.style.getPropertyPriority('visibility'),
-    }
-    state.pausedAnimations =
-      typeof candidate.getAnimations === 'function'
-        ? candidate.getAnimations({ subtree: true }).map((animation) => ({
-            animation,
-            shouldResume: animation.playState === 'running',
-          }))
-        : []
-
-    for (const item of state.pausedAnimations) {
-      try {
-        item.animation.pause()
-      } catch {
-        // The site may discard an animation between discovery and pausing.
-      }
     }
 
     candidate.style.setProperty('visibility', 'hidden', 'important')
@@ -3507,6 +3508,12 @@ import { createContentOverlay } from '../components/live/content-overlay'
     const found = findCandidate(path)
     if (found && found.element !== state.candidate) {
       selectCandidate(found.element, found.kind)
+    } else if (!found && platformId === 'bilibili') {
+      const elements = document.elementsFromPoint(event.clientX, event.clientY)
+      const pointFound = findCandidate(elements)
+      if (pointFound && pointFound.element !== state.candidate) {
+        selectCandidate(pointFound.element, pointFound.kind)
+      }
     }
   }
 
