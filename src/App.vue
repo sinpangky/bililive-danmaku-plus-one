@@ -1,10 +1,10 @@
 <template>
   <div class="app-shell">
-    <aside class="sidebar" aria-label="设置导航">
+    <aside class="sidebar" :aria-label="t('settingsNavigation')">
       <div class="brand">
         <img class="brand__mark" src="/assets/icons/icon-128.png" alt="">
         <span class="brand__copy">
-          <strong>弹幕回声</strong>
+          <strong>{{ t('extensionName') }}</strong>
           <small id="version">v{{ version }}</small>
         </span>
       </div>
@@ -17,7 +17,7 @@
           @click.prevent="scrollToSection('general-settings')"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.25A3.75 3.75 0 1 0 12 15.75 3.75 3.75 0 0 0 12 8.25Z"/><path d="M19.1 13.2c.06-.4.06-.8 0-1.2l1.46-1.13-1.75-3.04-1.72.7a7.3 7.3 0 0 0-1.04-.6L15.8 6.1h-3.5l-.26 1.83c-.36.17-.7.37-1.03.6l-1.72-.7-1.75 3.04L9 12c-.03.4-.03.8 0 1.2l-1.46 1.13 1.75 3.04 1.72-.7c.33.23.67.43 1.03.6l.26 1.83h3.5l.26-1.83c.36-.17.7-.37 1.03-.6l1.72.7 1.75-3.04z"/></svg>
-          <span>常规设置</span>
+          <span>{{ t('settingsGeneral') }}</span>
         </a>
         <a
           :class="['nav-item', { 'is-active': activeSection === 'platform-connections' }]"
@@ -26,7 +26,7 @@
           @click.prevent="scrollToSection('platform-connections')"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx=".75"/><rect x="14" y="4" width="6" height="6" rx=".75"/><rect x="4" y="14" width="6" height="6" rx=".75"/><rect x="14" y="14" width="6" height="6" rx=".75"/></svg>
-          <span>平台详情</span>
+          <span>{{ t('settingsPlatforms') }}</span>
         </a>
         <a
           :class="['nav-item', { 'is-active': activeSection === 'side-chat-capsule' }]"
@@ -35,7 +35,7 @@
           @click.prevent="scrollToSection('side-chat-capsule')"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.5h14v9.25H9.25L5 19z"/></svg>
-          <span>聊天栏胶囊</span>
+          <span>{{ t('settingsSideCapsule') }}</span>
         </a>
         <a
           :class="['nav-item', { 'is-active': activeSection === 'native-danmaku-capsule' }]"
@@ -44,7 +44,7 @@
           @click.prevent="scrollToSection('native-danmaku-capsule')"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="5" height="5" rx=".5"/><rect x="10" y="4" width="5" height="5" rx=".5"/><rect x="16" y="4" width="5" height="5" rx=".5"/><rect x="4" y="10" width="5" height="5" rx=".5"/><rect x="16" y="10" width="5" height="5" rx=".5"/><rect x="4" y="16" width="5" height="5" rx=".5"/><rect x="10" y="16" width="5" height="5" rx=".5"/><rect x="16" y="16" width="5" height="5" rx=".5"/><path d="M9 8h2v8H9zM14 8h2v8h-2z"/></svg>
-          <span>原生胶囊</span>
+          <span>{{ t('settingsNativeCapsule') }}</span>
         </a>
         <a
           :class="['nav-item', { 'is-active': activeSection === 'platform-colors' }]"
@@ -53,7 +53,7 @@
           @click.prevent="scrollToSection('platform-colors')"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.25a7.75 7.75 0 1 0 0 15.5h1.25a1.5 1.5 0 0 0 0-3H12a1.5 1.5 0 0 1 0-3h3.75A4 4 0 0 0 19.75 10 7.75 7.75 0 0 0 12 4.25Z"/><circle cx="8" cy="10" r=".75" class="filled"/><circle cx="10.25" cy="7.25" r=".75" class="filled"/><circle cx="14" cy="7.25" r=".75" class="filled"/><circle cx="16.25" cy="10" r=".75" class="filled"/></svg>
-          <span>直播间颜色</span>
+          <span>{{ t('settingsColors') }}</span>
         </a>
         <a
           :class="['nav-item', { 'is-active': activeSection === 'favorites-guide' }]"
@@ -62,11 +62,11 @@
           @click.prevent="scrollToSection('favorites-guide')"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.25"/><path d="m12 7.8 1.3 2.64 2.92.42-2.11 2.06.5 2.9L12 14.45l-2.61 1.37.5-2.9-2.11-2.06 2.92-.42z"/></svg>
-          <span>弹幕收藏</span>
+          <span>{{ t('settingsFavorites') }}</span>
         </a>
         <a class="nav-item" href="https://github.com/SadUnicorn171/danmaku-echo" target="_blank" rel="noreferrer">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.25"/><path d="M12 10.75v5"/><circle cx="12" cy="7.75" r=".6" class="filled"/></svg>
-          <span>关于</span>
+          <span>{{ t('settingsAbout') }}</span>
         </a>
       </nav>
     </aside>
@@ -78,29 +78,40 @@
           <div class="resource-links">
             <a href="https://github.com/SadUnicorn171/danmaku-echo#使用方法" target="_blank" rel="noreferrer">
               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.25"/><path d="M9.9 9.45a2.25 2.25 0 1 1 3.55 1.83c-.9.63-1.45 1.1-1.45 2.22"/><circle cx="12" cy="16.25" r=".6" class="filled"/></svg>
-              <span>帮助</span>
+              <span>{{ t('settingsHelp') }}</span>
             </a>
             <button
               id="feedback-copy"
               class="feedback-copy"
               type="button"
-              title="点击复制反馈邮箱"
-              :aria-label="`复制反馈邮箱 ${feedbackEmail}`"
+              :title="t('settingsCopyFeedbackTitle')"
+              :aria-label="t('settingsCopyFeedbackAria', feedbackEmail)"
               @click="copyFeedbackEmail(feedbackEmail)"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.5h14v9.25H9.25L5 19z"/></svg>
-              <span>反馈</span>
+              <span>{{ t('settingsFeedback') }}</span>
               <code>{{ feedbackEmail }}</code>
+            </button>
+            <button
+              id="diagnostics-copy"
+              class="feedback-copy"
+              type="button"
+              :title="t('settingsCopyDiagnosticsTitle')"
+              :aria-label="t('settingsCopyDiagnostics')"
+              @click="copyCurrentPageDiagnostics"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.75h8.5L19 8.25v11H7z"/><path d="M15.5 4.75v3.5H19M4.5 8H7M4.5 12H7M4.5 16H7"/></svg>
+              <span>{{ t('settingsCopyDiagnostics') }}</span>
             </button>
           </div>
           <label class="master-control" for="enabled">
-            <span>全局状态</span>
+            <span>{{ t('settingsGlobalStatus') }}</span>
             <input
               id="enabled"
               v-model="settings.enabled"
               type="checkbox"
               role="switch"
-              aria-label="启用弹幕回声"
+              :aria-label="t('ariaEnableExtension')"
               @change="save"
             >
           </label>
@@ -110,52 +121,52 @@
       <main ref="contentCanvas" class="content-canvas">
         <div class="settings-container">
           <section id="general-settings" class="settings-section" aria-labelledby="features-title">
-            <h2 id="features-title">交互功能</h2>
+            <h2 id="features-title">{{ t('settingsInteractionFeatures') }}</h2>
             <div class="settings-card">
               <SettingSwitch
                 id="feature-enabled"
                 v-model="settings.enabled"
-                title="弹幕快捷操作"
-                description="自动识别弹幕，并显示 +1、回复与收藏快捷操作。"
-                aria-label="启用弹幕功能增强"
+                :title="t('settingsQuickActions')"
+                :description="t('settingsQuickActionsDescription')"
+                :aria-label="t('ariaEnableExtension')"
                 @change="save"
               />
               <SettingSwitch
                 id="action-plus-one"
                 v-model="settings.actions.plusOne"
-                title="显示 +1"
-                description="在弹幕快捷操作条中显示 +1 选项。"
-                aria-label="显示加一选项"
+                :title="t('settingsShowPlusOne')"
+                :description="t('settingsShowPlusOneDescription')"
+                :aria-label="t('ariaShowPlusOne')"
                 @change="save"
               />
               <SettingSwitch
                 id="action-reply"
                 v-model="settings.actions.reply"
-                title="显示回复"
-                description="点击后自动 @ 弹幕发送者，并聚焦输入框等待输入。"
-                aria-label="显示回复选项"
+                :title="t('settingsShowReply')"
+                :description="t('settingsShowReplyDescription')"
+                :aria-label="t('ariaShowReply')"
                 @change="save"
               />
               <SettingSwitch
                 id="action-favorite"
                 v-model="settings.actions.favorite"
-                title="显示收藏"
-                description="收藏文字、Unicode Emoji 与平台图片表情；短按 Alt+Q 打开列表，长按呼出轮盘。"
-                aria-label="显示收藏选项"
+                :title="t('settingsShowFavorite')"
+                :description="t('settingsShowFavoriteDescription')"
+                :aria-label="t('ariaShowFavorite')"
                 @change="save"
               />
               <SettingSwitch
                 id="altClick"
                 v-model="settings.altClick"
-                title="Alt + 单击通用回退"
-                description="直播站点结构变化时，按住 Alt 单击弹幕仍可尝试快速复读。"
+                :title="t('settingsAltClick')"
+                :description="t('settingsAltClickDescription')"
                 @change="save"
               />
             </div>
           </section>
 
           <section id="platform-connections" class="settings-section" aria-labelledby="platforms-title">
-            <h2 id="platforms-title">平台启用状态</h2>
+            <h2 id="platforms-title">{{ t('settingsPlatformStatus') }}</h2>
             <div class="settings-card">
               <SettingSwitch
                 v-for="platform in platforms"
@@ -163,52 +174,52 @@
                 :key="platform.id"
                 v-model="settings.platforms[platform.id]"
                 :title="platform.label"
-                description="启用后可在该平台直播间使用弹幕快捷操作与收藏功能。"
-                :aria-label="`启用${platform.label}平台`"
+                :description="t('settingsPlatformDescription')"
+                :aria-label="t('settingsEnablePlatformAria', platform.label)"
                 @change="save"
               />
             </div>
           </section>
 
           <section id="side-chat-capsule" class="settings-section" aria-labelledby="side-chat-capsule-title">
-            <h2 id="side-chat-capsule-title">侧边聊天栏弹幕胶囊</h2>
+            <h2 id="side-chat-capsule-title">{{ t('settingsSideCapsuleTitle') }}</h2>
             <div class="settings-card">
               <SettingSwitch
                 id="side-chat-capsule-bilibili"
                 v-model="settings.sideChatCapsule.bilibili"
-                title="Bilibili 显示弹幕胶囊"
-                description="开启后，悬停 Bilibili 侧边聊天消息时显示 +1、回复和收藏按钮。"
-                aria-label="在 Bilibili 侧边聊天栏显示弹幕胶囊"
+                :title="t('settingsSideCapsulePlatformTitle', t('platformBilibili'))"
+                :description="t('settingsSideCapsulePlatformDescription', t('platformBilibili'))"
+                :aria-label="t('settingsSideCapsulePlatformAria', t('platformBilibili'))"
                 @change="save"
               />
               <SettingSwitch
                 id="side-chat-capsule-huya"
                 v-model="settings.sideChatCapsule.huya"
-                title="虎牙显示弹幕胶囊"
-                description="开启后，悬停虎牙侧边聊天消息时显示 +1、回复和收藏按钮。"
-                aria-label="在虎牙侧边聊天栏显示弹幕胶囊"
+                :title="t('settingsSideCapsulePlatformTitle', t('platformHuya'))"
+                :description="t('settingsSideCapsulePlatformDescription', t('platformHuya'))"
+                :aria-label="t('settingsSideCapsulePlatformAria', t('platformHuya'))"
                 @change="save"
               />
               <SettingSwitch
                 id="side-chat-capsule-douyu"
                 v-model="settings.sideChatCapsule.douyu"
-                title="斗鱼显示弹幕胶囊"
-                description="开启后，悬停斗鱼侧边聊天消息时显示 +1、回复和收藏按钮。"
-                aria-label="在斗鱼侧边聊天栏显示弹幕胶囊"
+                :title="t('settingsSideCapsulePlatformTitle', t('platformDouyu'))"
+                :description="t('settingsSideCapsulePlatformDescription', t('platformDouyu'))"
+                :aria-label="t('settingsSideCapsulePlatformAria', t('platformDouyu'))"
                 @change="save"
               />
             </div>
           </section>
 
           <section id="native-danmaku-capsule" class="settings-section" aria-labelledby="native-capsule-title">
-            <h2 id="native-capsule-title">斗鱼播放器原生胶囊</h2>
+            <h2 id="native-capsule-title">{{ t('settingsDouyuNativeTitle') }}</h2>
             <div class="settings-card">
               <SettingSwitch
                 id="native-danmaku-capsule-douyu"
                 v-model="settings.nativeDanmakuCapsule.douyu"
-                title="显示斗鱼原生弹幕胶囊"
-                description="开启后恢复斗鱼播放器自带的 +1、回复和收藏胶囊，可能与插件快捷操作同时显示。"
-                aria-label="显示斗鱼播放器原生弹幕胶囊"
+                :title="t('settingsDouyuNativeToggle')"
+                :description="t('settingsDouyuNativeDescription')"
+                :aria-label="t('settingsDouyuNativeToggle')"
                 @change="save"
               />
             </div>
@@ -217,10 +228,10 @@
           <section id="platform-colors" class="settings-section color-settings-section" aria-labelledby="colors-title">
             <div class="color-section-heading">
               <div>
-                <h2 id="colors-title">直播间颜色</h2>
-                <p>每个平台独立生效；留空或恢复默认时，继续使用插件内置颜色。</p>
+                <h2 id="colors-title">{{ t('settingsColors') }}</h2>
+                <p>{{ t('settingsColorsDescription') }}</p>
               </div>
-              <span id="color-count" class="color-count">{{ customColorCount }} 项自定义</span>
+              <span id="color-count" class="color-count">{{ t('settingsCustomColorCount', String(customColorCount)) }}</span>
             </div>
             <div class="color-platform-list">
               <ColorPlatform
@@ -230,7 +241,7 @@
                 :label="platform.label"
                 :colors="settings.colors[platform.id]"
                 :fields="colorFields"
-                @invalid="setStatus('颜色值请使用 #RRGGBB 格式', 'error')"
+                @invalid="setStatus(t('settingsInvalidColor'), 'error')"
                 @reset="resetPlatformColors(platform.id)"
                 @update-color="(key, value) => setColor(platform.id, key, value)"
               />
@@ -240,37 +251,37 @@
           <section id="favorites-guide" class="settings-section" aria-labelledby="favorites-title">
             <div class="section-heading">
               <div>
-                <h2 id="favorites-title">弹幕收藏</h2>
-                <p>把常用弹幕留在手边，在全屏直播中也能快速找到和发送。</p>
+                <h2 id="favorites-title">{{ t('settingsFavorites') }}</h2>
+                <p>{{ t('settingsFavoritesDescription') }}</p>
               </div>
-              <span>本地存储</span>
+              <span>{{ t('settingsLocalStorage') }}</span>
             </div>
             <div class="favorites-page-card">
               <div class="favorites-guide-intro">
                 <div class="favorites-guide-statement">
                   <span class="favorites-guide-plus" aria-hidden="true">+1</span>
-                  <h3>收藏一次，<br>到哪都能发。</h3>
-                  <p>进入直播间时先显示本房收藏；“其他直播间”和“全部”先选直播间，再进入独立的弹幕选择页。</p>
-                  <ul aria-label="当前支持的收藏内容">
-                    <li>普通文字</li>
+                  <h3>{{ t('settingsFavoritesStatementLine1') }}<br>{{ t('settingsFavoritesStatementLine2') }}</h3>
+                  <p>{{ t('settingsFavoritesGuideDescription') }}</p>
+                  <ul :aria-label="t('settingsFavoritesSupportedAria')">
+                    <li>{{ t('settingsFavoritesPlainText') }}</li>
                     <li>Unicode Emoji</li>
-                    <li>平台图片表情与混排内容</li>
+                    <li>{{ t('settingsFavoritesRichText') }}</li>
                   </ul>
                 </div>
 
-                <div class="favorites-guide-preview" aria-label="收藏面板示意图">
+                <div class="favorites-guide-preview" :aria-label="t('settingsFavoritesPreviewAria')">
                   <div class="favorites-preview-head">
-                    <span>当前直播间</span>
-                    <small>3 条本房收藏</small>
+                    <span>{{ t('favoritesCurrentRoom') }}</span>
+                    <small>{{ t('favoritesRoomItemCount', '3') }}</small>
                   </div>
                   <div class="favorites-preview-tabs">
-                    <span class="is-active">本房收藏 <small>3</small></span>
-                    <span>其他直播间 <small>8</small></span>
-                    <span>全部 <small>11</small></span>
+                    <span class="is-active">{{ t('favoritesCurrent') }} <small>3</small></span>
+                    <span>{{ t('favoritesOtherRooms') }} <small>8</small></span>
+                    <span>{{ t('favoritesAll') }} <small>11</small></span>
                   </div>
                   <div class="favorites-preview-sort">
-                    <span>其他直播间</span>
-                    <small>排序：发送次数</small>
+                    <span>{{ t('favoritesOtherRooms') }}</span>
+                    <small>{{ t('favoritesSortSendCountLabel') }}</small>
                   </div>
                   <div class="favorites-preview-group">
                     <span><strong>老张的游戏间</strong><small>3 条收藏 · 已发送 14 次</small></span>
@@ -290,26 +301,24 @@
                 </div>
               </div>
 
-              <ol class="favorites-guide-flow" aria-label="收藏使用流程">
+              <ol class="favorites-guide-flow" :aria-label="t('settingsFavoritesFlowAria')">
                 <li>
                   <span class="favorites-flow-index">1</span>
-                  <span><strong>先收藏</strong><small>悬停支持收藏的弹幕，点击“收藏”。</small></span>
+                  <span><strong>{{ t('settingsFavoritesStepSave') }}</strong><small>{{ t('settingsFavoritesStepSaveDescription') }}</small></span>
                 </li>
                 <li>
                   <span class="favorites-flow-index">2</span>
-                  <span><strong>短按打开列表</strong><small><kbd>Alt</kbd> + <kbd>Q</kbd>，再按 1–9 发送。</small></span>
+                  <span><strong>{{ t('settingsFavoritesStepList') }}</strong><small><kbd>Alt</kbd> + <kbd>Q</kbd>{{ t('settingsFavoritesStepListDescription') }}</small></span>
                 </li>
                 <li>
                   <span class="favorites-flow-index">3</span>
-                  <span><strong>长按打开轮盘</strong><small>指向一条收藏，松开 <kbd>Q</kbd> 发送。</small></span>
+                  <span><strong>{{ t('settingsFavoritesStepWheel') }}</strong><small>{{ t('settingsFavoritesStepWheelDescription') }} <kbd>Q</kbd>。</small></span>
                 </li>
               </ol>
 
               <div class="favorites-guide-note">
-                <strong>本地</strong>
-                <span>
-                  所有可识别弹幕均可收藏，内容只保存在 Chrome 本地。发送平台图片表情时，当前平台和账号需仍可使用对应资源。
-                </span>
+                <strong>{{ t('settingsLocal') }}</strong>
+                <span>{{ t('settingsFavoritesPrivacyNote') }}</span>
               </div>
 
               <FavoritesDataTools @status="setStatus" />
@@ -338,29 +347,30 @@ import FavoritesDataTools from "./components/FavoritesDataTools.vue";
 import SettingSwitch from "./components/SettingSwitch.vue";
 import { useSectionNavigation } from "./composables/useSectionNavigation";
 import { useSettings } from "./composables/useSettings";
+import { t } from "./core/i18n";
 
 const feedbackEmail = "sadunicorn1113@gmail.com";
 const platforms: ReadonlyArray<{ id: PlatformId; label: string }> = [
-  { id: "bilibili", label: "Bilibili" },
-  { id: "douyin", label: "抖音" },
-  { id: "douyu", label: "斗鱼" },
-  { id: "huya", label: "虎牙" }
+  { id: "bilibili", label: t("platformBilibili") },
+  { id: "douyin", label: t("platformDouyin") },
+  { id: "douyu", label: t("platformDouyu") },
+  { id: "huya", label: t("platformHuya") }
 ];
 const colorFields: ReadonlyArray<{
   defaultValue: string;
   key: ColorSettingKey;
   label: string;
 }> = [
-  { key: "actionStart", label: "+1 渐变起始", defaultValue: "#FD8101" },
-  { key: "actionEnd", label: "+1 渐变结束", defaultValue: "#FD8101" },
-  { key: "actionText", label: "+1 按钮文字", defaultValue: "#FFFFFF" },
-  { key: "focusRing", label: "键盘焦点光环", defaultValue: "#FD8101" },
-  { key: "selection", label: "弹幕选中高亮", defaultValue: "#FD8101" },
-  { key: "panelBackground", label: "提示浮层背景", defaultValue: "#FD8101" },
-  { key: "panelText", label: "提示浮层文字", defaultValue: "#FFFFFF" },
-  { key: "success", label: "成功状态", defaultValue: "#27AE60" },
-  { key: "warning", label: "警告状态", defaultValue: "#E6A000" },
-  { key: "error", label: "失败状态", defaultValue: "#FF4747" }
+  { key: "actionStart", label: t("colorActionStart"), defaultValue: "#FD8101" },
+  { key: "actionEnd", label: t("colorActionEnd"), defaultValue: "#FD8101" },
+  { key: "actionText", label: t("colorActionText"), defaultValue: "#FFFFFF" },
+  { key: "focusRing", label: t("colorFocusRing"), defaultValue: "#FD8101" },
+  { key: "selection", label: t("colorSelection"), defaultValue: "#FD8101" },
+  { key: "panelBackground", label: t("colorPanelBackground"), defaultValue: "#FD8101" },
+  { key: "panelText", label: t("colorPanelText"), defaultValue: "#FFFFFF" },
+  { key: "success", label: t("colorSuccess"), defaultValue: "#27AE60" },
+  { key: "warning", label: t("colorWarning"), defaultValue: "#E6A000" },
+  { key: "error", label: t("colorError"), defaultValue: "#FF4747" }
 ];
 
 const {
@@ -386,12 +396,12 @@ const customColorCount = computed(() => platforms.reduce((total, platform) => (
   total + Object.values(settings.colors[platform.id]).filter(Boolean).length
 ), 0));
 const activeSectionTitle = computed(() => ({
-  "favorites-guide": "弹幕收藏",
-  "general-settings": "常规设置",
-  "native-danmaku-capsule": "原生胶囊",
-  "platform-colors": "直播间颜色",
-  "platform-connections": "平台详情",
-  "side-chat-capsule": "聊天栏胶囊"
+  "favorites-guide": t("settingsFavorites"),
+  "general-settings": t("settingsGeneral"),
+  "native-danmaku-capsule": t("settingsNativeCapsule"),
+  "platform-colors": t("settingsColors"),
+  "platform-connections": t("settingsPlatforms"),
+  "side-chat-capsule": t("settingsSideCapsule")
 }[activeSection.value]));
 
 function setColor(platform: PlatformId, key: ColorSettingKey, value: string): void {
@@ -404,6 +414,41 @@ function resetPlatformColors(platform: PlatformId): void {
     settings.colors[platform][field.key] = "";
   });
   save();
+}
+
+async function writeClipboardText(value: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    const input = document.createElement("textarea");
+    input.value = value;
+    input.readOnly = true;
+    input.style.cssText = "position:fixed;opacity:0;pointer-events:none";
+    document.body.append(input);
+    try {
+      input.select();
+      return document.execCommand("copy");
+    } finally {
+      input.remove();
+    }
+  }
+}
+
+async function copyCurrentPageDiagnostics(): Promise<void> {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (typeof tab?.id !== "number") throw new Error("active-tab-unavailable");
+    const response = await chrome.tabs.sendMessage(tab.id, {
+      type: "danmaku-echo.diagnostics.snapshot"
+    });
+    if (!response?.ok || !response.snapshot) throw new Error("diagnostics-unavailable");
+    const copied = await writeClipboardText(JSON.stringify(response.snapshot, null, 2));
+    if (!copied) throw new Error("clipboard-rejected");
+    setStatus(t("settingsDiagnosticsCopied"), "saved");
+  } catch {
+    setStatus(t("settingsDiagnosticsUnavailable"), "error");
+  }
 }
 </script>
 
@@ -1172,4 +1217,3 @@ a {
   }
 }
 </style>
-

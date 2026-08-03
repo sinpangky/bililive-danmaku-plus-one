@@ -1,6 +1,6 @@
 import type { PlatformId } from '../../core/types'
 
-interface LivePlatformConfig {
+export interface LivePlatformConfig {
   chatRoots: string[]
   inputs: string[]
   maxLength: number

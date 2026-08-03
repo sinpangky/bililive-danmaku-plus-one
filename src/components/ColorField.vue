@@ -2,14 +2,14 @@
   <div class="color-field" :data-color-key="colorKey">
     <label class="color-field__label" :for="id">
       <span>{{ label }}</span>
-      <small>默认 {{ defaultValue }}</small>
+      <small>{{ t("colorDefaultValue", defaultValue) }}</small>
     </label>
     <div class="color-control">
       <input
         class="color-picker"
         type="color"
         :value="modelValue || defaultValue"
-        :aria-label="`${label}选色`"
+        :aria-label="t('colorPickerAria', label)"
         @input="onPickerInput"
       >
       <input
@@ -19,15 +19,15 @@
         type="text"
         inputmode="text"
         maxlength="7"
-        :placeholder="`默认 ${defaultValue}`"
+        :placeholder="t('colorDefaultValue', defaultValue)"
         :aria-invalid="invalid"
         spellcheck="false"
         autocomplete="off"
         @input="onTextInput"
         @change="onTextChange"
       >
-      <button class="color-reset" type="button" :aria-label="`恢复${label}默认颜色`" @click="reset">
-        默认
+      <button class="color-reset" type="button" :aria-label="t('colorResetAria', label)" @click="reset">
+        {{ t("colorDefault") }}
       </button>
     </div>
   </div>
@@ -37,6 +37,7 @@
 import { ref, watch } from "vue";
 import { normalizeHexColor } from "../core/shared";
 import type { ColorSettingKey } from "../core/types";
+import { t } from "../core/i18n";
 
 const props = defineProps<{
   colorKey: ColorSettingKey;
@@ -194,4 +195,3 @@ function reset(): void {
   padding: 0 8px;
 }
 </style>
-

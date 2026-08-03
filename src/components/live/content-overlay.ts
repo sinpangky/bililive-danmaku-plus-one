@@ -82,6 +82,11 @@ export function createContentOverlay(callbacks: OverlayCallbacks) {
 
   return {
     actionBar,
+    destroy(): void {
+      if (toastTimer !== undefined) clearTimeout(toastTimer);
+      app.unmount();
+      portal.remove();
+    },
     ensureHost,
     hideActionBar(): void {
       state.actionVisible = false;

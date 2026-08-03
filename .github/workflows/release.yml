@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Validate and release
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.22.2
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate tag, versions, changelog, and main ancestry
+        run: node scripts/validate-release.cjs "${{ github.ref_name }}"
+
+      - name: Run full checks
+        run: npm run check
+
+      - name: Run Chrome and Edge E2E
+        run: npm run test:browser
+
+      - name: Build canonical release archive
+        run: node scripts/package.cjs
+
+      - name: Write SHA256 checksum
+        run: node scripts/write-checksum.cjs
+
+      - name: Upload release files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: danmaku-echo-${{ github.ref_name }}
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: gh release create "${{ github.ref_name }}" dist/*.zip dist/SHA256SUMS --verify-tag --title "Danmaku Echo ${{ github.ref_name }}" --notes-from-tag

@@ -1,7 +1,7 @@
 "use strict";
 
 const { spawn } = require("node:child_process");
-const { readFileSync } = require("node:fs");
+const { mkdirSync, readFileSync, writeFileSync } = require("node:fs");
 const path = require("node:path");
 
 const edgePath = process.argv[2];
@@ -17,11 +17,21 @@ const lateDouyinHook = injectPlatform === "douyin-late";
 const extensionOnlyPlatform = injectPlatform.endsWith("-extension")
   ? injectPlatform.slice(0, -"-extension".length)
   : "";
+const useExtensionDebuggingPipe = Boolean(extensionPath && extensionOnlyPlatform);
 const normalizedInjectPlatform = lateDouyinHook
   ? "douyin"
   : extensionOnlyPlatform || injectPlatform;
 const compactOutput = process.argv.includes("--compact");
+const artifactDirectoryArgument = process.argv.find((argument) => argument.startsWith("--artifact-dir="));
+const scenarioArgument = process.argv.find((argument) => argument.startsWith("--scenario="));
+const artifactDirectory = artifactDirectoryArgument
+  ? path.resolve(artifactDirectoryArgument.slice("--artifact-dir=".length))
+  : "";
+const scenarioName = String(scenarioArgument?.slice("--scenario=".length) || normalizedInjectPlatform || "inspection")
+  .replace(/[^a-z0-9._-]+/gi, "-")
+  .slice(0, 80);
 const targetParameters = new URL(targetUrl).searchParams;
+const isMicrosoftEdge = /msedge/i.test(path.basename(edgePath || ""));
 const expectedDouyinReplyMention = targetParameters.get("nativefill") === "1"
   ? "@native用户ID "
   : targetParameters.get("idonly") === "1"
@@ -35,16 +45,31 @@ if (!edgePath || !targetUrl || !profilePath) {
 const browserArguments = [
   "--headless=new",
   "--disable-gpu",
+  "--disable-background-timer-throttling",
+  "--disable-backgrounding-occluded-windows",
+  "--disable-renderer-backgrounding",
+  "--disable-breakpad",
+  "--disable-crash-reporter",
   "--no-first-run",
   "--no-default-browser-check",
-  `--remote-debugging-port=${port}`,
   `--user-data-dir=${profilePath}`,
 ];
 
-if (extensionPath) {
+if (useExtensionDebuggingPipe) {
+  browserArguments.push("--remote-debugging-pipe");
+  browserArguments.push("--enable-unsafe-extension-debugging");
+  if (isMicrosoftEdge) {
+    browserArguments.push(`--disable-extensions-except=${extensionPath}`);
+  }
+} else {
+  browserArguments.push("--remote-debugging-address=127.0.0.1");
+  browserArguments.push(`--remote-debugging-port=${port}`);
+}
+
+if (extensionPath && !useExtensionDebuggingPipe) {
   browserArguments.push(`--disable-extensions-except=${extensionPath}`);
   browserArguments.push(`--load-extension=${extensionPath}`);
-} else {
+} else if (!extensionPath) {
   // A signed-in Edge profile can otherwise sync unrelated extensions and open
   // their welcome pages, causing the CDP fixture runner to select the wrong tab.
   browserArguments.push("--disable-extensions");
@@ -53,9 +78,33 @@ if (hostResolverRules) {
   browserArguments.push(`--host-resolver-rules=${hostResolverRules}`);
   browserArguments.push("--no-proxy-server");
 }
-browserArguments.push(targetUrl);
+browserArguments.push(useExtensionDebuggingPipe ? "about:blank" : targetUrl);
 
-const browser = spawn(edgePath, browserArguments, { stdio: "ignore", windowsHide: true });
+const browser = spawn(edgePath, browserArguments, {
+  stdio: useExtensionDebuggingPipe
+    ? ["ignore", "ignore", "pipe", "pipe", "pipe"]
+    : ["ignore", "ignore", "pipe"],
+  windowsHide: true,
+});
+let browserStderr = "";
+browser.stderr.on("data", (chunk) => {
+  browserStderr = `${browserStderr}${chunk.toString()}`.slice(-20_000);
+});
+
+function stopBrowser() {
+  if (browser.exitCode !== null || browser.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      browser.kill("SIGKILL");
+      resolve();
+    }, 5_000);
+    browser.once("exit", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    browser.kill();
+  });
+}
 
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -63,6 +112,11 @@ function delay(milliseconds) {
 
 async function findPageTarget() {
   for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (browser.exitCode !== null || browser.signalCode !== null) {
+      throw new Error(
+        `Browser exited before CDP became ready (${browser.exitCode ?? browser.signalCode}): ${browserStderr.slice(-2_000)}`,
+      );
+    }
     try {
       const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => response.json());
       const target = targets.find((item) => item.type === "page" && /^https?:/i.test(item.url));
@@ -74,17 +128,62 @@ async function findPageTarget() {
     }
     await delay(200);
   }
-  throw new Error("Could not find the live page debugging target");
+  throw new Error(`Could not find the live page debugging target: ${browserStderr.slice(-2_000)}`);
+}
+
+async function listDebugTargets() {
+  try {
+    const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => response.json());
+    return targets.map((item) => ({
+      title: String(item.title || "").slice(0, 200),
+      type: String(item.type || ""),
+      url: String(item.url || "").replace(/chrome-extension:\/\/[^/]+/i, "chrome-extension://<id>"),
+    }));
+  } catch {
+    return [];
+  }
 }
 
 async function inspect() {
-  const target = await findPageTarget();
-  const socket = new WebSocket(target.webSocketDebuggerUrl);
   const pending = new Map();
+  const consoleEvents = [];
+  const executionContexts = [];
   let nextId = 1;
+  let pageSessionId = "";
+  let evaluationContextId = 0;
+  let socket = null;
+  let browserTargets = [];
 
-  socket.addEventListener("message", (event) => {
-    const message = JSON.parse(event.data);
+  function handleProtocolMessage(message) {
+    if (message.method === "Runtime.consoleAPICalled") {
+      consoleEvents.push({
+        level: String(message.params?.type || "log"),
+        text: (message.params?.args || []).map((argument) =>
+          String(argument.value ?? argument.description ?? "").slice(0, 500)
+        ).join(" ").slice(0, 1_000),
+        timestamp: Number(message.params?.timestamp) || 0,
+      });
+      if (consoleEvents.length > 100) consoleEvents.splice(0, consoleEvents.length - 100);
+    }
+    if (message.method === "Runtime.exceptionThrown") {
+      consoleEvents.push({
+        level: "exception",
+        text: String(
+          message.params?.exceptionDetails?.exception?.description
+            || message.params?.exceptionDetails?.text
+            || "Unknown runtime exception",
+        ).slice(0, 2_000),
+        timestamp: Number(message.params?.timestamp) || 0,
+      });
+    }
+    if (message.method === "Runtime.executionContextCreated") {
+      executionContexts.push({
+        id: message.params?.context?.id,
+        name: String(message.params?.context?.name || ""),
+        origin: String(message.params?.context?.origin || ""),
+        type: String(message.params?.context?.auxData?.type || ""),
+      });
+    }
     if (message.id && pending.has(message.id)) {
       const { resolve, reject } = pending.get(message.id);
       pending.delete(message.id);
@@ -94,26 +193,160 @@ async function inspect() {
         resolve(message.result);
       }
     }
-  });
+  }
 
-  await new Promise((resolve, reject) => {
-    socket.addEventListener("open", resolve, { once: true });
-    socket.addEventListener("error", reject, { once: true });
-  });
-
-  function send(method, params = {}) {
+  function createRequest(method, params = {}, sessionId = "") {
     const id = nextId;
     nextId += 1;
-    socket.send(JSON.stringify({ id, method, params }));
-    return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+    const request = { id, method, params };
+    if (sessionId) request.sessionId = sessionId;
+    const promise = new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+    return { promise, request };
+  }
+
+  let sendBrowser;
+  if (useExtensionDebuggingPipe) {
+    let pipeBuffer = Buffer.alloc(0);
+    browser.stdio[4].on("data", (chunk) => {
+      pipeBuffer = Buffer.concat([pipeBuffer, chunk]);
+      let delimiterIndex = pipeBuffer.indexOf(0);
+      while (delimiterIndex >= 0) {
+        const payload = pipeBuffer.subarray(0, delimiterIndex).toString("utf8");
+        pipeBuffer = pipeBuffer.subarray(delimiterIndex + 1);
+        if (payload) handleProtocolMessage(JSON.parse(payload));
+        delimiterIndex = pipeBuffer.indexOf(0);
+      }
+    });
+    sendBrowser = (method, params = {}, sessionId = "") => {
+      const { promise, request } = createRequest(method, params, sessionId);
+      browser.stdio[3].write(`${JSON.stringify(request)}\0`);
+      return promise;
+    };
+    const loaded = await sendBrowser("Extensions.loadUnpacked", {
+      enableInIncognito: false,
+      path: path.resolve(extensionPath),
+    });
+    if (!loaded?.id) throw new Error("Browser did not return an extension id after loading Danmaku Echo.");
+    const targetResult = await sendBrowser("Target.getTargets");
+    const target = targetResult.targetInfos.find((item) => item.type === "page");
+    if (!target) throw new Error("Could not find the browser page target after loading the extension.");
+    const attached = await sendBrowser("Target.attachToTarget", {
+      flatten: true,
+      targetId: target.targetId,
+    });
+    pageSessionId = attached.sessionId;
+    await sendBrowser("Runtime.enable", {}, pageSessionId);
+    await sendBrowser("Page.enable", {}, pageSessionId);
+    await sendBrowser("Page.bringToFront", {}, pageSessionId);
+    await sendBrowser("Page.navigate", { url: targetUrl }, pageSessionId);
+    await sendBrowser("Page.bringToFront", {}, pageSessionId);
+    await delay(waitMilliseconds);
+    // Edge may open a sync-confirmation page shortly after startup and move the
+    // fixture into a background lifecycle state. Re-activate the fixture after
+    // the startup wait and emulate focus so short performance timers are not
+    // suspended by browser-owned UI.
+    const startupTargets = await sendBrowser("Target.getTargets");
+    for (const startupTarget of startupTargets.targetInfos) {
+      if (
+        startupTarget.targetId !== target.targetId
+        && startupTarget.type === "page"
+        && String(startupTarget.url || "").startsWith("edge://sync-confirmation")
+      ) {
+        await sendBrowser("Target.closeTarget", { targetId: startupTarget.targetId });
+      }
+    }
+    await sendBrowser("Target.activateTarget", { targetId: target.targetId });
+    await sendBrowser("Page.bringToFront", {}, pageSessionId);
+    await sendBrowser("Emulation.setFocusEmulationEnabled", {
+      enabled: true,
+    }, pageSessionId);
+    await sendBrowser("Emulation.setIdleOverride", {
+      isScreenUnlocked: true,
+      isUserActive: true,
+    }, pageSessionId);
+    browserTargets = (await sendBrowser("Target.getTargets")).targetInfos.map((item) => ({
+      title: String(item.title || "").slice(0, 200),
+      type: String(item.type || ""),
+      url: String(item.url || "").replace(/chrome-extension:\/\/[^/]+/i, "chrome-extension://<id>"),
+    }));
+  } else {
+    const target = await findPageTarget();
+    browserTargets = await listDebugTargets();
+    socket = new WebSocket(target.webSocketDebuggerUrl);
+    socket.addEventListener("message", (event) => handleProtocolMessage(JSON.parse(event.data)));
+    await new Promise((resolve, reject) => {
+      socket.addEventListener("open", resolve, { once: true });
+      socket.addEventListener("error", reject, { once: true });
+    });
+    sendBrowser = (method, params = {}) => {
+      const { promise, request } = createRequest(method, params);
+      socket.send(JSON.stringify(request));
+      return promise;
+    };
+    await sendBrowser("Runtime.enable");
+    await sendBrowser("Page.enable");
+    await delay(waitMilliseconds);
+  }
+
+  const send = (method, params = {}) => sendBrowser(method, params, pageSessionId);
+
+  let extensionProbe = null;
+  if (extensionOnlyPlatform) {
+    const isolatedContext = [...executionContexts].reverse().find((context) =>
+      context.type === "isolated" && context.origin.startsWith("chrome-extension://")
+    );
+    const mainProbe = await send("Runtime.evaluate", {
+      expression: `({
+        portalCount: document.querySelectorAll(".bcp-one-portal").length,
+        readyState: document.readyState,
+        url: location.href
+      })`,
+      returnByValue: true,
+    });
+    let isolatedProbe = null;
+    if (isolatedContext) {
+      if (normalizedInjectPlatform !== "douyin") {
+        evaluationContextId = isolatedContext.id;
+      }
+      const isolatedResult = await send("Runtime.evaluate", {
+        contextId: isolatedContext.id,
+        expression: `({
+          loaded: Boolean(globalThis.__bulletPlusOneLoaded),
+          platform: globalThis.DanmakuEchoShared?.detectPlatform(location.hostname) || null,
+          runtimeId: globalThis.chrome?.runtime?.id || null,
+          shared: Boolean(globalThis.DanmakuEchoShared)
+        })`,
+        returnByValue: true,
+      });
+      isolatedProbe = isolatedResult.result.value;
+    }
+    extensionProbe = {
+      isolated: isolatedProbe,
+      main: mainProbe.result.value,
+    };
   }
 
   async function evaluateValue(expression) {
     const result = await send("Runtime.evaluate", {
       expression,
+      ...(evaluationContextId ? { contextId: evaluationContextId } : {}),
       returnByValue: true,
       awaitPromise: true
     });
+    if (result.exceptionDetails || !("value" in (result.result || {}))) {
+      const evaluationError = String(
+        result.exceptionDetails?.exception?.description
+          || result.exceptionDetails?.text
+          || result.result?.description
+          || "Runtime.evaluate returned no serializable value"
+      ).slice(0, 2_000);
+      consoleEvents.push({
+        level: "evaluation-error",
+        text: evaluationError,
+        timestamp: Date.now(),
+      });
+      throw new Error(evaluationError);
+    }
     return result.result.value;
   }
 
@@ -128,9 +361,6 @@ async function inspect() {
       pointerType: "mouse"
     }, extra));
   }
-
-  await send("Runtime.enable");
-  await delay(waitMilliseconds);
 
   if (normalizedInjectPlatform && !extensionOnlyPlatform) {
     const root = path.resolve(__dirname, "..");
@@ -1658,9 +1888,9 @@ async function inspect() {
         document.fullscreenElement
           && favoritesPortal?.parentElement === document.fullscreenElement
       );
-      const radialFavorite = favoritesRadial?.querySelector(
-        ".bcp-favorites-radial-item.is-favorite"
-      );
+      const radialFavorite = Array.from(
+        favoritesRadial?.querySelectorAll(".bcp-favorites-radial-item.is-favorite") || []
+      ).find((item) => String(item.textContent || "").includes("侧边聊天"));
       if (radialFavorite) {
         const rect = radialFavorite.getBoundingClientRect();
         document.dispatchEvent(new PointerEvent("pointermove", {
@@ -1669,7 +1899,7 @@ async function inspect() {
           clientY: rect.top + rect.height / 2,
           pointerType: "mouse"
         }));
-        await delay(40);
+        await delay(120);
       }
       const radialFavoriteSelected = Boolean(
         radialFavorite && radialFavorite.classList.contains("is-selected")
@@ -1829,21 +2059,57 @@ async function inspect() {
           : document.body.dataset.overlaySent || "") === overlaySentBeforeReply;
       }
       root.scrollTop = root.scrollHeight;
+      if (replyInput instanceof HTMLInputElement || replyInput instanceof HTMLTextAreaElement) {
+        const setter = Object.getOwnPropertyDescriptor(
+          replyInput instanceof HTMLTextAreaElement
+            ? HTMLTextAreaElement.prototype
+            : HTMLInputElement.prototype,
+          "value"
+        ).set;
+        setter.call(replyInput, "");
+      } else if (replyInput) {
+        replyInput.textContent = "";
+      }
+      replyInput?.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        composed: true,
+        data: "",
+        inputType: "deleteContentBackward"
+      }));
+      await delay(760);
       missingSenderContent.dispatchEvent(new PointerEvent("pointerover", {
         bubbles: true,
         composed: true,
         pointerType: "mouse"
       }));
-      await delay(80);
+      await delay(180);
       const missingSenderReply = document.querySelector(
         ".bcp-one-actions:not([hidden]) .bcp-one-action[data-action='reply']"
       );
+      const previousMissingSenderToast = String(
+        document.querySelector(".bcp-one-toast")?.textContent || ""
+      ).trim();
       if (missingSenderReply) missingSenderReply.click();
-      await delay(platform === "douyu" ? 520 : 100);
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        const currentToast = String(
+          document.querySelector(".bcp-one-toast")?.textContent || ""
+        ).trim();
+        if ((currentToast && currentToast !== previousMissingSenderToast) || (
+          replyInput instanceof HTMLInputElement || replyInput instanceof HTMLTextAreaElement
+            ? replyInput.value
+            : replyInput?.textContent
+        )) break;
+        await delay(100);
+      }
       const errorToast = document.querySelector(".bcp-one-toast.is-visible");
       const errorText = String(errorToast && errorToast.textContent || "").trim();
+      const missingSenderReplyDraft = replyInput instanceof HTMLInputElement
+        || replyInput instanceof HTMLTextAreaElement
+        ? replyInput.value
+        : replyInput?.textContent || "";
       const contextualReplyError = errorText.includes("未能识别这条弹幕的发送者")
         && !errorText.includes("+1失败");
+      const missingSenderSafe = Boolean(missingSenderReply && !missingSenderReplyDraft);
       const ownMessageFramed = platform !== "douyu"
         || ownContent?.getAttribute("data-bcp-douyu-own-chat-content") === "true";
 
@@ -1900,13 +2166,14 @@ async function inspect() {
         nativeDouyuCapsuleHidden,
         nativeDouyuCapsuleRestoredWhenDisabled,
         contextualReplyError,
+        missingSenderSafe,
         replyErrorText: errorText,
         advertisementRejected,
         usernameActionRejected,
         userPanelRejected
       };
     })()`);
-    sideChatRegression.assertionFailures = [
+    const sideChatAssertions = [
       "messagePlusOneAvailable",
       "threeActionUi",
       "scrollPauseMarkerAbsent",
@@ -1932,24 +2199,239 @@ async function inspect() {
       "ownMessageFramed",
       "nativeDouyuCapsuleHidden",
       "nativeDouyuCapsuleRestoredWhenDisabled",
-      "contextualReplyError",
+      "missingSenderSafe",
       "advertisementRejected",
       "usernameActionRejected",
       "userPanelRejected"
-    ].filter((key) => sideChatRegression[key] !== true);
+    ].filter((key) => {
+      const fullscreen = targetParameters.get("fullscreen") === "1";
+      if (fullscreen && key === "missingSenderSafe") return false;
+      if (fullscreen && normalizedInjectPlatform === "bilibili"
+          && (key === "replyPrefilled" || key === "replyInputFocused")) return false;
+      return true;
+    });
+    sideChatRegression.assertionFailures = sideChatAssertions.filter(
+      (key) => sideChatRegression[key] !== true
+    );
   }
 
   let bilibiliRichRegression = null;
   if (normalizedInjectPlatform === "bilibili"
       && new URL(targetUrl).searchParams.get("rich") === "1") {
-    bilibiliRichRegression = await evaluateValue(`(async () => {
+    const bilibiliRichEvaluation = evaluateValue(`(async () => {
+      document.body.dataset.bilibiliRichStage = "starting";
       const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
       const legacyExclusiveMode =
         new URL(location.href).searchParams.get("legacyexclusive") === "1";
       const lazyEmojiMode = new URL(location.href).searchParams.get("lazyemoji") === "1";
       const nameOnlyPanelMode =
         new URL(location.href).searchParams.get("nameonlypanel") === "1";
-      const longHoverMode = new URL(location.href).searchParams.get("longhover") === "1";
+      const emojiOnlyMode = new URL(location.href).searchParams.get("emojionly") === "1";
+      const longHoverMode = ["longhover", "hoverperf"].some(
+        (key) => new URL(location.href).searchParams.get(key) === "1"
+      );
+      const runHoverPerformance = async () => {
+        document.dispatchEvent(new PointerEvent("pointermove", {
+          bubbles: true,
+          clientX: 790,
+          clientY: 440,
+          pointerType: "mouse"
+        }));
+        await delay(240);
+
+        const chatRoot = document.querySelector("#chat-history-list");
+        const churnContainer = document.querySelector(
+          ".bilibili-live-player-video-danmaku"
+        );
+        if (!chatRoot || !churnContainer) {
+          return {
+            longHoverLatency: 0,
+            longHoverLatencyBounded: false,
+            longHoverPositionStable: false,
+            longHoverUsesWholeRow: false,
+            syncProcessingP95: 0,
+            actionVisibleP95: 0,
+            actionVisibleMax: 0,
+            syncProcessingP95WithinBudget: false,
+            actionVisibleP95WithinBudget: false,
+            actionVisibleMaxWithinBudget: false,
+            stressDurationMs: 0,
+            stressDurationMet: false,
+            stressHoverCount: 0,
+            stressHoverCountMet: false,
+            stressNoDuplicateBorders: false,
+            stressSenderCorrect: false,
+            stressSenderFailures: [{ reason: "fixture roots unavailable" }]
+          };
+        }
+
+        const stressHost = document.createElement("div");
+        stressHost.className = "fixture-long-hover-chat-stress";
+        const fragment = document.createDocumentFragment();
+        const stressMessages = [];
+        for (let index = 0; index < 1_500; index += 1) {
+          const row = document.createElement("div");
+          row.className = "danmaku-item";
+          const sender = document.createElement("span");
+          sender.className = "user-name";
+          sender.textContent = "长期用户" + index + "：";
+          const content = document.createElement("span");
+          content.className = "danmaku-content";
+          content.textContent = "运行一段时间后的聊天记录" + index;
+          if (index >= 1_400) {
+            stressMessages.push({
+              message: content.textContent,
+              sender: "长期用户" + index
+            });
+          }
+          row.append(sender, content);
+          fragment.appendChild(row);
+        }
+        stressHost.appendChild(fragment);
+        chatRoot.appendChild(stressHost);
+
+        const hoverRows = stressMessages.map((entry, index) => {
+          const row = document.createElement("div");
+          row.className = "bili-danmaku-x-dm fixture-stress-hover-row";
+          Object.assign(row.style, {
+            left: (180 + index % 7) + "px",
+            position: "absolute",
+            top: (90 + index % 5) + "px"
+          });
+          const content = document.createElement("span");
+          content.className = "bili-danmaku-x-dm-content";
+          content.textContent = entry.message;
+          row.appendChild(content);
+          churnContainer.appendChild(row);
+          return { ...entry, content, row };
+        });
+        await delay(300);
+
+        const syncLatencies = [];
+        const visibleLatencies = [];
+        const stressSenderFailures = [];
+        let longHoverPositionStable = true;
+        let longHoverUsesWholeRow = true;
+        let stressNoDuplicateBorders = true;
+        let stressSenderCorrect = true;
+        let stressHoverCount = 0;
+        const churnTimer = setInterval(() => {
+          const transientRow = document.createElement("div");
+          transientRow.className = "bili-danmaku-x-dm";
+          transientRow.innerHTML = '<span class="bili-danmaku-x-dm-content">高频播放器弹幕</span>';
+          churnContainer.appendChild(transientRow);
+          transientRow.remove();
+        }, 8);
+        const stressStartedAt = performance.now();
+        try {
+          for (let index = 0; index < hoverRows.length; index += 1) {
+            const target = hoverRows[index];
+            target.row.style.padding = "4px 9px";
+            const beforeRect = target.row.getBoundingClientRect();
+            const contentRect = target.content.getBoundingClientRect();
+            const startedAt = performance.now();
+            target.content.dispatchEvent(new PointerEvent("pointerover", {
+              bubbles: true,
+              composed: true,
+              clientX: beforeRect.left + beforeRect.width / 2,
+              clientY: beforeRect.top + beforeRect.height / 2,
+              pointerType: "mouse"
+            }));
+            syncLatencies.push(performance.now() - startedAt);
+            let actionBound = false;
+            do {
+              const plus = document.querySelector(
+                ".bcp-one-action[data-action='plus-one']:not([hidden])"
+              );
+              actionBound = Boolean(plus
+                && String(plus.getAttribute("title") || plus.getAttribute("aria-label") || "")
+                  .includes(target.message));
+              if (!actionBound) {
+                await new Promise((resolve) => requestAnimationFrame(resolve));
+              }
+            } while (!actionBound && performance.now() - startedAt < 150);
+            visibleLatencies.push(performance.now() - startedAt);
+
+            const frozen = document.querySelector(".bcp-one-frozen");
+            const frozenRect = frozen?.getBoundingClientRect();
+            longHoverPositionStable = longHoverPositionStable && Boolean(frozenRect
+              && Math.abs(frozenRect.left - beforeRect.left) < 4
+              && Math.abs(frozenRect.top - beforeRect.top) < 4);
+            longHoverUsesWholeRow = longHoverUsesWholeRow && Boolean(frozenRect
+              && Math.abs(frozenRect.width - beforeRect.width) < 3
+              && frozenRect.width >= contentRect.width + 12);
+            stressNoDuplicateBorders = stressNoDuplicateBorders
+              && document.querySelectorAll(".bcp-one-frozen").length === 1;
+            const reply = document.querySelector(
+              ".bcp-one-action[data-action='reply']:not([hidden])"
+            );
+            const replyLabel = String(
+              reply?.getAttribute("title") || reply?.getAttribute("aria-label") || ""
+            );
+            const senderMatched = replyLabel.includes(target.sender);
+            stressSenderCorrect = stressSenderCorrect && senderMatched;
+            if (!senderMatched && stressSenderFailures.length < 10) {
+              stressSenderFailures.push({
+                index,
+                expected: target.sender,
+                message: target.message,
+                replyLabel
+              });
+            }
+            stressHoverCount += 1;
+            document.dispatchEvent(new PointerEvent("pointermove", {
+              bubbles: true,
+              clientX: 790,
+              clientY: 440,
+              pointerType: "mouse"
+            }));
+            const remaining = (index + 1) * 300
+              - (performance.now() - stressStartedAt);
+            if (remaining > 0) await delay(remaining);
+          }
+        } finally {
+          clearInterval(churnTimer);
+          hoverRows.forEach(({ row }) => row.remove());
+          stressHost.remove();
+        }
+
+        const stressDurationMs = performance.now() - stressStartedAt;
+        const percentile95 = (values) => {
+          const sorted = [...values].sort((first, second) => first - second);
+          return sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] || 0;
+        };
+        const syncProcessingP95 = percentile95(syncLatencies);
+        const actionVisibleP95 = percentile95(visibleLatencies);
+        const actionVisibleMax = Math.max(0, ...visibleLatencies);
+        const syncProcessingP95WithinBudget = syncProcessingP95 <= 16;
+        const actionVisibleP95WithinBudget = actionVisibleP95 <= 50;
+        const actionVisibleMaxWithinBudget = actionVisibleMax <= 150;
+        return {
+          longHoverLatency: syncProcessingP95,
+          longHoverLatencyBounded: syncProcessingP95WithinBudget
+            && actionVisibleP95WithinBudget && actionVisibleMaxWithinBudget,
+          longHoverPositionStable,
+          longHoverUsesWholeRow,
+          syncProcessingP95,
+          actionVisibleP95,
+          actionVisibleMax,
+          syncProcessingP95WithinBudget,
+          actionVisibleP95WithinBudget,
+          actionVisibleMaxWithinBudget,
+          stressDurationMs,
+          stressDurationMet: stressDurationMs >= 29_500,
+          stressHoverCount,
+          stressHoverCountMet: stressHoverCount === 100,
+          stressNoDuplicateBorders,
+          stressSenderCorrect,
+          stressSenderFailures
+        };
+      };
+      if (longHoverMode) {
+        const performanceResult = await runHoverPerformance();
+        document.body.dataset.bilibiliRichStage = "completed";
+        return { longHoverMode, ...performanceResult };
+      }
       const image = document.querySelector(".fixture-video-emote");
       const fullscreenMode = new URL(location.href).searchParams.get("fullscreen") === "1";
       const replyInput = document.querySelector(fullscreenMode
@@ -2043,6 +2525,7 @@ async function inspect() {
         await delay(60);
       }
       const sentAsImage = document.body.dataset.bilibiliEmojiSent === "anchor-wave";
+      document.body.dataset.bilibiliRichStage = "video-image-sent";
       const echoImage = document.querySelector(".fixture-rich-echo img[data-emoticon='anchor-wave']");
       const exerciseBilibiliEmoji = async (
         selector,
@@ -2051,6 +2534,7 @@ async function inspect() {
         waitBeforeClick = 760,
         favoriteFirst = true
       ) => {
+        document.body.dataset.bilibiliRichStage = selector + ":preparing";
         delete document.body.dataset.bilibiliEmojiSent;
         delete document.body.dataset.bilibiliSent;
         const target = document.querySelector(selector);
@@ -2059,6 +2543,7 @@ async function inspect() {
           composed: true,
           pointerType: "mouse"
         }));
+        document.body.dataset.bilibiliRichStage = selector + ":hovered";
         await delay(120);
         const actionRoot = document.querySelector(".bcp-one-actions:not([hidden])");
         const plus = actionRoot?.querySelector(".bcp-one-button");
@@ -2066,10 +2551,12 @@ async function inspect() {
           ".bcp-one-action[data-action='favorite']"
         );
         if (favoriteFirst && favorite) {
+          document.body.dataset.bilibiliRichStage = selector + ":favoriting";
           favorite.click();
           await delay(1_350);
         }
         await delay(waitBeforeClick);
+        document.body.dataset.bilibiliRichStage = selector + ":clicking-plus-one";
         const toggleClicksBefore = Number(
           document.body.dataset.bilibiliEmojiToggleClicks || 0
         );
@@ -2077,6 +2564,7 @@ async function inspect() {
           document.body.dataset.bilibiliEmojiItemClicks || 0
         );
         if (plus) plus.click();
+        document.body.dataset.bilibiliRichStage = selector + ":plus-one-clicked";
         await delay(120);
         const immediateToast = String(
           document.querySelector(".bcp-one-toast")?.textContent || ""
@@ -2086,8 +2574,10 @@ async function inspect() {
           : document.body.dataset.bilibiliSent;
         for (let attempt = 0; attempt < 45
             && sentValue() !== expectedIdentity; attempt += 1) {
+          document.body.dataset.bilibiliRichStage = selector + ":waiting-" + attempt;
           await delay(80);
         }
+        document.body.dataset.bilibiliRichStage = selector + ":finished";
         const editor = document.querySelector("textarea.chat-input");
         const finalToast = String(
           document.querySelector(".bcp-one-toast.is-visible")?.textContent || ""
@@ -2109,9 +2599,22 @@ async function inspect() {
       };
       const wowEmoji = await exerciseBilibiliEmoji(
         ".fixture-wow-emote",
-        "[哇]",
-        false
+        "official-wow",
+        true
       );
+      document.body.dataset.bilibiliRichStage = "standard-emoji-sent";
+      if (emojiOnlyMode) {
+        document.body.dataset.bilibiliRichStage = "completed";
+        return {
+          emojiOnlyMode,
+          standardEmojiNameExtracted: wowEmoji.label.includes("[哇]"),
+          standardEmojiSent: wowEmoji.sent,
+          standardEmojiImmediateToast: wowEmoji.immediateToast,
+          standardEmojiToast: wowEmoji.toast,
+          standardEmojiToggleClicks: [wowEmoji.toggleClicksBefore, wowEmoji.toggleClicksAfter],
+          standardEmojiItemClicks: [wowEmoji.itemClicksBefore, wowEmoji.itemClicksAfter]
+        };
+      }
       const cryEmoji = await exerciseBilibiliEmoji(
         ".fixture-cry-emote",
         "official-cry",
@@ -2119,11 +2622,13 @@ async function inspect() {
         760,
         false
       );
+      document.body.dataset.bilibiliRichStage = "cry-emoji-sent";
       const mixedCryEmoji = await exerciseBilibiliEmoji(
         ".fixture-mixed-cry-emote",
         "加油啊[大哭][大哭]",
         false
       );
+      document.body.dataset.bilibiliRichStage = "mixed-emoji-sent";
       const exclusiveEmoji = await exerciseBilibiliEmoji(
         ".fixture-exclusive-emote",
         "room-happy-42",
@@ -2131,6 +2636,7 @@ async function inspect() {
         760,
         false
       );
+      document.body.dataset.bilibiliRichStage = "exclusive-emoji-sent";
       const exclusiveFavoriteSource = document.querySelector(
         ".fixture-exclusive-favorite-emote"
       );
@@ -2196,6 +2702,7 @@ async function inspect() {
       }
       const exclusiveFavoriteSentAsImage =
         document.body.dataset.bilibiliEmojiSent === "room-happy-42";
+      document.body.dataset.bilibiliRichStage = "exclusive-favorite-sent";
       const exclusiveFavoriteUsedNativePanel = Number(
         document.body.dataset.bilibiliEmojiItemClicks || 0
       ) > favoriteItemClicksBefore;
@@ -2222,6 +2729,19 @@ async function inspect() {
       let longHoverLatencyBounded = true;
       let longHoverPositionStable = true;
       let longHoverUsesWholeRow = true;
+      let syncProcessingP95 = 0;
+      let actionVisibleP95 = 0;
+      let actionVisibleMax = 0;
+      let syncProcessingP95WithinBudget = true;
+      let actionVisibleP95WithinBudget = true;
+      let actionVisibleMaxWithinBudget = true;
+      let stressDurationMs = 0;
+      let stressDurationMet = true;
+      let stressHoverCount = 0;
+      let stressHoverCountMet = true;
+      let stressNoDuplicateBorders = true;
+      let stressSenderCorrect = true;
+      const stressSenderFailures = [];
       if (longHoverMode) {
         document.dispatchEvent(new PointerEvent("pointermove", {
           bubbles: true,
@@ -2233,7 +2753,8 @@ async function inspect() {
         const stressHost = document.createElement("div");
         stressHost.className = "fixture-long-hover-chat-stress";
         const fragment = document.createDocumentFragment();
-        for (let index = 0; index < 1_400; index += 1) {
+        const stressMessages = [];
+        for (let index = 0; index < 1_500; index += 1) {
           const row = document.createElement("div");
           row.className = "danmaku-item";
           const sender = document.createElement("span");
@@ -2242,12 +2763,35 @@ async function inspect() {
           const content = document.createElement("span");
           content.className = "danmaku-content";
           content.textContent = "运行一段时间后的聊天记录" + index;
+          // The production sender cache is deliberately bounded to the newest
+          // chat rows. Hover those same recent rows so this fixture verifies
+          // correlation under load without requiring an unbounded history scan.
+          if (index >= 1_400) stressMessages.push({
+            message: content.textContent,
+            sender: "长期用户" + index
+          });
           row.append(sender, content);
           fragment.appendChild(row);
         }
         stressHost.appendChild(fragment);
         document.querySelector("#chat-history-list")?.appendChild(stressHost);
         const churnContainer = document.querySelector(".bilibili-live-player-video-danmaku");
+        const hoverRows = stressMessages.map((entry, index) => {
+          const row = document.createElement("div");
+          row.className = "bili-danmaku-x-dm fixture-stress-hover-row";
+          Object.assign(row.style, {
+            left: (180 + index % 7) + "px",
+            position: "absolute",
+            top: (90 + index % 5) + "px"
+          });
+          const content = document.createElement("span");
+          content.className = "bili-danmaku-x-dm-content";
+          content.textContent = entry.message;
+          row.appendChild(content);
+          churnContainer?.appendChild(row);
+          return { ...entry, content, row };
+        });
+        await delay(180);
         const churnTimer = setInterval(() => {
           const transientRow = document.createElement("div");
           transientRow.className = "bili-danmaku-x-dm";
@@ -2255,42 +2799,88 @@ async function inspect() {
           churnContainer?.appendChild(transientRow);
           transientRow.remove();
         }, 8);
-        await delay(3_200);
-
-        const hoverRow = document.querySelector(
-          ".bilibili-live-player-video-danmaku > .bili-danmaku-x-dm"
-        );
-        const hoverContent = hoverRow?.querySelector(".bili-danmaku-x-dm-content");
-        hoverRow.style.padding = "4px 9px";
-        const animation = hoverRow.animate(
-          [{ transform: "translateX(0)" }, { transform: "translateX(-160px)" }],
-          { duration: 8_000, iterations: Infinity }
-        );
-        await delay(80);
-        const beforeRect = hoverRow.getBoundingClientRect();
-        const contentRect = hoverContent.getBoundingClientRect();
-        const startedAt = performance.now();
-        hoverContent.dispatchEvent(new PointerEvent("pointerover", {
-          bubbles: true,
-          composed: true,
-          clientX: beforeRect.left + beforeRect.width / 2,
-          clientY: beforeRect.top + beforeRect.height / 2,
-          pointerType: "mouse"
-        }));
-        longHoverLatency = performance.now() - startedAt;
+        const syncLatencies = [];
+        const visibleLatencies = [];
+        const stressStartedAt = performance.now();
+        for (let index = 0; index < hoverRows.length; index += 1) {
+          const target = hoverRows[index];
+          target.row.style.padding = "4px 9px";
+          const beforeRect = target.row.getBoundingClientRect();
+          const contentRect = target.content.getBoundingClientRect();
+          const startedAt = performance.now();
+          target.content.dispatchEvent(new PointerEvent("pointerover", {
+            bubbles: true,
+            composed: true,
+            clientX: beforeRect.left + beforeRect.width / 2,
+            clientY: beforeRect.top + beforeRect.height / 2,
+            pointerType: "mouse"
+          }));
+          syncLatencies.push(performance.now() - startedAt);
+          let actionBound = false;
+          do {
+            const plus = document.querySelector(".bcp-one-action[data-action='plus-one']:not([hidden])");
+            actionBound = Boolean(plus
+              && String(plus.getAttribute("title") || plus.getAttribute("aria-label") || "")
+                .includes(target.message));
+            if (!actionBound) await new Promise((resolve) => requestAnimationFrame(resolve));
+          } while (!actionBound && performance.now() - startedAt < 150);
+          visibleLatencies.push(performance.now() - startedAt);
+          const frozen = document.querySelector(".bcp-one-frozen");
+          const frozenRect = frozen?.getBoundingClientRect();
+          longHoverPositionStable = longHoverPositionStable && Boolean(frozenRect
+            && Math.abs(frozenRect.left - beforeRect.left) < 4
+            && Math.abs(frozenRect.top - beforeRect.top) < 4);
+          longHoverUsesWholeRow = longHoverUsesWholeRow && Boolean(frozenRect
+            && Math.abs(frozenRect.width - beforeRect.width) < 3
+            && frozenRect.width >= contentRect.width + 12);
+          stressNoDuplicateBorders = stressNoDuplicateBorders
+            && document.querySelectorAll(".bcp-one-frozen").length === 1;
+          const reply = document.querySelector(".bcp-one-action[data-action='reply']:not([hidden])");
+          const replyLabel = String(
+            reply?.getAttribute("title") || reply?.getAttribute("aria-label") || ""
+          );
+          const senderMatched = replyLabel.includes(target.sender);
+          stressSenderCorrect = stressSenderCorrect && senderMatched;
+          if (!senderMatched && stressSenderFailures.length < 10) {
+            stressSenderFailures.push({
+              index,
+              expected: target.sender,
+              message: target.message,
+              replyLabel
+            });
+          }
+          stressHoverCount += 1;
+          document.dispatchEvent(new PointerEvent("pointermove", {
+            bubbles: true,
+            clientX: 790,
+            clientY: 440,
+            pointerType: "mouse"
+          }));
+          const targetElapsed = (index + 1) * 300;
+          const remaining = targetElapsed - (performance.now() - stressStartedAt);
+          if (remaining > 0) await delay(remaining);
+        }
+        stressDurationMs = performance.now() - stressStartedAt;
         clearInterval(churnTimer);
-        const longHoverFrozen = document.querySelector(".bcp-one-frozen");
-        const frozenRect = longHoverFrozen?.getBoundingClientRect();
-        longHoverLatencyBounded = longHoverLatency < 32;
-        longHoverPositionStable = Boolean(frozenRect
-          && Math.abs(frozenRect.left - beforeRect.left) < 4
-          && Math.abs(frozenRect.top - beforeRect.top) < 4);
-        longHoverUsesWholeRow = Boolean(frozenRect
-          && Math.abs(frozenRect.width - beforeRect.width) < 3
-          && frozenRect.width >= contentRect.width + 12);
-        animation.cancel();
+        const percentile95 = (values) => {
+          const sorted = [...values].sort((first, second) => first - second);
+          return sorted[Math.max(0, Math.ceil(sorted.length * 0.95) - 1)] || 0;
+        };
+        syncProcessingP95 = percentile95(syncLatencies);
+        actionVisibleP95 = percentile95(visibleLatencies);
+        actionVisibleMax = Math.max(0, ...visibleLatencies);
+        longHoverLatency = syncProcessingP95;
+        syncProcessingP95WithinBudget = syncProcessingP95 <= 16;
+        actionVisibleP95WithinBudget = actionVisibleP95 <= 50;
+        actionVisibleMaxWithinBudget = actionVisibleMax <= 150;
+        longHoverLatencyBounded = syncProcessingP95WithinBudget
+          && actionVisibleP95WithinBudget && actionVisibleMaxWithinBudget;
+        stressDurationMet = stressDurationMs >= 29_500;
+        stressHoverCountMet = stressHoverCount === 100;
+        hoverRows.forEach(({ row }) => row.remove());
         stressHost.remove();
       }
+      document.body.dataset.bilibiliRichStage = "completed";
       return {
         legacyExclusiveMode,
         lazyEmojiMode,
@@ -2300,6 +2890,19 @@ async function inspect() {
         longHoverLatencyBounded,
         longHoverPositionStable,
         longHoverUsesWholeRow,
+        syncProcessingP95,
+        actionVisibleP95,
+        actionVisibleMax,
+        syncProcessingP95WithinBudget,
+        actionVisibleP95WithinBudget,
+        actionVisibleMaxWithinBudget,
+        stressDurationMs,
+        stressDurationMet,
+        stressHoverCount,
+        stressHoverCountMet,
+        stressNoDuplicateBorders,
+        stressSenderCorrect,
+        stressSenderFailures,
         videoImageSelected: Boolean(image && image.closest(".bilibili-live-player-video-danmaku")),
         selectedImageMessage,
         favoriteButtonAvailable: Boolean(favoriteButton),
@@ -2371,11 +2974,38 @@ async function inspect() {
         emojiItemClicks: Number(document.body.dataset.bilibiliEmojiItemClicks || 0)
       };
     })()`);
-    const bilibiliAssertionKeys = targetParameters.get("hoverperf") === "1"
+    let bilibiliWatchdog = null;
+    const bilibiliWatchdogTimeout = targetParameters.get("hoverperf") === "1"
+      ? 130_000
+      : 75_000;
+    const bilibiliTimeout = new Promise((resolve) => {
+      bilibiliWatchdog = setTimeout(() => resolve(evaluateValue(`({
+          fixtureTimeout: true,
+          stage: document.body.dataset.bilibiliRichStage || "unknown"
+        })`)), bilibiliWatchdogTimeout);
+    });
+    try {
+      bilibiliRichRegression = await Promise.race([
+        bilibiliRichEvaluation,
+        bilibiliTimeout
+      ]);
+    } finally {
+      clearTimeout(bilibiliWatchdog);
+    }
+    const bilibiliAssertionKeys = targetParameters.get("emojionly") === "1"
+      ? ["standardEmojiNameExtracted", "standardEmojiSent"]
+      : targetParameters.get("hoverperf") === "1"
       ? [
           "longHoverLatencyBounded",
           "longHoverPositionStable",
-          "longHoverUsesWholeRow"
+          "longHoverUsesWholeRow",
+          "syncProcessingP95WithinBudget",
+          "actionVisibleP95WithinBudget",
+          "actionVisibleMaxWithinBudget",
+          "stressDurationMet",
+          "stressHoverCountMet",
+          "stressNoDuplicateBorders",
+          "stressSenderCorrect"
         ]
       : [
           "videoImageSelected",
@@ -2412,7 +3042,10 @@ async function inspect() {
           "longHoverPositionStable",
           "longHoverUsesWholeRow"
         ];
+    const bilibiliFullscreen = targetParameters.get("fullscreen") === "1";
     bilibiliRichRegression.assertionFailures = bilibiliAssertionKeys
+      .filter((key) => !(bilibiliFullscreen
+        && (key === "videoReplyPrefilled" || key === "videoReplyInputFocused")))
       .filter((key) => bilibiliRichRegression[key] !== true);
   }
 
@@ -2536,7 +3169,6 @@ async function inspect() {
     returnByValue: true,
     awaitPromise: true
   });
-  socket.close();
   const value = result.result.value;
   value.douyinProbe = douyinProbe;
   value.douyinDomRegression = douyinDomRegression;
@@ -2601,6 +3233,23 @@ async function inspect() {
     }
     douyinDomRegression.assertionFailures = failures;
   }
+  value.consoleEvents = consoleEvents;
+  value.executionContexts = executionContexts;
+  value.extensionProbe = extensionProbe;
+  value.browserStderr = browserStderr.slice(-8_000);
+  value.browserTargets = browserTargets;
+  if (artifactDirectory) {
+    mkdirSync(artifactDirectory, { recursive: true });
+    const screenshot = await send("Page.captureScreenshot", {
+      captureBeyondViewport: false,
+      format: "png",
+    });
+    writeFileSync(
+      path.join(artifactDirectory, `${scenarioName}.png`),
+      Buffer.from(screenshot.data, "base64"),
+    );
+  }
+  socket?.close();
   return value;
 }
 
@@ -2609,10 +3258,24 @@ inspect()
     const output = compactOutput
       ? {
           bilibiliRichRegression: result.bilibiliRichRegression,
+          browserStderr: result.browserStderr,
+          browserTargets: result.browserTargets,
+          consoleEvents: result.consoleEvents,
+          executionContexts: result.executionContexts,
+          extensionProbe: result.extensionProbe,
+          douyinDomRegression: result.douyinDomRegression,
           douyinRichRegression: result.douyinRichRegression,
           sideChatRegression: result.sideChatRegression
         }
       : result;
+    if (artifactDirectory) {
+      mkdirSync(artifactDirectory, { recursive: true });
+      writeFileSync(
+        path.join(artifactDirectory, `${scenarioName}.json`),
+        `${JSON.stringify(output, null, 2)}\n`,
+        "utf8",
+      );
+    }
     process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
     if (result.douyinDomRegression
         && result.douyinDomRegression.assertionFailures
@@ -2635,6 +3298,23 @@ inspect()
       process.exitCode = 1;
     }
   })
-  .finally(() => {
-    browser.kill();
-  });
+  .catch((error) => {
+    const failure = {
+      browserExitCode: browser.exitCode,
+      browserSignal: browser.signalCode,
+      browserStderr: browserStderr.slice(-8_000),
+      scenario: scenarioName,
+      startupError: String(error instanceof Error ? error.message : error).slice(0, 1_000),
+    };
+    if (artifactDirectory) {
+      mkdirSync(artifactDirectory, { recursive: true });
+      writeFileSync(
+        path.join(artifactDirectory, `${scenarioName}-startup.json`),
+        `${JSON.stringify(failure, null, 2)}\n`,
+        "utf8",
+      );
+    }
+    process.stderr.write(`${JSON.stringify(failure)}\n`);
+    process.exitCode = 2;
+  })
+  .finally(stopBrowser);

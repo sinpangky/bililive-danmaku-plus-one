@@ -1,6 +1,6 @@
 {
   "name": "danmaku-echo",
-  "version": "2.1.1",
+  "version": "2.2.0",
   "private": true,
   "type": "module",
   "description": "Danmaku echoing, replies, and local favorites for Huya, Bilibili, Douyin, and Douyu Live",
@@ -14,7 +14,7 @@
     "douyu-live"
   ],
   "engines": {
-    "node": "^22.18.0 || >=24.12.0"
+    "node": "^22.22.2 || >=24.15.0"
   },
   "scripts": {
     "dev": "vite",
@@ -30,6 +30,8 @@
     "preview": "vite preview",
     "type-check": "vue-tsc --build",
     "test:unit": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:browser": "node tests/run-browser-e2e.cjs",
     "test:regression": "node --test tests/shared.test.cjs tests/reply.test.mjs tests/douyin-barrage-model.test.mjs tests/douyin-rich-data.test.mjs tests/douyin-own-message.test.mjs tests/bilibili-dom-config.test.mjs tests/douyu-dom-config.test.mjs tests/content-media-safety.test.cjs tests/live-action-visibility.test.mjs tests/emoji-fallback.test.mjs tests/favorites.test.mjs tests/package-entry.test.cjs",
     "test": "run-s build-only test:unit test:regression",
     "lint": "run-s \"lint:*\"",
@@ -39,8 +41,8 @@
     "lint:check:oxlint": "oxlint .",
     "lint:check:eslint": "eslint .",
     "format": "prettier --write --experimental-cli src/",
-    "validate:build": "node tests/validate-manifest.cjs build/extension && node tests/validate-vue-architecture.cjs && node tests/validate-ci.cjs && node --check build/extension/src/content.js && node --check build/extension/src/douyin-page-hook.js && node --check build/extension/src/douyin-content.js && node --check tests/fixture-server.cjs && node --check tests/inspect-live-dom.cjs && node --check tests/inspect-popup.mjs",
-    "check": "run-s type-check lint:check build-only validate:build test:unit test:regression",
+    "validate:build": "node tests/validate-manifest.cjs build/extension && node tests/validate-vue-architecture.cjs && node tests/validate-ci.cjs && node tests/validate-release-config.cjs && node --check scripts/validate-release.cjs && node --check scripts/write-checksum.cjs && node --check build/extension/src/content.js && node --check build/extension/src/douyin-page-hook.js && node --check build/extension/src/douyin-content.js && node --check tests/fixture-server.cjs && node --check tests/inspect-live-dom.cjs && node --check tests/inspect-popup.mjs",
+    "check": "run-s type-check lint:check build-only validate:build test:coverage test:regression",
     "package": "node scripts/sync-version.cjs && npm run check && node scripts/package.cjs"
   },
   "dependencies": {
@@ -52,6 +54,7 @@
     "@types/jsdom": "^28.0.3",
     "@types/node": "^24.13.3",
     "@vitejs/plugin-vue": "^6.0.8",
+    "@vitest/coverage-v8": "^4.1.10",
     "@vitest/eslint-plugin": "^1.6.23",
     "@vue/eslint-config-typescript": "^14.9.0",
     "@vue/test-utils": "^2.4.11",

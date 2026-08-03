@@ -174,6 +174,7 @@ test("Douyin bootstrap requests the full runtime after an SPA live-route entry",
   const sent = [];
   const timers = [];
   const intervals = [];
+  const clearedIntervals = [];
   const listeners = new Map();
   const location = { href: "https://www.douyin.com/" };
   const context = {
@@ -205,6 +206,10 @@ test("Douyin bootstrap requests the full runtime after an SPA live-route entry",
       readyState: "loading"
     },
     location,
+    clearInterval(id) {
+      clearedIntervals.push(id);
+    },
+    clearTimeout() {},
     setInterval(callback, delay) {
       intervals.push({ callback, delay });
       return intervals.length;
@@ -225,7 +230,7 @@ test("Douyin bootstrap requests the full runtime after an SPA live-route entry",
 
   assert.equal(sent.length, 0);
   assert.equal(intervals.length, 1);
-  assert.equal(intervals[0].delay, 50);
+  assert.equal(intervals[0].delay, 1_000);
 
   location.href = "https://www.douyin.com/follow/live/123456";
   intervals[0].callback();
@@ -234,6 +239,10 @@ test("Douyin bootstrap requests the full runtime after an SPA live-route entry",
   assert.ok(sent.length >= 1);
   assert.equal(sent[0].type, "danmaku-echo.ensure-douyin-runtime");
   assert.equal(sent[0].href, location.href);
+
+  context.document.hidden = true;
+  listeners.get("document:visibilitychange")();
+  assert.deepEqual(clearedIntervals, [1]);
 });
 
 test("rejects obvious system rows", () => {

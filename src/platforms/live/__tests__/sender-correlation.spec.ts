@@ -35,6 +35,27 @@ describe('SenderCorrelationCache', () => {
     expect(cache.resolve('来了', { observedAt: now - 50, now })).toBe('较晚用户')
   })
 
+  it('keeps an exact bounded-cache match available after a long player delay', () => {
+    const cache = new SenderCorrelationCache()
+    cache.remember('unique delayed message', 'delayed sender', {
+      observedAt: 1_000,
+      now: 1_000,
+    })
+
+    expect(
+      cache.resolve('unique delayed message', {
+        observedAt: 31_000,
+        now: 31_000,
+      }),
+    ).toBe('delayed sender')
+    expect(
+      cache.resolve('unique delayed message with extra text', {
+        observedAt: 31_000,
+        now: 31_000,
+      }),
+    ).toBe('')
+  })
+
   it('matches harmless whitespace differences and rejects expired entries', () => {
     const cache = new SenderCorrelationCache(500)
     cache.remember('打 得 不 错', '空格用户', { observedAt: 1_000 })

@@ -57,6 +57,8 @@ import { DOUYIN_CONTENT_SOURCE, DOUYIN_PAGE_SOURCE } from "../platforms/douyin/p
   const startedAt = Date.now();
   let currentHref = location.href;
   let routeGeneration = 0;
+  let routePollTimer: ReturnType<typeof setInterval> | undefined;
+  const pendingRouteTimers = new Set<ReturnType<typeof setTimeout>>();
   const debug: BootstrapDebug = {
     version: "douyin-bootstrap-v2-spa-entry",
     startedAt: new Date(startedAt).toISOString(),
@@ -180,6 +182,8 @@ import { DOUYIN_CONTENT_SOURCE, DOUYIN_PAGE_SOURCE } from "../platforms/douyin/p
       return;
     }
     routeGeneration += 1;
+    pendingRouteTimers.forEach((timer) => clearTimeout(timer));
+    pendingRouteTimers.clear();
     const generation = routeGeneration;
     debug.href = location.href;
     debug.routeGeneration = generation;
@@ -193,7 +197,8 @@ import { DOUYIN_CONTENT_SOURCE, DOUYIN_PAGE_SOURCE } from "../platforms/douyin/p
       debug.routeChanges.splice(0, debug.routeChanges.length - 20);
     }
     [0, 80, 300, 900, 2200].forEach((delay, index) => {
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        pendingRouteTimers.delete(timer);
         if (generation !== routeGeneration || !LIVE_ROUTE_PATTERN.test(location.href)) {
           return;
         }
@@ -201,6 +206,7 @@ import { DOUYIN_CONTENT_SOURCE, DOUYIN_PAGE_SOURCE } from "../platforms/douyin/p
           requestInjection(index + 1);
         }
       }, delay);
+      pendingRouteTimers.add(timer);
     });
     syncMarker();
   }
@@ -221,16 +227,40 @@ import { DOUYIN_CONTENT_SOURCE, DOUYIN_PAGE_SOURCE } from "../platforms/douyin/p
   if (LIVE_ROUTE_PATTERN.test(location.href)) {
     scheduleLiveRuntime("initial-live-route");
   }
+
+  function stopRoutePoll(): void {
+    if (routePollTimer !== undefined) {
+      clearInterval(routePollTimer);
+      routePollTimer = undefined;
+    }
+  }
+
+  function startRoutePoll(): void {
+    if (document.hidden || routePollTimer !== undefined) return;
+    routePollTimer = setInterval(() => checkRoute("url-poll-fallback"), 1_000);
+  }
+
+  function releaseRouteResources(): void {
+    routeGeneration += 1;
+    stopRoutePoll();
+    pendingRouteTimers.forEach((timer) => clearTimeout(timer));
+    pendingRouteTimers.clear();
+  }
+
   window.addEventListener("popstate", () => checkRoute("popstate"), true);
   window.addEventListener("hashchange", () => checkRoute("hashchange"), true);
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) {
-      checkRoute("document-visible");
-      if (LIVE_ROUTE_PATTERN.test(location.href) && !debug.pageReady) {
-        scheduleLiveRuntime("document-visible-retry");
-      }
+    if (document.hidden) {
+      releaseRouteResources();
+      return;
+    }
+    startRoutePoll();
+    checkRoute("document-visible");
+    if (LIVE_ROUTE_PATTERN.test(location.href) && !debug.pageReady) {
+      scheduleLiveRuntime("document-visible-retry");
     }
   });
-  setInterval(() => checkRoute("url-poll"), 50);
+  window.addEventListener("pagehide", releaseRouteResources, { once: true });
+  startRoutePoll();
   syncMarker();
 })();

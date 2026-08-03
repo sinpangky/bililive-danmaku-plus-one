@@ -19,12 +19,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22.20.0
+          node-version: 22.22.2
           cache: npm
 
       - name: Install dependencies
@@ -37,7 +37,7 @@ jobs:
         run: node scripts/package.cjs
 
       - name: Upload package
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: danmaku-echo-windows
           path: dist/*.zip
@@ -58,12 +58,12 @@ jobs:
         run: dnf install -y bash git tar gzip xz zip unzip which nodejs npm
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22.20.0
+          node-version: 22.22.2
           cache: npm
 
       - name: Install dependencies
@@ -76,9 +76,47 @@ jobs:
         run: node scripts/package.cjs
 
       - name: Upload package
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: danmaku-echo-fedora
           path: dist/*.zip
           if-no-files-found: error
+          retention-days: 7
+
+  browser-e2e:
+    name: Browser E2E (${{ matrix.browser }})
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        browser:
+          - chrome
+          - edge
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22.22.2
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build extension
+        run: npm run build-only
+
+      - name: Run browser E2E
+        run: npm run test:browser -- --browser=${{ matrix.browser }}
+
+      - name: Upload browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: browser-e2e-${{ matrix.browser }}-failure
+          path: test-results/browser-e2e
+          if-no-files-found: warn
           retention-days: 7

@@ -1,12 +1,13 @@
 import { onMounted, onUnmounted, reactive, ref, toRaw } from "vue";
 import { mergeSettings } from "../core/shared";
 import type { ExtensionSettings } from "../core/types";
+import { t } from "../core/i18n";
 
 type StatusKind = "error" | "saved" | "";
 
 export function useSettings() {
   const settings = reactive<ExtensionSettings>(mergeSettings());
-  const statusMessage = ref("设置会自动保存");
+  const statusMessage = ref(t("settingsAutoSave"));
   const statusKind = ref<StatusKind>("");
   const statusVisible = ref(false);
   const version = ref("1.1.4");
@@ -48,9 +49,9 @@ export function useSettings() {
     }
     storage.set(payload, () => {
       if (chrome.runtime.lastError) {
-        setStatus("保存失败，请重试", "error");
+        setStatus(t("settingsSaveFailed"), "error");
       } else {
-        setStatus("设置已保存", "saved");
+        setStatus(t("settingsSaved"), "saved");
       }
     });
   }

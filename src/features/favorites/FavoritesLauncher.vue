@@ -21,21 +21,21 @@
         <div class="bcp-favorites-brand">
           <span class="bcp-favorites-brand-mark" aria-hidden="true">+1</span>
           <span class="bcp-favorites-heading">
-            <strong id="bcp-favorites-title">收藏弹幕</strong>
+            <strong id="bcp-favorites-title">{{ t("settingsFavorites") }}</strong>
           </span>
         </div>
         <button
           type="button"
           class="bcp-favorites-icon-button bcp-favorites-close"
-          aria-label="关闭收藏面板"
-          title="关闭（Esc）"
+          :aria-label="t('favoritesClosePanel')"
+          :title="t('favoritesCloseEsc')"
           @click="emit('close')"
         >
           &#10005;
         </button>
       </header>
 
-      <div class="bcp-favorites-subtitle">收藏一次，换个直播间也能发</div>
+      <div class="bcp-favorites-subtitle">{{ t("favoritesSubtitle") }}</div>
 
       <div class="bcp-favorites-divider" aria-hidden="true" />
 
@@ -47,14 +47,14 @@
           <strong :title="state.room.roomName">{{ state.room.roomName }}</strong>
         </span>
         <span class="bcp-favorites-room-count">
-          <strong>{{ state.currentCount }} 条</strong>
+          <strong>{{ t("favoritesCount", String(state.currentCount)) }}</strong>
         </span>
       </div>
 
       <div class="bcp-favorites-divider" aria-hidden="true" />
 
       <div class="bcp-favorites-toolbar">
-        <nav class="bcp-favorites-tabs" aria-label="收藏范围" role="tablist">
+        <nav class="bcp-favorites-tabs" :aria-label="t('favoritesScopeAria')" role="tablist">
           <button
             v-for="tab in tabs"
             :key="tab.key"
@@ -74,20 +74,20 @@
             <circle cx="10.75" cy="10.75" r="5.75" />
             <path d="m15 15 4 4" />
           </svg>
-          <span class="bcp-favorites-visually-hidden">搜索收藏弹幕</span>
+          <span class="bcp-favorites-visually-hidden">{{ t("favoritesSearchAria") }}</span>
           <input
             ref="searchRef"
             :value="state.search"
             type="search"
-            :placeholder="selectedRoom ? '搜索这个直播间的弹幕' : '搜索文字或 Emoji'"
+            :placeholder="selectedRoom ? t('favoritesSearchRoom') : t('favoritesSearchAll')"
             autocomplete="off"
             @input="emit('search', ($event.target as HTMLInputElement).value)"
           >
           <button
             v-if="state.search"
             type="button"
-            aria-label="清空搜索"
-            title="清空搜索"
+            :aria-label="t('favoritesClearSearch')"
+            :title="t('favoritesClearSearch')"
             @click="emit('search', '')"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 8 8 8M16 8l-8 8" /></svg>
@@ -104,8 +104,8 @@
             v-if="selectedRoom"
             type="button"
             class="bcp-favorites-room-back"
-            aria-label="返回直播间列表"
-            title="返回直播间列表（Esc）"
+            :aria-label="t('favoritesBackToRooms')"
+            :title="t('favoritesBackToRoomsEsc')"
             @click="emit('backToRooms')"
           >
             &#8249;
@@ -114,21 +114,21 @@
           <small>{{ listSummary }}</small>
         </span>
         <label class="bcp-favorites-sort">
-          <span>排序:</span>
+          <span>{{ t("favoritesSort") }}</span>
           <select
             :value="state.sort"
-            aria-label="弹幕排序方式"
+            :aria-label="t('favoritesSortAria')"
             @change="emit('sort', ($event.target as HTMLSelectElement).value as FavoriteSort)"
           >
-            <option value="send-count">发送次数</option>
-            <option value="time-desc">时间倒序</option>
-            <option value="time-asc">时间正序</option>
+            <option value="send-count">{{ t("favoritesSortSendCount") }}</option>
+            <option value="time-desc">{{ t("favoritesSortTimeDesc") }}</option>
+            <option value="time-asc">{{ t("favoritesSortTimeAsc") }}</option>
           </select>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4" /></svg>
         </label>
       </div>
 
-      <div v-if="state.loading" class="bcp-favorites-loading" role="status" aria-label="正在读取本地收藏">
+      <div v-if="state.loading" class="bcp-favorites-loading" role="status" :aria-label="t('favoritesLoading')">
         <span v-for="index in 3" :key="index" class="bcp-favorites-skeleton" />
       </div>
 
@@ -172,15 +172,13 @@
           <button
             type="button"
             class="bcp-favorites-group-toggle"
-            :aria-label="`进入${group.roomName}的收藏弹幕`"
+            :aria-label="t('favoritesEnterRoomAria', group.roomName)"
             @click="emit('selectRoom', group.roomKey)"
           >
             <span class="bcp-favorites-group-copy">
               <strong :title="group.roomName">{{ group.roomName }}</strong>
               <small>
-                {{ group.isCurrentRoom ? '当前直播间' : platformLabel(group.platform) }}
-                · {{ group.items.length }} 条收藏
-                · 已发送 {{ group.totalSendCount }} 次
+                {{ t('favoritesGroupMeta', [group.isCurrentRoom ? t('favoritesCurrentRoom') : platformLabel(group.platform), String(group.items.length), String(group.totalSendCount)]) }}
               </small>
             </span>
             <span class="bcp-favorites-group-count">{{ group.items.length }}</span>
@@ -209,19 +207,19 @@
       <footer class="bcp-favorites-footer">
         <span class="bcp-favorites-shortcut-group">
           <kbd>Alt+Q</kbd>
-          <span>短按打开</span>
+          <span>{{ t("favoritesShortcutOpen") }}</span>
         </span>
         <span class="bcp-favorites-shortcut-group">
           <kbd>Alt+Q</kbd>
-          <span>长按轮盘</span>
+          <span>{{ t("favoritesShortcutWheel") }}</span>
         </span>
         <span class="bcp-favorites-shortcut-group">
           <kbd>1-9</kbd>
-          <span>快速发送</span>
+          <span>{{ t("favoritesShortcutSend") }}</span>
         </span>
         <span class="bcp-favorites-shortcut-group">
           <kbd>Esc</kbd>
-          <span>{{ selectedRoom ? '返回直播间' : '关闭' }}</span>
+          <span>{{ selectedRoom ? t('favoritesBackToRoom') : t('favoritesClose') }}</span>
         </span>
       </footer>
     </section>
@@ -232,15 +230,15 @@
       :style="{ left: `${state.centerX}px`, top: `${state.centerY}px` }"
       data-bcp-favorites-owned="true"
       role="menu"
-      aria-label="弹幕收藏轮盘"
+      :aria-label="t('favoritesWheelAria')"
     >
       <div class="bcp-favorites-radial-hint" aria-hidden="true">
-        按住 Alt + Q · 指向后松开发送
+        {{ t("favoritesWheelHint") }}
       </div>
       <div :class="['bcp-favorites-radial-center', { 'has-selection': selectedOption }]">
         <span v-if="!selectedOption" class="bcp-favorites-radial-monogram" aria-hidden="true">+1</span>
-        <strong>{{ selectedOption?.label || '收藏轮盘' }}</strong>
-        <span>{{ selectedOption ? selectionHint : '移向一个选项' }}</span>
+        <strong>{{ selectedOption?.label || t('favoritesWheel') }}</strong>
+        <span>{{ selectedOption ? selectionHint : t('favoritesWheelMove') }}</span>
       </div>
       <button
         v-for="option in state.radialOptions"
@@ -268,6 +266,7 @@ import FavoriteItemRow from "./FavoriteItemRow.vue";
 import type { PlatformId } from "../../core/types";
 import type { FavoriteSort, FavoriteView } from "./types";
 import type { FavoritesLauncherState } from "./launcher";
+import { t } from "../../core/i18n";
 
 const props = defineProps<{ state: FavoritesLauncherState }>();
 const emit = defineEmits<{
@@ -286,9 +285,9 @@ const panelRef = ref<HTMLElement | null>(null);
 const searchRef = ref<HTMLInputElement | null>(null);
 const pendingRemoveId = ref("");
 const tabs: Array<{ key: FavoriteView; label: string }> = [
-  { key: "current", label: "本房收藏" },
-  { key: "other", label: "其他直播间" },
-  { key: "all", label: "全部" }
+  { key: "current", label: t("favoritesCurrent") },
+  { key: "other", label: t("favoritesOtherRooms") },
+  { key: "all", label: t("favoritesAll") }
 ];
 
 const activeTab = computed(() => tabs.find((tab) => tab.key === props.state.view) || tabs[0]);
@@ -311,8 +310,8 @@ const selectedItems = computed(() => {
 const selectedOption = computed(() => props.state.radialOptions
   .find((option) => option.key === props.state.selectedRadialKey));
 const selectionHint = computed(() => selectedOption.value?.kind === "favorite"
-  ? "松开 Q 立即发送"
-  : "松开 Q 打开列表");
+  ? t("favoritesReleaseToSend")
+  : t("favoritesReleaseToOpen"));
 const hasResults = computed(() => props.state.view === "current"
   ? Boolean(props.state.items.length)
   : selectedRoom.value
@@ -320,46 +319,46 @@ const hasResults = computed(() => props.state.view === "current"
     : Boolean(visibleGroups.value.length));
 const listSummary = computed(() => props.state.search
   ? props.state.view === "current"
-    ? `找到 ${props.state.items.length} 条匹配收藏`
+    ? t("favoritesMatches", String(props.state.items.length))
     : selectedRoom.value
-      ? `找到 ${selectedItems.value.length} 条匹配收藏`
-      : `找到 ${visibleGroups.value.length} 个相关直播间`
+      ? t("favoritesMatches", String(selectedItems.value.length))
+      : t("favoritesRoomMatches", String(visibleGroups.value.length))
   : props.state.view === "current"
-    ? "按所选顺序展示当前直播间内容"
+    ? t("favoritesCurrentSummary")
     : selectedRoom.value
-      ? `${selectedRoom.value.items.length} 条收藏，按所选顺序展示`
+      ? t("favoritesSelectedRoomSummary", String(selectedRoom.value.items.length))
     : props.state.view === "other"
-      ? `共 ${props.state.groups.length} 个直播间，先选择直播间`
-      : `共 ${props.state.groups.length} 个直播间，选择后查看弹幕`);
+      ? t("favoritesOtherSummary", String(props.state.groups.length))
+      : t("favoritesAllSummary", String(props.state.groups.length)));
 const emptyState = computed(() => {
   if (props.state.search) {
     return {
-      title: "没有找到匹配内容",
+      title: t("favoritesNoMatches"),
       detail: selectedRoom.value
-        ? "试试更短的关键词，或清空搜索查看这个直播间的全部收藏。"
-        : "试试更短的关键词，或清空搜索查看全部直播间。",
+        ? t("favoritesNoMatchesRoomDetail")
+        : t("favoritesNoMatchesDetail"),
       action: null
     };
   }
   if (props.state.view === "current") {
     return {
-      title: "本房还没有收藏",
-      detail: '悬停一条支持收藏的弹幕并点击"收藏"，它会优先出现在这里。',
+      title: t("favoritesCurrentEmpty"),
+      detail: t("favoritesCurrentEmptyDetail"),
       action: props.state.otherCount
-        ? { label: `查看其他直播间的 ${props.state.otherCount} 条收藏`, view: "other" as const }
+        ? { label: t("favoritesViewOther", String(props.state.otherCount)), view: "other" as const }
         : null
     };
   }
   if (props.state.view === "other") {
     return {
-      title: "没有其他直播间收藏",
-      detail: "你在其他直播间收藏的普通文字与 Unicode Emoji 会显示在这里。",
-      action: { label: "返回本房收藏", view: "current" as const }
+      title: t("favoritesOtherEmpty"),
+      detail: t("favoritesOtherEmptyDetail"),
+      action: { label: t("favoritesBackCurrent"), view: "current" as const }
     };
   }
   return {
-    title: "收藏库还是空的",
-    detail: "从直播画面或聊天栏收藏一条弹幕后，就能在任意直播间快速发送。",
+    title: t("favoritesAllEmpty"),
+    detail: t("favoritesAllEmptyDetail"),
     action: null
   };
 });
@@ -380,10 +379,10 @@ function confirmRemove(id: string): void {
 }
 
 function platformLabel(platform: PlatformId): string {
-  if (platform === "bilibili") return "Bilibili";
-  if (platform === "douyin") return "抖音";
-  if (platform === "douyu") return "斗鱼";
-  return "虎牙";
+  if (platform === "bilibili") return t("platformBilibili");
+  if (platform === "douyin") return t("platformDouyin");
+  if (platform === "douyu") return t("platformDouyu");
+  return t("platformHuya");
 }
 
 function focusSearch(): void {

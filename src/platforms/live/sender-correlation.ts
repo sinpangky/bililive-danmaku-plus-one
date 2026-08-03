@@ -107,7 +107,11 @@ export class SenderCorrelationCache {
       if (!Number.isFinite(score)) continue
       if (observedAt) {
         const distance = Math.abs(entry.at - observedAt)
-        score += Math.max(-500, 350 - distance / 10)
+        // Keep exact message matches usable throughout a bounded cache's
+        // lifetime. A -500 floor made an otherwise authoritative exact match
+        // fall just below the 620 acceptance threshold after about 8 seconds.
+        // Partial matches still remain below the threshold once they are old.
+        score += Math.max(-450, 350 - distance / 10)
       } else {
         score += Math.max(0, 160 - (now - entry.at) / 100)
       }
@@ -121,5 +125,13 @@ export class SenderCorrelationCache {
 
   prune(now = Date.now()): void {
     this.entries = this.entries.filter((entry) => now - entry.at <= this.ttl)
+  }
+
+  clear(): void {
+    this.entries = []
+  }
+
+  get size(): number {
+    return this.entries.length
   }
 }

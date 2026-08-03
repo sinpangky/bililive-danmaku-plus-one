@@ -5,7 +5,7 @@
         <img class="color-platform__mark" :src="`../assets/icons/${platform}.svg`" alt="">
         <span>
           <strong>{{ label }}</strong>
-          <small>{{ customCount ? `${customCount} 项自定义` : "使用默认颜色" }}</small>
+          <small>{{ customCount ? t("settingsCustomColorCount", String(customCount)) : t("colorUsingDefaults") }}</small>
         </span>
       </span>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg>
@@ -25,7 +25,7 @@
         />
       </div>
       <button class="platform-color-reset" type="button" @click="emit('reset')">
-        恢复 {{ label }} 全部默认颜色
+        {{ t("colorResetPlatform", label) }}
       </button>
     </div>
   </details>
@@ -35,6 +35,7 @@
 import { computed } from "vue";
 import type { ColorSettingKey, ColorSettings, PlatformId } from "../core/types";
 import ColorField from "./ColorField.vue";
+import { t } from "../core/i18n";
 
 const props = defineProps<{
   colors: ColorSettings;
@@ -195,4 +196,3 @@ const customCount = computed(() => Object.values(props.colors).filter(Boolean).l
   color: var(--text);
 }
 </style>
-

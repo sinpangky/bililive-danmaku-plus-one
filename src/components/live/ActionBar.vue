@@ -3,7 +3,7 @@
     :class="classes.bar"
     :hidden="!visible || visibleActions.length === 0"
     role="toolbar"
-    aria-label="弹幕快捷操作"
+    :aria-label="t('actionToolbar')"
     :data-bcp-one-owned="variant === 'common' ? 'true' : undefined"
     :data-bcp-douyin-owned="variant === 'douyin' ? 'true' : undefined"
     @pointerenter="emit('pointerenter')"
@@ -41,6 +41,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { ActionSettings } from "../../core/types";
+import { t } from "../../core/i18n";
 
 type ActionKey = keyof ActionSettings;
 
@@ -79,9 +80,9 @@ const classes = computed(() => props.variant === "common" ? {
 });
 
 const visibleActions = computed(() => [
-  { key: "plusOne" as const, label: "+1", dataAction: "plus-one" },
-  { key: "reply" as const, label: "回复", dataAction: "reply" },
-  { key: "favorite" as const, label: "收藏", dataAction: "favorite" }
+  { key: "plusOne" as const, label: t("actionPlusOne"), dataAction: "plus-one" },
+  { key: "reply" as const, label: t("actionReply"), dataAction: "reply" },
+  { key: "favorite" as const, label: t("actionFavorite"), dataAction: "favorite" }
 ].filter((action) => props.actions[action.key]));
 
 function activate(action: ActionKey, event: MouseEvent): void {
@@ -96,10 +97,12 @@ function activate(action: ActionKey, event: MouseEvent): void {
 
 function actionTitle(action: ActionKey, label: string): string {
   if (action === "plusOne") {
-    return `复读：${props.message}`;
+    return t("actionRepeatTitle", props.message);
   }
   if (action === "reply") {
-    return props.sender ? `回复 @${props.sender}` : `回复弹幕：${props.message}`;
+    return props.sender
+      ? t("actionReplyUserTitle", props.sender)
+      : t("actionReplyMessageTitle", props.message);
   }
   return label;
 }

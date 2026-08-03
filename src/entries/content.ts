@@ -32,6 +32,9 @@ import {
 import { normalizedAssetKeys as normalizedRichAssetKeys } from '../platforms/douyin/rich-data'
 import { createFavoritesRuntime } from '../features/favorites/launcher'
 import { createContentOverlay } from '../components/live/content-overlay'
+import { createDiagnosticsCollector } from '../core/diagnostics'
+import { createLivePlatformAdapter } from '../platforms/live/adapters'
+import { t } from '../core/i18n'
 
 ;(function initDanmakuEchoLive() {
   'use strict'
@@ -46,6 +49,12 @@ import { createContentOverlay } from '../components/live/content-overlay'
   globalThis.__bulletPlusOneLoaded = true
 
   const config = LIVE_PLATFORM_CONFIG[platformId]
+  const platformName = t(platformId === 'bilibili'
+    ? 'platformBilibili'
+    : platformId === 'douyu'
+      ? 'platformDouyu'
+      : 'platformHuya')
+  const platformAdapter = createLivePlatformAdapter(platformId)
   const EDITABLE_CONTROL_SELECTOR = [
     'input',
     'textarea',
@@ -277,6 +286,26 @@ import { createContentOverlay } from '../components/live/content-overlay'
     bilibiliDismissToken: 0,
     emojiPanelOpenedByPlugin: false,
   }
+  const diagnostics = createDiagnosticsCollector({
+    platform: platformId,
+    featureFlags: () => state.settings,
+    cacheCounts: () => ({
+      senderCorrelation: state.senderCorrelation.size,
+      roots: state.roots.length,
+      bilibiliOverlayCandidates: state.bilibiliOverlayCandidates.length,
+      hiddenBilibiliQuickBars: state.hiddenBilibiliQuickBars.size,
+    }),
+    observerCounts: () => ({
+      sender: state.senderObserver ? 1 : 0,
+      timers: Number(Boolean(state.hideTimer)) + Number(Boolean(state.senderScanTimer)),
+    }),
+    selectorHits: () => ({
+      chatRoot: queryAllDeep(config.chatRoots).length > 0,
+      input: queryAllDeep(config.inputs).length > 0,
+      videoRoot: queryAllDeep(config.videoRoots).length > 0,
+    }),
+  })
+  diagnostics.record({ type: 'runtime.initialized', stage: 'content' })
 
   function storageGet() {
     return new Promise((resolve) => {
@@ -616,7 +645,19 @@ import { createContentOverlay } from '../components/live/content-overlay'
       .join(' ')
   }
 
+  function isBilibiliSideChatEditor(element) {
+    if (platformId !== 'bilibili' || !(element instanceof Element)) return false
+    return Boolean(
+      element.matches(
+        "textarea.chat-input,.chat-input-ctnr textarea,.chat-input-ctnr input,.chat-input[contenteditable]:not([contenteditable='false'])",
+      ) || element.closest('.chat-input-ctnr'),
+    )
+  }
+
   function isBilibiliQuickInputRegion(element) {
+    if (isBilibiliSideChatEditor(element)) {
+      return false
+    }
     if (platformId !== 'bilibili' || !(element instanceof Element)) {
       return false
     }
@@ -2014,7 +2055,13 @@ import { createContentOverlay } from '../components/live/content-overlay'
     event.stopPropagation()
     cancelHide()
     if (action === 'reply') {
-      prepareReply()
+      void prepareReply().catch((error) => {
+        console.warn('[Danmaku Echo] reply preparation failed', {
+          platform: platformId,
+          reason: error instanceof Error ? error.message : String(error),
+        })
+        showToast(t('toastSenderUnknown'), 'error')
+      })
     }
   }
 
@@ -2156,6 +2203,7 @@ import { createContentOverlay } from '../components/live/content-overlay'
   }
 
   function selectCandidate(candidate, kind, allowNoVisibleActions) {
+    const selectionStartedAt = performance.now()
     if (kind === 'overlay' && !isOverlayMessageElement(candidate)) {
       return false
     }
@@ -2196,6 +2244,12 @@ import { createContentOverlay } from '../components/live/content-overlay'
     ensureButton()
     state.ui.showActionBar(message, state.sender)
     requestAnimationFrame(updateButtonPosition)
+    diagnostics.record({
+      type: 'candidate.selected',
+      stage: candidateKind,
+      durationMs: performance.now() - selectionStartedAt,
+      outcome: 'success',
+    })
     return true
   }
 
@@ -2566,20 +2620,29 @@ import { createContentOverlay } from '../components/live/content-overlay'
     const observedAt = state.selectedAt
     let sender = state.sender
     for (let attempt = 0; !sender && attempt < REPLY_RESOLVE_ATTEMPTS; attempt += 1) {
-      sender = senderFromCandidate(candidate, message, kind, observedAt, {
-        scanDom: attempt === 0,
-      })
+      try {
+        sender = senderFromCandidate(candidate, message, kind, observedAt, {
+          scanDom: attempt === 0,
+        })
+      } catch (error) {
+        console.warn('[Danmaku Echo] sender resolution failed', {
+          attempt: attempt + 1,
+          platform: platformId,
+          reason: error instanceof Error ? error.message : String(error),
+        })
+        sender = ''
+      }
       if (!sender && attempt + 1 < REPLY_RESOLVE_ATTEMPTS) {
         await new Promise((resolve) => setTimeout(resolve, REPLY_RESOLVE_INTERVAL))
       }
     }
     if (!sender) {
-      showToast('未能识别这条弹幕的发送者', 'error')
+      showToast(t('toastSenderUnknown'), 'error')
       return
     }
     const input = await findReplyInput()
     if (!input) {
-      showToast(`未找到${config.name}弹幕输入框，请确认已登录并展开聊天区`, 'error')
+      showToast(t('toastEditorNotFound', platformName), 'error')
       return
     }
     const nextValue = shared.replyDraftValue(inputText(input), sender)
@@ -2797,6 +2860,9 @@ import { createContentOverlay } from '../components/live/content-overlay'
         if (!(editor instanceof HTMLElement) || !editor.isConnected || !isVisible(editor)) {
           return
         }
+        if (isBilibiliSideChatEditor(editor)) {
+          return
+        }
         const looksEditable = editor.matches(
           "input, textarea, [contenteditable]:not([contenteditable='false']), [role='textbox']",
         )
@@ -2825,7 +2891,7 @@ import { createContentOverlay } from '../components/live/content-overlay'
         for (const editor of player.querySelectorAll(
           "input, textarea, [contenteditable='true'], [role='textbox']",
         )) {
-          if (!isVisible(editor)) {
+          if (!isVisible(editor) || isBilibiliSideChatEditor(editor)) {
             continue
           }
           const rect = editor.getBoundingClientRect()
@@ -3052,9 +3118,20 @@ import { createContentOverlay } from '../components/live/content-overlay'
   function findUniqueBilibiliPlatformEmoji(asset, includeHidden = false) {
     if (platformId !== 'bilibili') return null
     const matches = new Map()
+    const expectedToken = normalizedEmojiToken(asset && asset.token, 'emoji')
     platformEmojiItemCandidates(includeHidden).forEach((element) => {
-      const score = assetMatchScore(element, asset)
-      if (score < 4) return
+      let score = assetMatchScore(element, asset)
+      if (
+        score < 4 &&
+        expectedToken &&
+        normalizedEmojiToken(assetDescriptorFromElement(element)?.token, 'emoji') === expectedToken
+      ) {
+        // Some Bilibili builds expose only a display name on the native panel
+        // and only an image URL on the rendered danmaku. An exact bracketed
+        // token is safe only when it resolves to one native interactive item.
+        score = 3
+      }
+      if (score < 3) return
       const item = platformEmojiInteractiveItem(element)
       const descriptor = assetDescriptorFromElement(element)
       const resourceIdentity = descriptor?.keys?.find((key) => {
@@ -3414,20 +3491,20 @@ import { createContentOverlay } from '../components/live/content-overlay'
       platformId === 'bilibili' && isBilibiliNativePanelAsset(asset)
     if (bilibiliSingleImagePayload && !nativeBilibiliAsset) {
       showToast(
-        `未找到唯一的官方表情“${bilibiliSingleImagePayload.text}”，已取消 +1，未发送表情名称`,
+        t('toastOfficialEmojiNotUnique', bilibiliSingleImagePayload.text),
         'error',
       )
       return false
     }
     const now = Date.now()
     if (now - state.lastActionAt < 700) {
-      showToast('操作太快，请稍后再试', 'warning')
+      showToast(t('toastActionTooFast'), 'warning')
       return false
     }
     state.lastActionAt = now
     const input = nativeBilibiliAsset ? findBilibiliEmojiEditor() || findInput() : findInput()
     if (!asset || !input) {
-      showToast(`未找到${config.name}图片 Emoji 资源或弹幕输入框`, 'error')
+      showToast(t('toastImageResourceNotFound', platformName), 'error')
       return false
     }
     const item =
@@ -3435,7 +3512,7 @@ import { createContentOverlay } from '../components/live/content-overlay'
         ? await openUniqueBilibiliPlatformEmoji(input, asset)
         : await openPlatformEmojiForAsset(input, asset)
     if (!item || typeof item.click !== 'function') {
-      showToast(`未在${config.name}表情面板中找到对应 Emoji，已取消 +1`, 'error')
+      showToast(t('toastEmojiPanelNoMatch', platformName), 'error')
       return false
     }
     enrichRichPayloadAsset(payload, 0, item)
@@ -3473,11 +3550,11 @@ import { createContentOverlay } from '../components/live/content-overlay'
       }
     }
     if (result !== 'sent') {
-      showToast(`${config.name}图片 Emoji 发送未确认，请重试`, 'error')
+      showToast(t('toastImageUnconfirmed', platformName), 'error')
       return false
     }
     releaseInputFocus(input)
-    showToast('已发送图片 Emoji +1', 'success')
+    showToast(t('toastImageEmojiSent'), 'success')
     return true
   }
 
@@ -3552,13 +3629,13 @@ import { createContentOverlay } from '../components/live/content-overlay'
 
     const input = findBilibiliEmojiEditor() || findInput()
     if (!input) {
-      showToast(`未找到${config.name}弹幕输入框，请确认已登录并展开聊天区`, 'error')
+      showToast(t('toastEditorNotFound', platformName), 'error')
       return false
     }
     const item = await openUniqueBilibiliPlatformEmoji(input, imagePayload.assets[0])
     if (!item) {
       showToast(
-        `未找到官方表情“${imagePayload.text}”，已取消发送`,
+        t('toastOfficialEmojiNotFound', imagePayload.text),
         'error',
       )
       return false
@@ -3570,14 +3647,14 @@ import { createContentOverlay } from '../components/live/content-overlay'
   async function repeatMessage(message) {
     const now = Date.now()
     if (now - state.lastActionAt < 700) {
-      showToast('操作太快，请稍后再试', 'warning')
+      showToast(t('toastActionTooFast'), 'warning')
       return false
     }
     state.lastActionAt = now
 
     const input = findInput()
     if (!input) {
-      showToast(`未找到${config.name}弹幕输入框，请确认已登录并展开聊天区`, 'error')
+      showToast(t('toastEditorNotFound', platformName), 'error')
       return false
     }
 
@@ -3611,12 +3688,12 @@ import { createContentOverlay } from '../components/live/content-overlay'
     }
 
     if (!consumed) {
-      showToast('自动发送失败，弹幕仍在输入框，请重试', 'error')
+      showToast(t('toastAutomaticSendFailed'), 'error')
       return false
     }
 
     releaseInputFocus(input)
-    showToast('已执行 +1', 'success')
+    showToast(t('toastPlusOneSent'), 'success')
     return true
   }
 
@@ -3628,6 +3705,7 @@ import { createContentOverlay } from '../components/live/content-overlay'
     }
     const message = state.message
     const richPayload = state.richPayload
+    diagnostics.record({ type: 'action.plus-one', stage: state.candidateKind || 'unknown' })
     if (richPayload && richPayload.assets.length) {
       repeatPlatformRichPayload(richPayload)
     } else if (message) {
@@ -3827,6 +3905,66 @@ import { createContentOverlay } from '../components/live/content-overlay'
     requestAnimationFrame(updateButtonPosition)
   }
 
+  function onDiagnosticsMessage(message, _sender, sendResponse) {
+    if (!message || message.type !== 'danmaku-echo.diagnostics.snapshot') return false
+    sendResponse({ ok: true, snapshot: diagnostics.snapshot() })
+    return false
+  }
+
+  function onStorageChanged(_changes, areaName) {
+    if (areaName === 'sync') {
+      storageGet().then(applySettings)
+    }
+  }
+
+  function releaseTransientResources() {
+    clearSelection()
+    if (state.hideTimer) clearTimeout(state.hideTimer)
+    if (state.senderScanTimer) clearTimeout(state.senderScanTimer)
+    if (state.pointerFrame) cancelAnimationFrame(state.pointerFrame)
+    state.hideTimer = 0
+    state.senderScanTimer = 0
+    state.pointerFrame = 0
+    state.senderObserver?.disconnect()
+    state.senderObserver = null
+    state.senderCorrelation.clear()
+    state.roots = [document]
+    state.rootsCachedAt = 0
+    state.bilibiliOverlayCandidates = []
+    state.bilibiliOverlayCandidatesCachedAt = 0
+    state.douyuNativeCapsuleVisibility.showAll()
+    state.douyuNativeCapsuleMutationRoots.clear()
+    platformAdapter.cleanup()
+  }
+
+  function onVisibilityChange() {
+    if (document.hidden) {
+      releaseTransientResources()
+    } else {
+      startSenderObserver()
+    }
+  }
+
+  function destroyRuntime() {
+    releaseTransientResources()
+    state.favoritesRuntime?.destroy()
+    state.ui?.destroy()
+    document.removeEventListener('pointerover', onPointerOver, true)
+    document.removeEventListener('pointermove', onPointerMove, true)
+    document.removeEventListener('pointerout', onPointerOut, true)
+    document.removeEventListener('click', onAltClick, true)
+    document.removeEventListener('pointerdown', restoreBilibiliQuickBars, true)
+    document.removeEventListener('keydown', restoreBilibiliQuickBars, true)
+    document.removeEventListener('fullscreenchange', onFullscreenChange, true)
+    document.removeEventListener('webkitfullscreenchange', onFullscreenChange, true)
+    document.removeEventListener('visibilitychange', onVisibilityChange)
+    removeEventListener('scroll', onViewportChange, true)
+    removeEventListener('resize', onViewportChange)
+    chrome.runtime.onMessage.removeListener(onDiagnosticsMessage)
+    chrome.storage.onChanged.removeListener(onStorageChanged)
+    globalThis.__bulletPlusOneLoaded = false
+  }
+
   function onFullscreenChange() {
     restoreBilibiliQuickBars(null)
     ensurePortal()
@@ -3952,14 +4090,13 @@ import { createContentOverlay } from '../components/live/content-overlay'
   document.addEventListener('keydown', restoreBilibiliQuickBars, true)
   document.addEventListener('fullscreenchange', onFullscreenChange, true)
   document.addEventListener('webkitfullscreenchange', onFullscreenChange, true)
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  addEventListener('pagehide', destroyRuntime, { once: true })
   addEventListener('scroll', onViewportChange, true)
   addEventListener('resize', onViewportChange, { passive: true })
+  chrome.runtime.onMessage.addListener(onDiagnosticsMessage)
 
   if (globalThis.chrome && chrome.storage && chrome.storage.onChanged) {
-    chrome.storage.onChanged.addListener((_changes, areaName) => {
-      if (areaName === 'sync') {
-        storageGet().then(applySettings)
-      }
-    })
+    chrome.storage.onChanged.addListener(onStorageChanged)
   }
 })()

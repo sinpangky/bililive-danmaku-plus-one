@@ -9,7 +9,7 @@
 
 [中文](#中文) · [English](#english) · [隐私权政策](PRIVACY.md)
 
-![Version](https://img.shields.io/badge/version-2.1.1-orange)
+![Version](https://img.shields.io/badge/version-2.2.0-orange)
 ![Manifest](https://img.shields.io/badge/Chrome-Manifest%20V3-blue)
 ![License](https://img.shields.io/badge/license-GPL--3.0--or--later-green)
 [![CI](https://github.com/SadUnicorn171/danmaku-echo/actions/workflows/ci.yml/badge.svg)](https://github.com/SadUnicorn171/danmaku-echo/actions/workflows/ci.yml)
@@ -112,7 +112,7 @@ npm run build
 
 ### 开发与验证
 
-建议使用 Node.js 22.20.0（CI 固定版本）；项目要求 Node.js 22.18+，或 24.12+。
+建议使用 Node.js 22.22.2（CI 固定版本）；项目要求 Node.js 22.22.2+，或 24.15+。
 
 启动 Vue 设置页开发预览：
 
@@ -290,7 +290,7 @@ For Douyin diagnostics, press `Ctrl + Alt + D` in a live room. Startup, Canvas i
 
 ### Development and verification
 
-Node.js 22.20.0 is recommended and pinned in CI. The project requires Node.js 22.18+, or 24.12+.
+Node.js 22.22.2 is recommended and pinned in CI. The project requires Node.js 22.22.2+, or 24.15+.
 
 Start the Vue settings-page development preview with:
 

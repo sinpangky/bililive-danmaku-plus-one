@@ -1,5 +1,6 @@
 import { createApp, nextTick, reactive } from "vue";
 import type { PlatformId } from "../../core/types";
+import { t } from "../../core/i18n";
 import favoritesStyles from "../../assets/styles/favorites.scss?inline";
 import FavoritesLauncher from "./FavoritesLauncher.vue";
 import { createFavoritesRepository } from "./repository";
@@ -115,8 +116,8 @@ function extensionContextAvailable(extensionId: string): boolean {
 function favoriteErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error || "");
   return /extension context invalidated|receiving end does not exist|message port closed/i.test(message)
-    ? "扩展已更新，请刷新直播页后重试"
-    : message || "收藏失败";
+    ? t("favoritesExtensionUpdated")
+    : message || t("favoritesActionFailed");
 }
 
 function mutateFavoriteInBackground(
@@ -127,7 +128,7 @@ function mutateFavoriteInBackground(
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
-      reject(new Error("收藏服务响应超时，请重试"));
+      reject(new Error(t("favoritesServiceTimeout")));
     }, FAVORITE_WRITE_TIMEOUT);
     try {
       chrome.runtime.sendMessage({ ...request, type: FAVORITE_WRITE_MESSAGE }, (
@@ -141,7 +142,7 @@ function mutateFavoriteInBackground(
           if (error) {
             reject(new Error(error.message));
           } else if (!response?.ok) {
-            reject(new Error(response?.error || "收藏服务暂不可用"));
+            reject(new Error(response?.error || t("favoritesServiceUnavailable")));
           } else {
             resolve(response);
           }
@@ -359,8 +360,8 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
       kind: "favorite",
       label: shortLabel(item.text)
     }));
-    raw.push({ detail: "跨直播间收藏", key: "other", kind: "other", label: "其他收藏" });
-    raw.push({ detail: "搜索和管理", key: "more", kind: "more", label: "更多" });
+    raw.push({ detail: t("favoritesRadialOtherDetail"), key: "other", kind: "other", label: t("favoritesRadialOther") });
+    raw.push({ detail: t("favoritesRadialMoreDetail"), key: "more", kind: "more", label: t("favoritesRadialMore") });
     return raw.map((option, index) => ({
       ...option,
       angle: -90 + index * (360 / raw.length)
@@ -432,7 +433,7 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
       try {
         await mutateFavoriteInBackground({ id, operation: "record-sent", room: currentRoom });
       } catch (error) {
-        options.showToast(`弹幕已发送，但发送次数保存失败：${favoriteErrorMessage(error)}`, "warning");
+        options.showToast(t("favoritesSendCountSaveFailed", favoriteErrorMessage(error)), "warning");
       }
     }
   }
@@ -440,7 +441,7 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
   async function addToRoom(id: string): Promise<void> {
     try {
       await mutateFavoriteInBackground({ id, operation: "add-to-room", room: room() });
-      options.showToast("已加入本房收藏", "success");
+      options.showToast(t("favoritesAddedToRoom"), "success");
     } catch (error) {
       options.showToast(favoriteErrorMessage(error), "error");
     }
@@ -449,7 +450,7 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
   async function remove(id: string): Promise<void> {
     try {
       await mutateFavoriteInBackground({ id, operation: "remove", room: room() });
-      options.showToast("已删除收藏", "success");
+      options.showToast(t("favoritesRemoved"), "success");
     } catch (error) {
       options.showToast(favoriteErrorMessage(error), "error");
     }
@@ -594,17 +595,17 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
     async favoriteText(text: string, payload?: unknown): Promise<boolean | null> {
       if (!options.enabled()) return false;
       if (!extensionContextAvailable(extensionId)) {
-        options.showToast("扩展已更新，请刷新直播页后重试", "error");
+        options.showToast(t("favoritesExtensionUpdated"), "error");
         return false;
       }
       const pendingFeedback = setTimeout(() => {
-        options.showToast("正在收藏…", "info");
+        options.showToast(t("favoritesSaving"), "info");
       }, 300);
       try {
         const currentRoom = room();
         const response = await writeFavoriteInBackground(text, currentRoom, payload);
         const added = Boolean(response.added);
-        options.showToast(added ? "已收藏到本房" : "这条弹幕已经收藏", "success");
+        options.showToast(added ? t("toastFavoriteSaved") : t("favoritesAlreadySaved"), "success");
         return true;
       } catch (error) {
         options.showToast(favoriteErrorMessage(error), "error");
@@ -623,7 +624,7 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
   });
   void repository.load().then(() => {
     if (repository.recoveredFromBackup) {
-      options.showToast("检测到收藏数据异常，已从本地备份自动恢复", "warning");
+      options.showToast(t("favoritesRecovered"), "warning");
     }
   }).catch((error) => {
     state.loading = false;

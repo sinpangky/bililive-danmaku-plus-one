@@ -1,0 +1,10 @@
+import { LIVE_PLATFORM_CONFIG } from '../live/config'
+import { createSelectorPlatformAdapter } from '../live/selector-adapter'
+
+export function createDouyuAdapter() {
+  return createSelectorPlatformAdapter({
+    config: LIVE_PLATFORM_CONFIG.douyu,
+    nativeCapsuleVisible: (settings) => settings.nativeDanmakuCapsule.douyu,
+    platform: 'douyu',
+  })
+}

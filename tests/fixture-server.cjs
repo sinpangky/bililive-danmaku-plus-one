@@ -57,25 +57,24 @@ const html = String.raw`<!doctype html>
         document.body.dataset.huyaFullscreenSimulated = "true";
       }
       send.addEventListener("click", () => {
-        if (input.value === "这波操作漂亮") {
-          document.body.dataset.chatSent = input.value;
-          document.body.dataset.chatSentAt = String(Date.now());
-          input.value = "";
-        }
-        if (input.value === "全屏弹幕也能复读") {
-          document.body.dataset.overlaySent = input.value;
-          input.value = "";
+        const value = input.value;
+        if (!value.trim()) return;
+        document.body.dataset.chatSent = value;
+        document.body.dataset.chatSentAt = String(Date.now());
+        if (value === "全屏弹幕也能复读") {
+          document.body.dataset.overlaySent = value;
           clearInterval(timer);
         }
+        input.value = "";
       });
       quickSend.addEventListener("click", () => {
-        document.body.dataset.huyaQuickSent = quickInput.value;
-        if (quickInput.value === "这波操作漂亮") {
-          document.body.dataset.chatSent = quickInput.value;
-          document.body.dataset.chatSentAt = String(Date.now());
-        }
-        if (quickInput.value === "全屏弹幕也能复读") {
-          document.body.dataset.overlaySent = quickInput.value;
+        const value = quickInput.value;
+        if (!value.trim()) return;
+        document.body.dataset.huyaQuickSent = value;
+        document.body.dataset.chatSent = value;
+        document.body.dataset.chatSentAt = String(Date.now());
+        if (value === "全屏弹幕也能复读") {
+          document.body.dataset.overlaySent = value;
           clearInterval(timer);
         }
         quickInput.value = "";
@@ -1073,4 +1072,7 @@ server.listen(port, "127.0.0.1", () => {
   console.log(`READY http://127.0.0.1:${port}`);
 });
 
-setTimeout(() => server.close(), 120_000).unref();
+setTimeout(
+  () => server.close(),
+  Math.max(30_000, Number(process.env.BCP_FIXTURE_TIMEOUT) || 120_000)
+).unref();

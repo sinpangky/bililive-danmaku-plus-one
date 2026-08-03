@@ -123,7 +123,7 @@ test("Bilibili uses its native editor and Emoji panel", () => {
     /const bilibiliInlineText = bilibiliSingleImagePayload \? ['"]['"] : bilibiliInlineEmojiText\(payload\)/
   );
   assert.match(contentSource, /return repeatMessage\(bilibiliInlineText\)/);
-  assert.match(contentSource, /已取消 \+1，未发送表情名称/);
+  assert.match(contentSource, /t\(['"]toastOfficialEmojiNotUnique['"]/);
   assert.match(contentSource, /LEGACY_BILIBILI_EXCLUSIVE_ASSET_KEY_PREFIX/);
   assert.match(contentSource, /current && depth < 12/);
   assert.match(contentSource, /async function openUniqueBilibiliPlatformEmoji\(input, asset\)/);
@@ -135,7 +135,7 @@ test("Bilibili uses its native editor and Emoji panel", () => {
   assert.match(contentSource, /const includeHidden = fullscreenActive\(\)/);
   assert.match(contentSource, /findPlatformEmojiToggle\(input, includeHidden\)/);
   assert.match(contentSource, /async function repeatBilibiliFavoritePayload\(payload\)/);
-  assert.match(contentSource, /未找到官方表情/);
+  assert.match(contentSource, /t\(['"]toastOfficialEmojiNotFound['"]/);
   assert.match(contentSource, /platformId === ['"]bilibili['"]\s*\? repeatBilibiliFavoritePayload\(payload\)/);
   assert.match(contentSource, /setNativeValue\(input, message\)/);
   assert.match(contentSource, /item\.click\(\)/);

@@ -20,6 +20,8 @@ import { createFavoritesRuntime } from '../features/favorites/launcher'
 import { unicodeEmojiFallbackText } from '../platforms/live/emoji-fallback'
 import { SenderCorrelationCache } from '../platforms/live/sender-correlation'
 import { createDouyinOverlay } from '../components/live/douyin-overlay'
+import { createDiagnosticsCollector } from '../core/diagnostics'
+import { t } from '../core/i18n'
 
 ;(function initDanmakuEchoDouyin() {
   'use strict'
@@ -255,6 +257,41 @@ import { createDouyinOverlay } from '../components/live/douyin-overlay'
   }
   globalThis.__danmakuEchoDouyinContentDebug = debugState
   let debugMarkerTimer = 0
+  let heartbeatTimer = 0
+  let routePollTimer = 0
+  const diagnostics = createDiagnosticsCollector({
+    platform: 'douyin',
+    featureFlags: () => state.settings,
+    cacheCounts: () => ({
+      activationRequests: state.activationRequests.size,
+      confirmedOwnMessageIds: state.confirmedOwnMessageIds.size,
+      ownChatIntents: state.ownChatIntents.length,
+      pendingManualEmojiIntents: state.pendingManualEmojiIntents.length,
+      replyRequests: state.replyRequests.size,
+      senderCache: state.senderCache.size,
+      senderCorrelation: state.senderCorrelation.size,
+      senderHistory: state.senderHistory.length,
+      senderIdCache: state.senderIdCache.size,
+    }),
+    observerCounts: () => ({
+      ownChat: state.ownChatObserver ? 1 : 0,
+      timers: [state.hideTimer, state.expiryTimer, state.ownChatScanTimer, state.senderCacheTimer]
+        .filter(Boolean).length,
+    }),
+    performance: () => ({
+      cardsShown: debugState.counters.cardsShown,
+      cardsHidden: debugState.counters.cardsHidden,
+      sendsAttempted: debugState.counters.sendsAttempted,
+      sendsFailed: debugState.counters.sendsFailed,
+      sendsSucceeded: debugState.counters.sendsSucceeded,
+    }),
+    selectorHits: () => ({
+      chatRoot: Boolean(document.querySelector(CHAT_ROOT_SELECTORS.join(','))),
+      input: Boolean(findInput()),
+      videoRoot: Boolean(document.querySelector(VIDEO_ROOT_SELECTORS.join(','))),
+    }),
+  })
+  diagnostics.record({ type: 'runtime.initialized', stage: 'douyin-content' })
 
   function conciseDebugValue(value, depth) {
     if (depth > 3) {
@@ -1812,12 +1849,12 @@ import { createDouyinOverlay } from '../components/live/douyin-overlay'
         return true
       }
       state.replyRequests.set(requestKey, { status: 'failed', at: Date.now() })
-      showToast('未能识别这条弹幕的发送者', 'error')
+      showToast(t('toastSenderUnknown'), 'error')
       return false
     }
     if (!input) {
       state.replyRequests.set(requestKey, { status: 'failed', at: Date.now() })
-      showToast('未找到抖音弹幕输入框，请确认已登录并展开聊天区', 'error')
+      showToast(t('toastEditorNotFound', t('platformDouyin')), 'error')
       return false
     }
     return finishPreparedReply(candidate, input, sender, reason, requestKey, false)
@@ -2552,7 +2589,7 @@ import { createDouyinOverlay } from '../components/live/douyin-overlay'
   async function repeatMessage(message, richValue) {
     const now = Date.now()
     if (now - state.lastActionAt < 700) {
-      showToast('操作太快，请稍后再试', 'warning')
+      showToast(t('toastActionTooFast'), 'warning')
       return false
     }
     state.lastActionAt = now
@@ -2573,7 +2610,7 @@ import { createDouyinOverlay } from '../components/live/douyin-overlay'
     if (!input) {
       debugState.counters.sendsFailed += 1
       debugEvent('send-failed', { message, reason: 'input-not-found' }, 'error')
-      showToast('未找到抖音弹幕输入框，请确认已登录并展开聊天区', 'error')
+      showToast(t('toastEditorNotFound', t('platformDouyin')), 'error')
       return false
     }
     const ownIntentId = announceOwnMessage(richPayload, 'plus-one')
@@ -2586,14 +2623,14 @@ import { createDouyinOverlay } from '../components/live/douyin-overlay'
       if (directSent) {
         debugState.counters.sendsSucceeded += 1
         debugEvent('send-succeeded', { message, mode: 'emoji-direct' }, 'info')
-        showToast('已执行含表情 +1', 'success')
+        showToast(t('toastRichPlusOneSent'), 'success')
         return true
       }
       cancelOwnMessageAnnouncement(ownIntentId)
       setInputValue(input, '')
       debugState.counters.sendsFailed += 1
       debugEvent('send-failed', { message, reason: prepared.reason }, 'error')
-      showToast('未找到或无法插入对应抖音表情，已取消 +1', 'error')
+      showToast(t('toastDouyinEmojiInsertFailed'), 'error')
       return false
     }
     let button = findSendButton(input)
@@ -2624,7 +2661,7 @@ import { createDouyinOverlay } from '../components/live/douyin-overlay'
       cancelOwnMessageAnnouncement(ownIntentId)
       debugState.counters.sendsFailed += 1
       debugEvent('send-failed', { message, reason: 'input-not-consumed' }, 'error')
-      showToast('自动发送失败，弹幕仍在输入框，请重试', 'error')
+      showToast(t('toastAutomaticSendFailed'), 'error')
       return false
     }
     try {
@@ -2634,7 +2671,7 @@ import { createDouyinOverlay } from '../components/live/douyin-overlay'
     }
     debugState.counters.sendsSucceeded += 1
     debugEvent('send-succeeded', { message, emojiCount: emojiAssets.length }, 'info')
-    showToast(emojiAssets.length ? '已执行含表情 +1' : '已执行 +1', 'success')
+    showToast(emojiAssets.length ? t('toastRichPlusOneSent') : t('toastPlusOneSent'), 'success')
     return true
   }
 
@@ -3083,7 +3120,7 @@ import { createDouyinOverlay } from '../components/live/douyin-overlay'
           },
           '*',
         )
-        showToast('诊断信息已输出到控制台', 'info')
+        showToast(t('toastDiagnosticsConsole'), 'info')
       }
     },
     true,
@@ -3111,16 +3148,88 @@ import { createDouyinOverlay } from '../components/live/douyin-overlay'
     },
     true,
   )
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-      hideCard('document-hidden')
-    } else {
-      postRendererSettings('document-visible')
+  function stopLifecycleTimers() {
+    if (heartbeatTimer) clearInterval(heartbeatTimer)
+    if (routePollTimer) clearInterval(routePollTimer)
+    heartbeatTimer = 0
+    routePollTimer = 0
+  }
+
+  function checkSpaRoute() {
+    if (state.lastUrl === location.href) return
+    state.lastUrl = location.href
+    debugEvent('spa-url-changed', { href: location.href }, 'info')
+    diagnostics.record({ type: 'route.changed', stage: 'fallback' })
+    hideCard('spa-url-change')
+    state.pageReady = false
+    debugState.pageReady = false
+    ping()
+    postRendererSettings('spa-url-change')
+  }
+
+  function startLifecycleTimers() {
+    if (document.hidden) return
+    if (!heartbeatTimer) {
+      heartbeatTimer = setInterval(
+        () => postRendererSettings('heartbeat'),
+        RENDERER_HEARTBEAT_INTERVAL,
+      )
     }
-  })
-  window.addEventListener('pagehide', () => {
+    if (!routePollTimer) routePollTimer = setInterval(checkSpaRoute, 1_000)
+  }
+
+  function releaseTransientResources() {
+    hideCard('document-hidden')
+    stopLifecycleTimers()
+    if (state.hideTimer) clearTimeout(state.hideTimer)
+    if (state.expiryTimer) clearTimeout(state.expiryTimer)
+    if (state.ownChatScanTimer) clearTimeout(state.ownChatScanTimer)
+    if (state.senderCacheTimer) clearTimeout(state.senderCacheTimer)
+    state.hideTimer = 0
+    state.expiryTimer = 0
+    state.ownChatScanTimer = 0
+    state.senderCacheTimer = 0
+    state.ownChatObserver?.disconnect()
+    state.ownChatObserver = null
+    state.activationRequests.clear()
+    state.replyRequests.clear()
+    state.senderCache.clear()
+    state.senderIdCache.clear()
+    state.senderHistory = []
+    state.senderCorrelation.clear()
+    state.ownChatIntents = []
+    state.pendingManualEmojiIntents = []
+  }
+
+  function onVisibilityChange() {
+    if (document.hidden) {
+      releaseTransientResources()
+      return
+    }
+    startOwnChatObserver()
+    startLifecycleTimers()
+    checkSpaRoute()
+    postRendererSettings('document-visible')
+  }
+
+  function onPageHide() {
     postRendererSettings('pagehide', false)
-  })
+    releaseTransientResources()
+  }
+
+  function onDiagnosticsMessage(message, _sender, sendResponse) {
+    if (!message || message.type !== 'danmaku-echo.diagnostics.snapshot') return false
+    sendResponse({ ok: true, snapshot: diagnostics.snapshot() })
+    return false
+  }
+
+  function onStorageChanged(_changes, areaName) {
+    if (areaName === 'sync') storageGet().then(applySettings)
+  }
+
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  window.addEventListener('pagehide', onPageHide, { once: true })
+  chrome.runtime.onMessage.addListener(onDiagnosticsMessage)
 
   function startOwnChatObserver() {
     if (state.ownChatObserver || !document.documentElement) {
@@ -3170,11 +3279,7 @@ import { createDouyinOverlay } from '../components/live/douyin-overlay'
   }
 
   if (globalThis.chrome && chrome.storage && chrome.storage.onChanged) {
-    chrome.storage.onChanged.addListener((_changes, areaName) => {
-      if (areaName === 'sync') {
-        storageGet().then(applySettings)
-      }
-    })
+    chrome.storage.onChanged.addListener(onStorageChanged)
   }
 
   const ping = () => {
@@ -3198,19 +3303,7 @@ import { createDouyinOverlay } from '../components/live/douyin-overlay'
       }
     }, delay),
   )
-  setInterval(() => postRendererSettings('heartbeat'), RENDERER_HEARTBEAT_INTERVAL)
-
-  setInterval(() => {
-    if (state.lastUrl !== location.href) {
-      state.lastUrl = location.href
-      debugEvent('spa-url-changed', { href: location.href }, 'info')
-      hideCard('spa-url-change')
-      state.pageReady = false
-      debugState.pageReady = false
-      ping()
-      postRendererSettings('spa-url-change')
-    }
-  }, 500)
+  startLifecycleTimers()
   debugEvent(
     'content-loaded',
     {

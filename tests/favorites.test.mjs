@@ -523,7 +523,7 @@ test("uses a compact text-only send button in favorite rows", () => {
   );
 
   assert.match(row, /class="bcp-favorites-send"/);
-  assert.match(row, />\s*发送\s*</);
+  assert.match(row, /t\(["']favoritesSend["']\)/);
   assert.doesNotMatch(row, /telegram/);
   assert.match(styles, /\.bcp-favorites-send\s*\{[\s\S]*?border-radius:\s*14px/);
 });
@@ -535,7 +535,7 @@ test("routes long-lived capsule writes through the wakeable background service",
 
   assert.match(launcher, /writeFavoriteInBackground\(text, currentRoom, payload\)/);
   assert.match(launcher, /chrome\.runtime\.sendMessage/);
-  assert.match(launcher, /扩展已更新，请刷新直播页后重试/);
+  assert.match(launcher, /t\(["']favoritesExtensionUpdated["']\)/);
   assert.doesNotMatch(
     launcher,
     /if \(destroyed \|\| !ownsUi\(\) \|\| !extensionContextAvailable\(extensionId\)\) return null/
