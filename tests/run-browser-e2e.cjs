@@ -208,6 +208,18 @@ function parsedResult(stdout) {
   }
 }
 
+function parsedAssertionFailures(parsed) {
+  if (!parsed || typeof parsed !== "object") return [];
+  return [
+    parsed.bilibiliRichRegression,
+    parsed.douyinDomRegression,
+    parsed.douyinRichRegression,
+    parsed.sideChatRegression,
+  ].flatMap((result) => Array.isArray(result?.assertionFailures)
+    ? result.assertionFailures.map(String)
+    : []);
+}
+
 async function runScenario(browser, fixturePort, scenario, attempt) {
   const cdpPort = await availablePort();
   const profile = mkdtempSync(path.join(os.tmpdir(), `danmaku-echo-${browser.name}-`));
@@ -305,6 +317,7 @@ async function main() {
           stderr: result.stderr.slice(-2_000),
           stdout: result.stdout.slice(-2_000),
           timedOut: result.timedOut,
+          assertionFailures: parsedAssertionFailures(result.parsed),
         });
         process.stdout.write(`${passed ? "PASS" : "FAIL"} ${browser.name} ${scenario.name}\n`);
       }

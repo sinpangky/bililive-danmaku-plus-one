@@ -25,6 +25,7 @@ for (const [description, pattern] of [
   ['main ancestry validation', /scripts\/validate-release\.cjs/],
   ['full check', /npm run check/],
   ['browser E2E', /npm run test:browser/],
+  ['browser failure diagnostics', /name:\s*browser-e2e-release-failure/],
   ['checksum', /scripts\/write-checksum\.cjs/],
   ['GitHub Release creation', /gh release create/],
 ]) {
