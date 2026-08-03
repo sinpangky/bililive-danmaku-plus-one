@@ -60,6 +60,7 @@
             :key="tab.key"
             type="button"
             role="tab"
+            :data-view="tab.key"
             :aria-selected="state.view === tab.key"
             :class="{ 'is-active': state.view === tab.key }"
             @click="emit('changeView', tab.key)"

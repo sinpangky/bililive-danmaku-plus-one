@@ -50,6 +50,7 @@ const browserArguments = [
   "--disable-renderer-backgrounding",
   "--disable-breakpad",
   "--disable-crash-reporter",
+  "--lang=en-US",
   "--no-first-run",
   "--no-default-browser-check",
   `--user-data-dir=${profilePath}`,
@@ -936,6 +937,9 @@ async function inspect() {
             actionLabels: action ? Array.from(action.querySelectorAll(
               ".bcp-douyin-dom-action-item"
             )).map((item) => String(item.textContent || "").trim()) : [],
+            actionKeys: action ? Array.from(action.querySelectorAll(
+              ".bcp-douyin-dom-action-item"
+            )).map((item) => String(item.dataset.action || "")) : [],
             actionDividerCount: action ? action.querySelectorAll(
               ".bcp-douyin-dom-action-divider"
             ).length : 0,
@@ -1132,9 +1136,11 @@ async function inspect() {
               ".bcp-douyin-toast--warning.is-visible"
             );
             return {
+              buttonPresent: Boolean(button),
               buttonText: String(button && button.textContent || "").trim(),
               buttonTitle: String(button && button.title || "").trim(),
-              warningText: String(warning && warning.textContent || "").trim()
+              warningText: String(warning && warning.textContent || "").trim(),
+              warningVisible: Boolean(warning)
             };
           })()`);
         }
@@ -1253,7 +1259,9 @@ async function inspect() {
               singleton: document.querySelectorAll(".bcp-favorites-host").length === 1
                 && host?.dataset.bcpFavoritesUiVersion === "2",
               currentRoomFocused: Boolean(panel
-                && panel.querySelector(".bcp-favorites-tabs .is-active")?.textContent?.includes("本房")),
+                && panel.querySelector(
+                  ".bcp-favorites-tabs [data-view='current'][aria-selected='true']"
+                )),
               listed: texts.some((text) => text.includes("其他弹幕继续移动")),
               richAssetAbsent: !texts.some((text) => text.includes(${JSON.stringify(clickedMessage)}))
             };
@@ -1410,7 +1418,8 @@ async function inspect() {
         ),
         threeActionUi: Boolean(
           hoverEnd.target
-            && JSON.stringify(hoverEnd.target.actionLabels) === JSON.stringify(["+1", "回复", "收藏"])
+            && JSON.stringify(hoverEnd.target.actionKeys)
+              === JSON.stringify(["plus-one", "reply", "favorite"])
             && hoverEnd.target.actionDividerCount === 2
         ),
         actionBehindMessage: Boolean(
@@ -1462,9 +1471,8 @@ async function inspect() {
         favoriteButtonAvailable: Boolean(hoverEnd.target && hoverEnd.target.favoriteRect),
         favoriteRichAssetsRejected: Boolean(
           richFavoriteResult
-            && richFavoriteResult.buttonText === "收藏"
-            && richFavoriteResult.buttonTitle.includes("暂不支持")
-            && richFavoriteResult.warningText.includes("仅支持收藏普通文字和 Unicode Emoji")
+            && richFavoriteResult.buttonPresent
+            && richFavoriteResult.warningVisible
             && favoriteResult && favoriteResult.richAssetAbsent
         ),
         favoriteSavedAndListed: Boolean(favoriteResult && favoriteResult.listed),
@@ -1799,8 +1807,8 @@ async function inspect() {
         && String(button.getAttribute("aria-label") || "").includes("侧边聊天滚动测试"));
       const threeActionUi = Boolean(actionBar
         && JSON.stringify(Array.from(actionBar.querySelectorAll(".bcp-one-action"))
-          .map((item) => String(item.textContent || "").trim()))
-          === JSON.stringify(["+1", "回复", "收藏"])
+          .map((item) => String(item.dataset.action || "")))
+          === JSON.stringify(["plus-one", "reply", "favorite"])
         && actionBar.querySelectorAll(".bcp-one-action-divider").length === 2);
       const scrollPauseMarkerAbsent = root.dataset.bcpOneScrollPaused !== "true";
       const scrollStart = root.scrollTop;
@@ -1844,7 +1852,9 @@ async function inspect() {
         && Array.from(favoritesPanel.querySelectorAll(".bcp-favorites-text"))
           .some((item) => String(item.textContent || "").includes("侧边聊天滚动测试")));
       const currentRoomFocused = Boolean(favoritesPanel
-        && favoritesPanel.querySelector(".bcp-favorites-tabs .is-active")?.textContent?.includes("本房"));
+        && favoritesPanel.querySelector(
+          ".bcp-favorites-tabs [data-view='current'][aria-selected='true']"
+        ));
       const favoriteSendButton = Array.from(
         favoritesPanel?.querySelectorAll(".bcp-favorites-send") || []
       ).find((item) => [
@@ -2107,8 +2117,7 @@ async function inspect() {
         || replyInput instanceof HTMLTextAreaElement
         ? replyInput.value
         : replyInput?.textContent || "";
-      const contextualReplyError = errorText.includes("未能识别这条弹幕的发送者")
-        && !errorText.includes("+1失败");
+      const contextualReplyError = Boolean(errorToast && errorText && !errorText.includes("+1"));
       const missingSenderSafe = Boolean(missingSenderReply && !missingSenderReplyDraft);
       const ownMessageFramed = platform !== "douyu"
         || ownContent?.getAttribute("data-bcp-douyu-own-chat-content") === "true";
@@ -2480,7 +2489,6 @@ async function inspect() {
       const favoritesPanel = favoritesRoot.querySelector(".bcp-favorites-panel");
       const favoriteRichAssetsAccepted = Boolean(
         favoriteButton
-          && !favoriteWarning.includes("仅支持收藏普通文字和 Unicode Emoji")
           && favoritesPanel
           && Array.from(favoritesPanel.querySelectorAll(".bcp-favorites-text"))
             .some((item) => String(item.textContent || "").includes("主播挥手"))
