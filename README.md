@@ -159,7 +159,7 @@ src/components/            设置页组件及 components/live 直播浮层组件
 src/composables/           设置读取、同步保存和页面状态
 docs/DESIGN_SYSTEM.md      当前界面的设计规范
 .github/workflows/ci.yml   Windows 与 Fedora 持续集成工作流
-scripts/package.*          跨 Windows、Linux 的可复现发布包脚本
+scripts/package.cjs        跨 Windows、Linux 的确定性 Node.js 发布打包器
 vite.config.ts             官方 Vite CLI 的多入口扩展构建配置
 vitest.config.ts           create-vue 标准 Vitest 单元测试配置
 build/extension/           可加载、可发布的生成产物（不提交）
@@ -337,7 +337,7 @@ src/components/            Settings components and components/live overlays
 src/composables/           Settings loading, sync persistence, and page state
 docs/DESIGN_SYSTEM.md      Current interface design specification
 .github/workflows/ci.yml   Windows and Fedora continuous-integration workflow
-scripts/package.*          Reproducible packaging across Windows and Linux
+scripts/package.cjs        Deterministic Node.js packaging across Windows and Linux
 vite.config.ts             Multi-entry extension config driven by the official Vite CLI
 vitest.config.ts           Standard create-vue Vitest unit-test configuration
 build/extension/           Loadable, releasable build output (not committed)
