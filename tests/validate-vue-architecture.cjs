@@ -78,6 +78,8 @@ const requiredVueComponents = [
   "src/App.vue",
   "src/components/ColorField.vue",
   "src/components/PlatformRow.vue",
+  "src/components/SettingsSidebar.vue",
+  "src/components/SettingsTopbar.vue",
   "src/features/favorites/FavoriteItemRow.vue",
   "src/features/favorites/FavoritesLauncher.vue",
   "src/components/live/ActionBar.vue",

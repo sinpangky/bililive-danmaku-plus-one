@@ -21,6 +21,11 @@ import { unicodeEmojiFallbackText } from '../platforms/live/emoji-fallback'
 import { SenderCorrelationCache } from '../platforms/live/sender-correlation'
 import { createDouyinOverlay } from '../components/live/douyin-overlay'
 import { createDiagnosticsCollector } from '../core/diagnostics'
+import {
+  dispatchEditorEnter as pressEnter,
+  placeEditorCaretAtEnd as placeCaretAtEnd,
+  readEditorText as inputText,
+} from '../platforms/live/editor-dom'
 import { t } from '../core/i18n'
 
 ;(function initDanmakuEchoDouyin() {
@@ -1540,12 +1545,6 @@ import { t } from '../core/i18n'
     }
   }
 
-  function inputText(input) {
-    return input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement
-      ? input.value
-      : input.textContent || ''
-  }
-
   function richPayloadFromInput(input) {
     if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
       const text = shared.parseMessageText(input.value, MAX_LENGTH)
@@ -1678,30 +1677,6 @@ import { t } from '../core/i18n'
           inputType: 'insertText',
         }),
       )
-    }
-  }
-
-  function placeCaretAtEnd(input) {
-    if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
-      const length = input.value.length
-      if (typeof input.setSelectionRange === 'function') {
-        input.setSelectionRange(length, length)
-      }
-      return
-    }
-    if (
-      input.isContentEditable ||
-      (input.hasAttribute('contenteditable') && input.getAttribute('contenteditable') !== 'false')
-    ) {
-      const selection = getSelection()
-      if (!selection) {
-        return
-      }
-      const range = document.createRange()
-      range.selectNodeContents(input)
-      range.collapse(false)
-      selection.removeAllRanges()
-      selection.addRange(range)
     }
   }
 
@@ -2251,21 +2226,6 @@ import { t } from '../core/i18n'
       }
     }
     return { ok: true, reason: 'rich-input-ready' }
-  }
-
-  function pressEnter(input) {
-    const init = {
-      key: 'Enter',
-      code: 'Enter',
-      keyCode: 13,
-      which: 13,
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-    }
-    input.dispatchEvent(new KeyboardEvent('keydown', init))
-    input.dispatchEvent(new KeyboardEvent('keypress', init))
-    input.dispatchEvent(new KeyboardEvent('keyup', init))
   }
 
   function inputContains(input, message) {

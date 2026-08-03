@@ -41,7 +41,7 @@
     "lint:check:oxlint": "oxlint .",
     "lint:check:eslint": "eslint .",
     "format": "prettier --write --experimental-cli src/",
-    "validate:build": "node tests/validate-manifest.cjs build/extension && node tests/validate-vue-architecture.cjs && node tests/validate-ci.cjs && node tests/validate-release-config.cjs && node --check scripts/validate-release.cjs && node --check scripts/write-checksum.cjs && node --check build/extension/src/content.js && node --check build/extension/src/douyin-page-hook.js && node --check build/extension/src/douyin-content.js && node --check tests/fixture-server.cjs && node --check tests/inspect-live-dom.cjs && node --check tests/inspect-popup.mjs",
+    "validate:build": "node tests/validate-manifest.cjs build/extension && node tests/validate-vue-architecture.cjs && node tests/validate-ci.cjs && node tests/validate-release-config.cjs && node --check scripts/validate-release.cjs && node --check scripts/write-checksum.cjs && node --check build/extension/src/content.js && node --check build/extension/src/douyin-page-hook.js && node --check build/extension/src/douyin-content.js && node --check tests/fixture-server.cjs && node --check tests/inspect-live-dom.cjs && node --check tests/inspect-settings-page.cjs",
     "check": "run-s type-check lint:check build-only validate:build test:coverage test:regression",
     "package": "node scripts/sync-version.cjs && npm run check && node scripts/package.cjs"
   },

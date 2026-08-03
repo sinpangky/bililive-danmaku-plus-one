@@ -33,6 +33,13 @@ describe('extension i18n', () => {
     expect(t('actionRepeatTitle', '测试')).toBe('复读：测试')
   })
 
+  it('provides a Chinese fallback for every locale key', () => {
+    vi.stubGlobal('chrome', { i18n: { getMessage: (key: string) => key } })
+    for (const key of Object.keys(locale('zh_CN'))) {
+      expect(t(key)).not.toBe(key)
+    }
+  })
+
   it('uses browser messages and supports scalar and array substitutions', () => {
     const getMessage = vi.fn<(key: string) => string>(
       (key) => key === 'actionReply' ? 'Reply' : '',

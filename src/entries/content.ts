@@ -34,6 +34,32 @@ import { createFavoritesRuntime } from '../features/favorites/launcher'
 import { createContentOverlay } from '../components/live/content-overlay'
 import { createDiagnosticsCollector } from '../core/diagnostics'
 import { createLivePlatformAdapter } from '../platforms/live/adapters'
+import {
+  BILIBILI_NATIVE_PANEL_IDENTITY_ATTRIBUTES,
+  DOUYU_EMOJI_SURFACE_SELECTORS,
+  DOUYU_EMOJI_TOGGLE_SELECTORS,
+  EDITABLE_CONTROL_SELECTOR,
+  EMOJI_DISPLAY_ATTRIBUTES,
+  EMOJI_METADATA_ATTRIBUTES,
+  HUYA_EMOJI_SURFACE_SELECTORS,
+  HUYA_EMOJI_TOGGLE_SELECTORS,
+  LEGACY_BILIBILI_EXCLUSIVE_ASSET_KEY_PREFIX,
+  NATIVE_PANEL_ASSET_KEY_PREFIX,
+  PLATFORM_EMOJI_CATEGORY_SELECTORS,
+  PLATFORM_EMOJI_ITEM_SELECTORS,
+  TEXT_EDITOR_SELECTOR,
+} from '../platforms/live/editor-config'
+import {
+  dispatchEditorEnter as pressEnter,
+  placeEditorCaretAtEnd as placeCaretAtEnd,
+  readEditorText as inputText,
+} from '../platforms/live/editor-dom'
+import {
+  ACTIVE_MEDIA_SELECTOR,
+  containsActiveMediaDeep,
+  createInertOverlaySnapshot,
+  inertSnapshotSkipSelector,
+} from '../platforms/live/inert-snapshot'
 import { t } from '../core/i18n'
 
 ;(function initDanmakuEchoLive() {
@@ -55,192 +81,13 @@ import { t } from '../core/i18n'
       ? 'platformDouyu'
       : 'platformHuya')
   const platformAdapter = createLivePlatformAdapter(platformId)
-  const EDITABLE_CONTROL_SELECTOR = [
-    'input',
-    'textarea',
-    "[contenteditable]:not([contenteditable='false'])",
-    "[role='textbox']",
-  ].join(',')
-  const TEXT_EDITOR_SELECTOR = [
-    'textarea',
-    'input:not([type])',
-    "input[type='text']",
-    "input[type='search']",
-    "[contenteditable]:not([contenteditable='false'])",
-    "[role='textbox']",
-  ].join(',')
-  // Frozen overlay copies are inserted back into the live document. Never
-  // allow an advertisement/player subtree to bring an autoplaying media
-  // element or embedded document with it.
-  const ACTIVE_MEDIA_SELECTOR = 'video, audio, iframe, object, embed'
-  const INERT_SNAPSHOT_SKIP_SELECTOR = [
-    ACTIVE_MEDIA_SELECTOR,
-    'script',
-    'style',
-    'link',
-    'meta',
-    'canvas',
-    'button',
-    'input',
-    'textarea',
-    'select',
-    'option',
-    "[contenteditable]:not([contenteditable='false'])",
-    '[data-bcp-one-owned]',
+  const INERT_SNAPSHOT_SKIP_SELECTOR = inertSnapshotSkipSelector([
     `[${DOUYU_NATIVE_DANMAKU_ACTION_MARKER}]`,
     ...DOUYU_NATIVE_DANMAKU_ACTION_SELECTORS,
-  ].join(',')
+  ])
   const DOUYU_NATIVE_DANMAKU_ACTION_SELECTOR = DOUYU_NATIVE_DANMAKU_ACTION_SELECTORS.join(',')
   const DOUYU_NATIVE_DANMAKU_CAPSULE_CONTAINER_SELECTOR =
     DOUYU_NATIVE_DANMAKU_CAPSULE_CONTAINER_SELECTORS.join(',')
-  const INERT_SNAPSHOT_STYLE_PROPERTIES = [
-    'display',
-    'box-sizing',
-    'font',
-    'font-family',
-    'font-size',
-    'font-style',
-    'font-weight',
-    'line-height',
-    'letter-spacing',
-    'text-align',
-    'text-shadow',
-    '-webkit-text-stroke',
-    'color',
-    'background',
-    'border',
-    'border-radius',
-    'padding',
-    'margin',
-    'opacity',
-    'filter',
-    'white-space',
-    'vertical-align',
-    'width',
-    'height',
-    'max-width',
-    'max-height',
-  ]
-  const INERT_SNAPSHOT_NODE_LIMIT = 96
-  const HUYA_EMOJI_TOGGLE_SELECTORS = [
-    "[data-testid*='emoji' i]",
-    "[data-e2e*='emoji' i]",
-    "[aria-label*='表情']",
-    "[title*='表情']",
-    "[class*='emoji-btn' i]",
-    "[class*='emoticon-btn' i]",
-    "[class*='emotion-btn' i]",
-    "[class*='face-btn' i]",
-    "[class*='faceBtn']",
-    "button[class*='emoji' i]",
-    "button[class*='face' i]",
-    "[role='button'][class*='face' i]",
-  ]
-  const HUYA_EMOJI_SURFACE_SELECTORS = [
-    "[data-testid*='emoji-panel' i]",
-    "[data-e2e*='emoji-panel' i]",
-    "[class*='emoji-panel' i]",
-    "[class*='emoticon-panel' i]",
-    "[class*='emotion-panel' i]",
-    "[class*='face-panel' i]",
-    "[class*='facePanel']",
-    "[class*='emoji-list' i]",
-    "[class*='emoticon-list' i]",
-    "[class*='face-list' i]",
-    "[class*='faceList']",
-  ]
-  const DOUYU_EMOJI_TOGGLE_SELECTORS = [
-    '.EmotionSwitcher',
-    ".EmotionSwitcher[title='表情']",
-    '.ChatEmotion > [title]',
-    "[class*='EmotionSwitcher']",
-  ]
-  const DOUYU_EMOJI_SURFACE_SELECTORS = [
-    '.Emotion-wrap',
-    '.Emotion-container',
-    '.EmotionList',
-    '.AssembleExpressHeader',
-    "[class*='EmotionList']",
-  ]
-  const PLATFORM_EMOJI_ITEM_SELECTORS = [
-    '[data-emoji]',
-    '[data-emoji-name]',
-    '[data-emoji-text]',
-    '[data-emoji-code]',
-    '[data-emoji-id]',
-    '[data-emoticon]',
-    '[data-emoticon-name]',
-    '[data-emoticon-text]',
-    '[data-emoticon-unique]',
-    '[data-emoticon-id]',
-    '[data-file-id]',
-    "[class*='emoji-item' i]",
-    "[class*='emojiItem']",
-    "[class*='emote-item' i]",
-    "[class*='emoteItem']",
-    "[class*='emoticon-item' i]",
-    "[class*='face-item' i]",
-    "[class*='faceItem']",
-    "[class*='emotion-item' i]",
-    "[class*='EmotionList-item']",
-  ]
-  const PLATFORM_EMOJI_CATEGORY_SELECTORS = [
-    "[role='tab']",
-    "[class*='tab-item' i]",
-    "[class*='tabItem']",
-    "[class*='category-item' i]",
-    "[class*='categoryItem']",
-    "[class*='pack-item' i]",
-    "[class*='packItem']",
-    "[class*='group-item' i]",
-    "[class*='groupItem']",
-  ]
-  const EMOJI_METADATA_ATTRIBUTES = [
-    'data-text',
-    'data-emoji-name',
-    'data-emoji-text',
-    'data-emoticon-name',
-    'data-emoticon-text',
-    'alt',
-    'title',
-    'aria-label',
-    'data-name',
-    'data-emoji',
-    'data-emoticon',
-    'data-emoticon-unique',
-    'data-emoji-unique',
-    'data-room-emoticon',
-    'data-room-emoji',
-    'data-anchor-emoticon',
-    'data-anchor-emoji',
-    'data-emoji-code',
-    'data-emoji-id',
-    'data-emoticon-id',
-    'data-file-id',
-    'data-id',
-  ]
-  const BILIBILI_NATIVE_PANEL_IDENTITY_ATTRIBUTES = [
-    'data-file-id',
-    'data-emoticon-unique',
-    'data-emoji-unique',
-    'data-room-emoticon',
-    'data-room-emoji',
-    'data-anchor-emoticon',
-    'data-anchor-emoji',
-  ]
-  const NATIVE_PANEL_ASSET_KEY_PREFIX = 'native-panel:'
-  const LEGACY_BILIBILI_EXCLUSIVE_ASSET_KEY_PREFIX = 'bili-exclusive:'
-  const EMOJI_DISPLAY_ATTRIBUTES = new Set([
-    'data-text',
-    'data-emoji-name',
-    'data-emoji-text',
-    'data-emoticon-name',
-    'data-emoticon-text',
-    'alt',
-    'title',
-    'aria-label',
-    'data-name',
-  ])
   const OVERLAY_HOVER_PADDING = 14
   const OVERLAY_LEAVE_DELAY = 160
   const BILIBILI_OVERLAY_ROW_SELECTOR = '.bili-danmaku-x-dm'
@@ -479,40 +326,6 @@ import { t } from '../core/i18n'
     })
   }
 
-  function containsActiveMediaDeep(element) {
-    if (!(element instanceof Element)) {
-      return false
-    }
-
-    const roots = [element]
-    const visited = new Set()
-    let inspectedElements = 0
-    while (roots.length && visited.size < 24 && inspectedElements < 500) {
-      const root = roots.shift()
-      if (!root || visited.has(root)) continue
-      visited.add(root)
-
-      if (root instanceof Element && root.matches(ACTIVE_MEDIA_SELECTOR)) {
-        return true
-      }
-      try {
-        if (root.querySelector(ACTIVE_MEDIA_SELECTOR)) {
-          return true
-        }
-        for (const descendant of root.querySelectorAll('*')) {
-          inspectedElements += 1
-          if (descendant.shadowRoot && !visited.has(descendant.shadowRoot)) {
-            roots.push(descendant.shadowRoot)
-          }
-          if (inspectedElements >= 500) break
-        }
-      } catch {
-        // A detached or unusual site-owned root should not break hover logic.
-      }
-    }
-    return false
-  }
-
   function serializedTextFromElement(root, options) {
     const removals = options && Array.isArray(options.removals) ? options.removals : []
     const imageTokens = Boolean(options && options.imageTokens)
@@ -548,66 +361,6 @@ import { t } from '../core/i18n'
 
     visit(root, true)
     return shared.parseMessageText(pieces.join(''), config.maxLength)
-  }
-
-  function copyInertPresentation(source, target) {
-    const computed = getComputedStyle(source)
-    for (const property of INERT_SNAPSHOT_STYLE_PROPERTIES) {
-      const value = computed.getPropertyValue(property)
-      if (value) target.style.setProperty(property, value, 'important')
-    }
-    target.style.setProperty('animation', 'none', 'important')
-    target.style.setProperty('transition', 'none', 'important')
-    target.style.setProperty('pointer-events', 'none', 'important')
-  }
-
-  function appendInertSnapshotChildren(source, target, budget, depth) {
-    if (depth > 10 || budget.count >= INERT_SNAPSHOT_NODE_LIMIT) {
-      return
-    }
-
-    for (const child of source.childNodes) {
-      if (budget.count >= INERT_SNAPSHOT_NODE_LIMIT) break
-      if (child.nodeType === Node.TEXT_NODE) {
-        target.appendChild(document.createTextNode(child.textContent || ''))
-        budget.count += 1
-        continue
-      }
-      if (!(child instanceof Element) || child.matches(INERT_SNAPSHOT_SKIP_SELECTOR)) {
-        continue
-      }
-
-      let inertChild = null
-      if (child instanceof HTMLImageElement) {
-        inertChild = document.createElement('img')
-        const sourceUrl = child.currentSrc || child.src
-        if (sourceUrl) inertChild.src = sourceUrl
-        inertChild.alt = child.alt || ''
-        inertChild.decoding = 'async'
-        inertChild.draggable = false
-      } else if (child.tagName === 'BR') {
-        inertChild = document.createElement('br')
-      } else {
-        // Always use a built-in inert element. Copying the site's tag name can
-        // invoke a custom-element constructor and initialize another player.
-        inertChild = document.createElement('span')
-      }
-
-      copyInertPresentation(child, inertChild)
-      target.appendChild(inertChild)
-      budget.count += 1
-      if (!(child instanceof HTMLImageElement) && child.tagName !== 'BR') {
-        appendInertSnapshotChildren(child, inertChild, budget, depth + 1)
-      }
-    }
-  }
-
-  function createInertOverlaySnapshot(candidate) {
-    const snapshot = document.createElement('span')
-    snapshot.setAttribute('aria-hidden', 'true')
-    copyInertPresentation(candidate, snapshot)
-    appendInertSnapshotChildren(candidate, snapshot, { count: 0 }, 0)
-    return snapshot
   }
 
   function closestFromPath(path, selectors) {
@@ -2117,7 +1870,9 @@ import { t } from '../core/i18n'
     // Never deep-clone live-site DOM here. Huya advertisements can contain
     // custom elements or clonable shadow roots that initialize a new media
     // pipeline during a deep DOM clone, before media descendants can be removed.
-    const snapshot = createInertOverlaySnapshot(candidate)
+    const snapshot = createInertOverlaySnapshot(candidate, {
+      skipSelector: INERT_SNAPSHOT_SKIP_SELECTOR,
+    })
     snapshot.classList.add('bcp-one-frozen', 'bcp-one-target')
     snapshot.dataset.bcpOneOwned = 'true'
 
@@ -2480,13 +2235,6 @@ import { t } from '../core/i18n'
     return null
   }
 
-  function inputText(input) {
-    if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
-      return input.value
-    }
-    return input.textContent || ''
-  }
-
   function setNativeValue(input, value) {
     const hiddenBilibiliFullscreen =
       platformId === 'bilibili' && fullscreenActive() && !isVisible(input)
@@ -2566,30 +2314,6 @@ import { t } from '../core/i18n'
           inputType: 'insertText',
         }),
       )
-    }
-  }
-
-  function placeCaretAtEnd(input) {
-    if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
-      const length = input.value.length
-      if (typeof input.setSelectionRange === 'function') {
-        input.setSelectionRange(length, length)
-      }
-      return
-    }
-    if (
-      input.isContentEditable ||
-      (input.hasAttribute('contenteditable') && input.getAttribute('contenteditable') !== 'false')
-    ) {
-      const selection = getSelection()
-      if (!selection) {
-        return
-      }
-      const range = document.createRange()
-      range.selectNodeContents(input)
-      range.collapse(false)
-      selection.removeAllRanges()
-      selection.addRange(range)
     }
   }
 
@@ -2744,22 +2468,6 @@ import { t } from '../core/i18n'
       ) > -Infinity
       ? candidates[0].button
       : null
-  }
-
-  function pressEnter(input) {
-    const init = {
-      key: 'Enter',
-      code: 'Enter',
-      keyCode: 13,
-      which: 13,
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-    }
-
-    input.dispatchEvent(new KeyboardEvent('keydown', init))
-    input.dispatchEvent(new KeyboardEvent('keypress', init))
-    input.dispatchEvent(new KeyboardEvent('keyup', init))
   }
 
   function inputStillContainsMessage(input, message) {

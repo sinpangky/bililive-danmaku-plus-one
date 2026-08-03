@@ -19,6 +19,8 @@ const requestedScenario = String(
 );
 
 const scenarios = [
+  { name: "settings-zh", kind: "settings", locale: "zh-CN" },
+  { name: "settings-en", kind: "settings", locale: "en-US" },
   { name: "huya-side", host: "www.huya.com", platform: "huya", query: "platform=huya" },
   {
     name: "huya-fullscreen",
@@ -221,6 +223,22 @@ async function runScenario(browser, fixturePort, scenario, attempt) {
   const targetUrl = `http://${scenario.host}:${fixturePort}/?${scenario.query}&manual=1`;
   const artifactName = `${browser.name}-${scenario.name}-attempt-${attempt}`;
   try {
+    if (scenario.kind === "settings") {
+      const execution = await runProcess(
+        process.execPath,
+        [
+          path.join(root, "tests", "inspect-settings-page.cjs"),
+          browser.executable,
+          profile,
+          extensionPath,
+          scenario.locale,
+          artifactDirectory,
+          artifactName,
+        ],
+        scenario.timeout || 60_000,
+      );
+      return { ...execution, attempt, parsed: parsedResult(execution.stdout) };
+    }
     const execution = await runProcess(
       process.execPath,
       [

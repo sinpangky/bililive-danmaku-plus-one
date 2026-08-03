@@ -13,23 +13,7 @@ const contentSource = fs.readFileSync(
 test("rejects media-bearing overlay candidates and builds inert frozen snapshots", () => {
   assert.match(
     contentSource,
-    /const ACTIVE_MEDIA_SELECTOR = ["']video, audio, iframe, object, embed["'];?/
-  );
-  assert.match(
-    contentSource,
-    /element\.matches\(ACTIVE_MEDIA_SELECTOR\)/
-  );
-  assert.match(
-    contentSource,
-    /function containsActiveMediaDeep\(element\)/
-  );
-  assert.match(
-    contentSource,
-    /descendant\.shadowRoot/
-  );
-  assert.match(
-    contentSource,
-    /containsActiveMediaDeep\(element\)/
+    /from ['"]\.\.\/platforms\/live\/inert-snapshot['"]/
   );
   const freezeOverlaySource = contentSource.match(
     /function freezeOverlayCandidate\(candidate\) \{[\s\S]*?\n  \}/
@@ -37,7 +21,7 @@ test("rejects media-bearing overlay candidates and builds inert frozen snapshots
   assert.ok(freezeOverlaySource, "freezeOverlayCandidate should exist");
   assert.match(
     freezeOverlaySource[0],
-    /createInertOverlaySnapshot\(candidate\)/
+    /createInertOverlaySnapshot\(candidate, \{[\s\S]*?skipSelector: INERT_SNAPSHOT_SKIP_SELECTOR/
   );
   assert.match(
     freezeOverlaySource[0],
@@ -45,7 +29,6 @@ test("rejects media-bearing overlay candidates and builds inert frozen snapshots
   );
   assert.doesNotMatch(freezeOverlaySource[0], /cloneNode/);
   assert.doesNotMatch(contentSource, /\.cloneNode\(/);
-  assert.match(contentSource, /document\.createElement\(["']span["']\)/);
   assert.match(contentSource, /INERT_SNAPSHOT_SKIP_SELECTOR/);
 });
 
@@ -92,8 +75,6 @@ test("keeps long-running Bilibili hover work bounded", () => {
       < selectCandidateSource[0].indexOf("senderFromCandidate("),
     "the moving overlay must be frozen before sender correlation work"
   );
-  assert.match(contentSource, /snapshot\.style\.setProperty\(['"]box-sizing['"], ['"]border-box['"], ['"]important['"]\)/);
-
   const pointerMoveSource = contentSource.match(
     /function onPointerMove\(event\) \{[\s\S]*?\n  \}/
   );

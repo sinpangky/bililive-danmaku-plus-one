@@ -22,6 +22,8 @@ export default defineConfig({
         'src/core/i18n.ts',
         'src/platforms/live/adapters.ts',
         'src/platforms/live/descriptor.ts',
+        'src/platforms/live/editor-dom.ts',
+        'src/platforms/live/inert-snapshot.ts',
         'src/platforms/live/selector-adapter.ts',
         'src/platforms/huya/adapter.ts',
         'src/platforms/bilibili/adapter.ts',
