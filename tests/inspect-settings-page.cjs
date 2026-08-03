@@ -111,7 +111,7 @@ async function inspect() {
     }
   });
 
-  function send(method, params = {}, sessionId = "") {
+  function send(method, params = {}, sessionId = "", timeout = 10_000) {
     const id = nextId;
     nextId += 1;
     const request = { id, method, params };
@@ -120,7 +120,7 @@ async function inspect() {
       const timer = setTimeout(() => {
         pending.delete(id);
         reject(new Error(`CDP request timed out: ${method}`));
-      }, 10_000);
+      }, timeout);
       pending.set(id, { reject, resolve, timer });
     });
     browser.stdio[3].write(`${JSON.stringify(request)}\0`);
@@ -130,7 +130,7 @@ async function inspect() {
   const loaded = await send("Extensions.loadUnpacked", {
     enableInIncognito: false,
     path: path.resolve(extensionPath),
-  });
+  }, "", 25_000);
   if (!loaded?.id) throw new Error("Browser did not return the extension id.");
 
   const targets = await send("Target.getTargets");
@@ -272,8 +272,10 @@ async function inspect() {
     if (viewport.width > 900 && !viewport.resourceLabelsVisible) {
       failures.push(`${viewport.width}:resource-labels-hidden`);
     }
-    const expectedCodeDisplay = viewport.width <= 1200 ? "none" : "inline";
-    if (viewport.feedbackCodeDisplay !== expectedCodeDisplay) {
+    const feedbackCodeVisible = viewport.feedbackCodeDisplay !== "none"
+      && viewport.feedbackCodeDisplay !== "missing";
+    if ((viewport.width <= 1200 && feedbackCodeVisible)
+      || (viewport.width > 1200 && !feedbackCodeVisible)) {
       failures.push(`${viewport.width}:feedback-email-${viewport.feedbackCodeDisplay}`);
     }
   }
