@@ -401,13 +401,13 @@ import { t } from '../core/i18n'
         0,
         500,
       )
-      console.error('[Danmaku Echo][Douyin content]', type, entry.details)
+      console.error('[bililive-danmaku-plus-one][Douyin content]', type, entry.details)
     } else if (level === 'info') {
-      console.info('[Danmaku Echo][Douyin content]', type, entry.details)
+      console.info('[bililive-danmaku-plus-one][Douyin content]', type, entry.details)
     } else if (level === 'warn') {
-      console.warn('[Danmaku Echo][Douyin content]', type, entry.details)
+      console.warn('[bililive-danmaku-plus-one][Douyin content]', type, entry.details)
     } else {
-      console.debug('[Danmaku Echo][Douyin content]', type, entry.details)
+      console.debug('[bililive-danmaku-plus-one][Douyin content]', type, entry.details)
     }
     scheduleDebugMarker()
   }
@@ -3003,7 +3003,7 @@ import { t } from '../core/i18n'
         },
         'info',
       )
-      console.info('[Danmaku Echo][Douyin diagnostics]', contentDebugSnapshot())
+      console.info('[bililive-danmaku-plus-one][Douyin diagnostics]', contentDebugSnapshot())
       return
     }
   })

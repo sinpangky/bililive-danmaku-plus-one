@@ -7,7 +7,7 @@ const path = require("node:path");
 const root = path.resolve(__dirname, "..");
 const dist = path.join(root, "dist");
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-const archiveName = `danmaku-echo-v${packageJson.version}.zip`;
+const archiveName = `bililive-danmaku-plus-one-v${packageJson.version}.zip`;
 const archivePath = path.join(dist, archiveName);
 if (!fs.existsSync(archivePath)) {
   throw new Error(`Current release ZIP is missing: ${archiveName}.`);

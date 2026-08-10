@@ -257,13 +257,13 @@ import { extractSenderFromRecord } from "../core/reply";
     }
     if (level === "error") {
       debugState.lastError = String(details && (details.message || details.error) || type).slice(0, 500);
-      console.error("[Danmaku Echo][Douyin page]", type, entry.details);
+      console.error("[bililive-danmaku-plus-one][Douyin page]", type, entry.details);
     } else if (level === "info") {
-      console.info("[Danmaku Echo][Douyin page]", type, entry.details);
+      console.info("[bililive-danmaku-plus-one][Douyin page]", type, entry.details);
     } else if (level === "warn") {
-      console.warn("[Danmaku Echo][Douyin page]", type, entry.details);
+      console.warn("[bililive-danmaku-plus-one][Douyin page]", type, entry.details);
     } else {
-      console.debug("[Danmaku Echo][Douyin page]", type, entry.details);
+      console.debug("[bililive-danmaku-plus-one][Douyin page]", type, entry.details);
     }
     scheduleDebugMarker();
   }

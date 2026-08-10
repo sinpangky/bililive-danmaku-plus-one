@@ -353,6 +353,49 @@ test("supports ascending and descending collection-time sorting", async () => {
   );
 });
 
+test("supports per-room custom ordering with oldest favorites first by default", async () => {
+  const repository = favorites.createFavoritesRepository(memoryStorage());
+  await repository.load();
+  const first = await repository.favorite("第一条", roomA);
+  const second = await repository.favorite("第二条", roomA);
+
+  assert.deepEqual(
+    Array.from(favorites.rankedFavorites(
+      repository.database.items, roomA, "current", "", "custom"
+    ), (item) => item.text),
+    ["第一条", "第二条"]
+  );
+
+  await repository.reorderRoom(roomA.roomKey, [second.item.id, first.item.id]);
+  assert.deepEqual(
+    Array.from(favorites.rankedFavorites(
+      repository.database.items, roomA, "current", "", "custom"
+    ), (item) => item.text),
+    ["第二条", "第一条"]
+  );
+});
+
+test("splits wheelbarrow lines without dropping overlong content", () => {
+  assert.deepEqual(
+    Array.from(favorites.unicycleMessages("第一行\nabcdef\n\n😀😀😀", 4, 3)),
+    ["第一行", "abc", "def", "😀😀😀"]
+  );
+  assert.equal(favorites.normalizeUnicycleConfig({}).fixedIntervalSeconds, 5);
+  assert.equal(favorites.normalizeUnicycleConfig({}).minIntervalSeconds, 5);
+  assert.equal(favorites.normalizeUnicycleConfig({}).maxIntervalSeconds, 10);
+  assert.equal(favorites.unicycleIntervalMilliseconds({
+    ...favorites.DEFAULT_UNICYCLE_CONFIG,
+    intervalMode: "fixed",
+    fixedIntervalSeconds: 5
+  }), 5000);
+  assert.equal(favorites.unicycleIntervalMilliseconds({
+    ...favorites.DEFAULT_UNICYCLE_CONFIG,
+    intervalMode: "random",
+    minIntervalSeconds: 5,
+    maxIntervalSeconds: 10
+  }, () => 0.999), 10000);
+});
+
 test("groups other and all favorites by room before exposing messages", async () => {
   const repository = favorites.createFavoritesRepository(memoryStorage());
   await repository.load();
@@ -482,7 +525,7 @@ test("rejects invalid import files before overwriting local favorites", async ()
 
   await assert.rejects(
     favorites.importFavoritesData(storage, '{"format":"unknown"}'),
-    /不是弹幕回声收藏备份文件/
+    /不是 bililive-danmaku-plus-one 收藏备份文件/
   );
   assert.deepEqual(storage.snapshot(), before);
 });
@@ -501,15 +544,33 @@ test("derives stable platform room identifiers from live URLs", () => {
   assert.equal(favorites.roomIdFromLocation("douyu", "https://www.douyu.com/12152200"), "12152200");
 });
 
-test("keeps only the themed outer ring on the favorites radial menu", () => {
+test("uses a dark favorites surface with white selected controls", () => {
   const styles = readFileSync(
     resolve(root, "src", "assets", "styles", "favorites.scss"),
     "utf8"
   );
-  assert.doesNotMatch(styles, /\.bcp-favorites-panel::before/);
-  assert.match(styles, /\.bcp-favorites-radial::before\s*\{[\s\S]*?border:\s*2px solid var\(--bcp-favorite-accent\)/);
-  assert.match(styles, /\.bcp-favorites-radial-item\s*\{[\s\S]*?border:\s*0;/);
-  assert.doesNotMatch(styles, /\.bcp-favorites-radial-item\.is-selected\s*\{[\s\S]*?border-color:/);
+
+  assert.match(styles, /--bcp-favorite-accent:\s*#fff;/);
+  assert.match(styles, /--bcp-favorite-ink:\s*#17191d;/);
+  assert.match(styles, /--bcp-favorite-text:\s*#fff;/);
+  assert.match(styles, /\.bcp-favorites-panel\s*\{[\s\S]*?background:\s*#17191d;/);
+  assert.match(styles, /\.bcp-favorites-tabs button\.is-active\s*\{[\s\S]*?color:\s*var\(--bcp-favorite-ink\);/);
+  assert.doesNotMatch(styles, /bcp-favorites-radial/);
+});
+
+test("keeps favorites and unicycle views at one panel height with a two-line editor", () => {
+  const launcher = readFileSync(
+    resolve(root, "src", "features", "favorites", "UnicyclePanel.vue"),
+    "utf8"
+  );
+  const styles = readFileSync(
+    resolve(root, "src", "assets", "styles", "favorites.scss"),
+    "utf8"
+  );
+
+  assert.match(launcher, /<textarea[\s\S]*?rows="2"/);
+  assert.match(styles, /\.bcp-favorites-panel\s*\{[\s\S]*?height:\s*min\(700px, calc\(100vh - 32px\)\);/);
+  assert.match(styles, /\.bcp-unicycle-content textarea\s*\{[\s\S]*?min-height:\s*58px;/);
 });
 
 test("uses a compact text-only send button in favorite rows", () => {
@@ -526,6 +587,31 @@ test("uses a compact text-only send button in favorite rows", () => {
   assert.match(row, /t\(["']favoritesSend["']\)/);
   assert.doesNotMatch(row, /telegram/);
   assert.match(styles, /\.bcp-favorites-send\s*\{[\s\S]*?border-radius:\s*14px/);
+  assert.match(styles, /\.bcp-favorites-send\s*\{[\s\S]*?color:\s*#17191d !important;/);
+  assert.match(styles, /\.bcp-favorites-send\s*\{[\s\S]*?-webkit-text-fill-color:\s*#17191d;/);
+});
+
+test("renders the function panel, manual favorite entry, wheelbarrow, and drag controls", () => {
+  const launcherView = readFileSync(
+    resolve(root, "src", "features", "favorites", "FavoritesLauncher.vue"),
+    "utf8"
+  );
+  const row = readFileSync(
+    resolve(root, "src", "features", "favorites", "FavoriteItemRow.vue"),
+    "utf8"
+  );
+  const content = readFileSync(resolve(root, "src", "entries", "content.ts"), "utf8");
+  const moveStart = content.indexOf("function onPointerMove(event)");
+  const frozenGuard = content.indexOf("isInsideFrozenHoverZone(state.pointerX, state.pointerY)", moveStart);
+  const playerGuard = content.indexOf("!pathInsideBilibiliVideo(path)", moveStart);
+
+  assert.match(launcherView, /t\("functionPanelTitle"\)/);
+  assert.doesNotMatch(launcherView, /t\("favoritesSubtitle"\)/);
+  assert.match(launcherView, /manualFavoriteOpen/);
+  assert.match(launcherView, /<UnicyclePanel/);
+  assert.match(row, /bcp-favorites-drag-handle/);
+  assert.match(row, /favoritesAddToUnicycle/);
+  assert.ok(frozenGuard > moveStart && frozenGuard < playerGuard);
 });
 
 test("routes long-lived capsule writes through the wakeable background service", () => {
@@ -550,8 +636,10 @@ test("routes long-lived capsule writes through the wakeable background service",
   assert.match(worker, /favoritesRepository\.addToRoom/);
   assert.match(worker, /favoritesRepository\.recordSent/);
   assert.match(worker, /favoritesRepository\.remove/);
+  assert.match(worker, /favoritesRepository\.reorderRoom/);
   assert.match(launcher, /operation: "add-to-room"/);
   assert.match(launcher, /operation: "record-sent"/);
   assert.match(launcher, /operation: "remove"/);
+  assert.match(launcher, /operation: "reorder-room"/);
   assert.doesNotMatch(launcher, /await repository\.recordSent/);
 });

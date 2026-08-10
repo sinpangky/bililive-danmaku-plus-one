@@ -14,8 +14,8 @@ const scenarioName = String(process.argv[7] || `settings-${locale}`)
   .slice(0, 80);
 const isMicrosoftEdge = /msedge/i.test(path.basename(browserPath || ""));
 const expectedText = locale.toLowerCase().startsWith("zh")
-  ? { feedback: "反馈", globalStatus: "全局状态", heading: "常规设置", help: "帮助" }
-  : { feedback: "Feedback", globalStatus: "Global status", heading: "General", help: "Help" };
+  ? { globalStatus: "全局状态", heading: "常规设置", help: "上游项目" }
+  : { globalStatus: "Global status", heading: "General", help: "Upstream project" };
 
 if (!browserPath || !profilePath || !extensionPath) {
   throw new Error(
@@ -185,9 +185,7 @@ async function inspect() {
       const heading = topbar?.querySelector("h1");
       const actions = topbar?.querySelector(".topbar__actions");
       const help = topbar?.querySelector(".resource-links a span");
-      const feedback = topbar?.querySelector("#feedback-copy span");
       const diagnostics = topbar?.querySelector("#diagnostics-copy span");
-      const feedbackCode = topbar?.querySelector("#feedback-copy code");
       const globalStatus = topbar?.querySelector(".master-control span");
       const actionItems = [...(topbar?.querySelectorAll(
         ".resource-links a, .resource-links button, .master-control"
@@ -211,18 +209,16 @@ async function inspect() {
           text: String(item.innerText || "").trim().replace(/\\s+/g, " "),
           whiteSpace: getComputedStyle(item).whiteSpace
         })),
-        feedbackCodeDisplay: feedbackCode ? getComputedStyle(feedbackCode).display : "missing",
         heading: heading ? { ...rect(heading), text: heading.innerText } : null,
         labels: {
           diagnostics: diagnostics?.innerText || "",
-          feedback: feedback?.innerText || "",
           globalStatus: globalStatus?.innerText || "",
           help: help?.innerText || ""
         },
         noHeadingOverlap: Boolean(
           headingRect && actionsRect && headingRect.right <= actionsRect.left
         ),
-        resourceLabelsVisible: [help, feedback, diagnostics].every((item) => (
+        resourceLabelsVisible: [help, diagnostics].every((item) => (
           item && getComputedStyle(item).display !== "none"
         )),
         topbarClientWidth: topbar?.clientWidth || 0,
@@ -272,17 +268,10 @@ async function inspect() {
     if (viewport.width > 900 && !viewport.resourceLabelsVisible) {
       failures.push(`${viewport.width}:resource-labels-hidden`);
     }
-    const feedbackCodeVisible = viewport.feedbackCodeDisplay !== "none"
-      && viewport.feedbackCodeDisplay !== "missing";
-    if ((viewport.width <= 1200 && feedbackCodeVisible)
-      || (viewport.width > 1200 && !feedbackCodeVisible)) {
-      failures.push(`${viewport.width}:feedback-email-${viewport.feedbackCodeDisplay}`);
-    }
   }
   const widest = viewports.at(-1);
   if (widest.heading?.text !== expectedText.heading) failures.push("locale-heading");
   if (widest.labels.help !== expectedText.help) failures.push("locale-help");
-  if (widest.labels.feedback !== expectedText.feedback) failures.push("locale-feedback");
   if (widest.labels.globalStatus !== expectedText.globalStatus) failures.push("locale-global-status");
   if (!persistence.present || !persistence.persisted || !persistence.restored) {
     failures.push("settings-persistence");

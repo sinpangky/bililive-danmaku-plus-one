@@ -209,6 +209,9 @@ function normalizeStats(value: unknown): Record<string, FavoriteRoomStats> {
     const stats = raw as Partial<FavoriteRoomStats>;
     return [[key, {
       addedToRoomAt: Number(stats.addedToRoomAt) || undefined,
+      customOrder: Number.isFinite(Number(stats.customOrder))
+        ? Number(stats.customOrder)
+        : undefined,
       lastSentAt: Number(stats.lastSentAt) || 0,
       pinned: Boolean(stats.pinned),
       sendCount: Math.max(0, Number(stats.sendCount) || 0)
@@ -385,7 +388,7 @@ export async function importFavoritesData(
   }
   if (!isRecord(parsed) || parsed.format !== "danmaku-echo-favorites"
       || !Object.hasOwn(parsed, "database")) {
-    throw new Error("不是弹幕回声收藏备份文件");
+    throw new Error("不是 bililive-danmaku-plus-one 收藏备份文件");
   }
   const incoming = storedDatabase(parsed.database);
   if (!incoming) throw new Error("收藏备份内容损坏或格式不完整");
@@ -409,6 +412,16 @@ export async function importFavoritesData(
 
 function roomStats(item: FavoriteDanmaku, roomKey: string): FavoriteRoomStats {
   return item.roomStats[roomKey] || { lastSentAt: 0, pinned: false, sendCount: 0 };
+}
+
+function nextCustomOrder(items: FavoriteDanmaku[], roomKey: string): number {
+  const orders = items.flatMap((item) => {
+    const stats = item.roomStats[roomKey];
+    if (!stats) return [];
+    const order = Number(stats.customOrder);
+    return Number.isFinite(order) ? [order] : [];
+  });
+  return orders.length ? Math.max(...orders) + 1 : Date.now();
 }
 
 export function createFavoritesRepository(area: StorageAreaLike) {
@@ -472,7 +485,9 @@ export function createFavoritesRepository(area: StorageAreaLike) {
         }
         item.roomStats[room.roomKey] = {
           ...roomStats(item, room.roomKey),
-          addedToRoomAt: now
+          addedToRoomAt: now,
+          customOrder: item.roomStats[room.roomKey]?.customOrder
+            ?? nextCustomOrder(database.items, room.roomKey)
         };
         item.updatedAt = now;
         return { changed: true, result: undefined };
@@ -530,7 +545,9 @@ export function createFavoritesRepository(area: StorageAreaLike) {
         }
         item.roomStats[room.roomKey] = {
           ...roomStats(item, room.roomKey),
-          addedToRoomAt: item.roomStats[room.roomKey]?.addedToRoomAt || now
+          addedToRoomAt: item.roomStats[room.roomKey]?.addedToRoomAt || now,
+          customOrder: item.roomStats[room.roomKey]?.customOrder
+            ?? nextCustomOrder(database.items, room.roomKey)
         };
         item.updatedAt = now;
         return { changed: true, result: { added, item } };
@@ -568,6 +585,28 @@ export function createFavoritesRepository(area: StorageAreaLike) {
         item.totalSendCount += 1;
         item.updatedAt = now;
         return { changed: true, result: undefined };
+      });
+    },
+    async reorderRoom(roomKey: string, orderedIds: string[]): Promise<void> {
+      return mutate(() => {
+        const uniqueIds = Array.from(new Set(orderedIds));
+        const byId = new Map(database.items.map((item) => [item.id, item]));
+        let changed = false;
+        uniqueIds.forEach((id, index) => {
+          const item = byId.get(id);
+          if (!item || (!item.roomStats[roomKey]
+              && !item.origins.some((origin) => origin.roomKey === roomKey))) return;
+          const stats = item.roomStats[roomKey] || {
+            lastSentAt: 0,
+            pinned: false,
+            sendCount: 0,
+          };
+          if (stats.customOrder !== index + 1) changed = true;
+          stats.customOrder = index + 1;
+          item.roomStats[roomKey] = stats;
+          item.updatedAt = Date.now();
+        });
+        return { changed, result: undefined };
       });
     },
     async remove(id: string): Promise<void> {

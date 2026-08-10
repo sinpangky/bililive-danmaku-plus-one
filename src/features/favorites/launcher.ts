@@ -7,6 +7,14 @@ import { createFavoritesRepository } from "./repository";
 import { currentRoomContext } from "./room-context";
 import { groupedFavorites, rankedFavorites } from "./ranking";
 import {
+  DEFAULT_UNICYCLE_CONFIG,
+  normalizeUnicycleConfig,
+  UNICYCLE_STORAGE_KEY,
+  unicycleIntervalMilliseconds,
+  unicycleMessages,
+  type UnicycleConfig,
+} from "./unicycle";
+import {
   FAVORITES_STORAGE_KEY,
   FAVORITE_WRITE_MESSAGE,
   type FavoriteDisplayItem,
@@ -19,36 +27,31 @@ import {
   type RoomContext
 } from "./types";
 
-export interface RadialOption {
-  angle: number;
-  detail: string;
-  favoriteId?: string;
-  key: string;
-  kind: "favorite" | "more" | "other";
-  label: string;
-}
-
 export interface FavoritesLauncherState {
-  centerX: number;
-  centerY: number;
   currentCount: number;
   groups: FavoriteRoomGroup[];
   items: FavoriteDisplayItem[];
   loading: boolean;
-  mode: "closed" | "panel" | "radial";
+  mode: "closed" | "panel";
   otherCount: number;
-  radialOptions: RadialOption[];
   room: RoomContext;
   search: string;
-  selectedRadialKey: string;
   selectedRoomKey: string;
   sort: FavoriteSort;
+  toolView: "favorites" | "unicycle";
   totalCount: number;
+  unicycleConfig: UnicycleConfig;
+  unicycleLastMessage: string;
+  unicycleMessageCount: number;
+  unicycleRunning: boolean;
+  unicycleSentCount: number;
+  platformMaxLength: number;
   view: FavoriteView;
 }
 
 interface FavoritesRuntimeOptions {
   enabled(): boolean;
+  maxMessageLength: number;
   platform: PlatformId;
   sendFavorite(payload: FavoritePayload): Promise<boolean>;
   showToast(message: string, tone?: string): void;
@@ -64,9 +67,6 @@ type FavoritesRuntimeScope = typeof globalThis & {
   __danmakuEchoFavoritesRuntime?: FavoritesRuntime;
 };
 
-const HOLD_DELAY = 180;
-const RADIAL_CANCEL_RADIUS = 42;
-const RADIAL_MAX_RADIUS = 230;
 const FAVORITES_UI_VERSION = 2;
 const OWNER_SELECTOR = "[data-bcp-favorites-runtime-owner='true']";
 const STALE_PORTAL_SELECTOR = ".bcp-favorites-host, .bcp-favorites-portal";
@@ -178,15 +178,6 @@ function editableTarget(target: EventTarget | null): boolean {
   ));
 }
 
-function shortLabel(text: string): string {
-  const chars = Array.from(text);
-  return chars.length > 8 ? `${chars.slice(0, 8).join("")}…` : text;
-}
-
-function angularDistance(first: number, second: number): number {
-  return Math.abs(((first - second + 540) % 360) - 180);
-}
-
 export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
   const storage = globalThis.chrome?.storage?.local;
   if (!storage) {
@@ -228,21 +219,24 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
   document.querySelectorAll(STALE_PORTAL_SELECTOR).forEach((node) => node.remove());
   const initialRoom = currentRoomContext(options.platform);
   const state = reactive<FavoritesLauncherState>({
-    centerX: innerWidth / 2,
-    centerY: innerHeight / 2,
     currentCount: 0,
     groups: [],
     items: [],
     loading: true,
     mode: "closed",
     otherCount: 0,
-    radialOptions: [],
     room: initialRoom,
     search: "",
-    selectedRadialKey: "",
     selectedRoomKey: "",
-    sort: "send-count",
+    sort: "custom",
+    toolView: "favorites",
     totalCount: 0,
+    unicycleConfig: { ...DEFAULT_UNICYCLE_CONFIG },
+    unicycleLastMessage: "",
+    unicycleMessageCount: 0,
+    unicycleRunning: false,
+    unicycleSentCount: 0,
+    platformMaxLength: Math.max(1, Math.min(Math.trunc(options.maxMessageLength), 1_000)),
     view: "current"
   });
   const portal = document.createElement("div");
@@ -266,10 +260,14 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
   const app = createApp(FavoritesLauncher, {
     state,
     onAddToRoom: (id: string) => void addToRoom(id),
+    onAddToUnicycle: (id: string) => void addFavoriteToUnicycle(id),
+    onAddManualFavorite: (text: string) => void addManualFavorite(text),
+    onAddUnicycleToFavorites: () => void addUnicycleToFavorites(),
     onBackToRooms: () => backToRooms(),
     onChangeView: (view: FavoriteView) => changeView(view),
     onClose: close,
     onRemove: (id: string) => void remove(id),
+    onReorder: (payload: { sourceId: string; targetId: string }) => void reorder(payload),
     onSearch: (value: string) => {
       state.search = value;
       refresh();
@@ -277,16 +275,21 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
     onSend: (id: string) => void sendById(id),
     onSelectRoom: (roomKey: string) => selectRoom(roomKey),
     onSort: (sort: FavoriteSort) => changeSort(sort),
+    onToolView: (view: "favorites" | "unicycle") => {
+      state.toolView = view;
+    },
+    onUnicycleStart: () => void startUnicycle(),
+    onUnicycleStop: () => stopUnicycle(),
+    onUnicycleUpdate: (config: UnicycleConfig) => void updateUnicycle(config),
   });
   app.mount(mountPoint);
 
-  let pointerX = innerWidth / 2;
-  let pointerY = innerHeight / 2;
   let hotkeyDown = false;
-  let holdTimer: ReturnType<typeof setTimeout> | undefined;
   let restoreFocus: HTMLElement | null = null;
   let unsubscribe = () => {};
   let destroyed = false;
+  let unicycleRunToken = 0;
+  let unicycleTimer: ReturnType<typeof setTimeout> | undefined;
 
   const onVisibilityChange = () => {
     if (document.hidden) cancelGesture();
@@ -329,6 +332,162 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
     if (portal.parentNode !== host) host.appendChild(portal);
   }
 
+  function unicyclePayload(text: string): FavoritePayload {
+    return {
+      assets: [],
+      parts: [{ text, type: "text" }],
+      plainText: text,
+      text,
+    };
+  }
+
+  function refreshUnicycleCount(): void {
+    state.unicycleMessageCount = unicycleMessages(
+      state.unicycleConfig.content,
+      state.unicycleConfig.maxMessageLength,
+      state.platformMaxLength,
+    ).length;
+  }
+
+  function writeUnicycleConfig(config: UnicycleConfig): Promise<void> {
+    return new Promise((resolve, reject) => {
+      storage.set({ [UNICYCLE_STORAGE_KEY]: config }, () => {
+        const error = chrome.runtime.lastError;
+        if (error) reject(new Error(error.message));
+        else resolve();
+      });
+    });
+  }
+
+  async function updateUnicycle(value: UnicycleConfig): Promise<void> {
+    const config = normalizeUnicycleConfig(value);
+    state.unicycleConfig = config;
+    refreshUnicycleCount();
+    try {
+      await writeUnicycleConfig(config);
+    } catch (error) {
+      options.showToast(favoriteErrorMessage(error), "error");
+    }
+  }
+
+  function loadUnicycleConfig(): void {
+    storage.get([UNICYCLE_STORAGE_KEY], (values) => {
+      if (destroyed) return;
+      state.unicycleConfig = normalizeUnicycleConfig(values?.[UNICYCLE_STORAGE_KEY]);
+      refreshUnicycleCount();
+    });
+  }
+
+  function stopUnicycle(showFeedback = true): void {
+    const wasRunning = state.unicycleRunning;
+    unicycleRunToken += 1;
+    if (unicycleTimer !== undefined) clearTimeout(unicycleTimer);
+    unicycleTimer = undefined;
+    state.unicycleRunning = false;
+    if (wasRunning && showFeedback) options.showToast(t("unicycleStopped"), "info");
+  }
+
+  function waitForUnicycle(milliseconds: number, token: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      unicycleTimer = setTimeout(() => {
+        unicycleTimer = undefined;
+        resolve(token === unicycleRunToken && !destroyed);
+      }, milliseconds);
+    });
+  }
+
+  async function startUnicycle(): Promise<void> {
+    if (state.unicycleRunning) return;
+    const config = normalizeUnicycleConfig(state.unicycleConfig);
+    const messages = unicycleMessages(
+      config.content,
+      config.maxMessageLength,
+      state.platformMaxLength,
+    );
+    if (!messages.length) {
+      options.showToast(t("unicycleEmpty"), "warning");
+      return;
+    }
+    await updateUnicycle(config);
+    const token = ++unicycleRunToken;
+    const deadline = Date.now() + config.totalDurationSeconds * 1_000;
+    state.unicycleRunning = true;
+    state.unicycleSentCount = 0;
+    state.unicycleLastMessage = "";
+    options.showToast(t("unicycleStarted"), "success");
+
+    while (token === unicycleRunToken && !destroyed) {
+      if (config.runMode === "count" && state.unicycleSentCount >= config.totalCount) break;
+      if (config.runMode === "duration" && Date.now() >= deadline) break;
+      const message = messages[state.unicycleSentCount % messages.length];
+      const success = await options.sendFavorite(unicyclePayload(message));
+      if (token !== unicycleRunToken || destroyed) return;
+      if (!success) {
+        stopUnicycle(false);
+        options.showToast(t("unicycleSendFailed"), "error");
+        return;
+      }
+      state.unicycleSentCount += 1;
+      state.unicycleLastMessage = message;
+      if (config.runMode === "count" && state.unicycleSentCount >= config.totalCount) break;
+      const interval = unicycleIntervalMilliseconds(config);
+      if (config.runMode === "duration" && Date.now() + interval >= deadline) break;
+      if (!(await waitForUnicycle(interval, token))) return;
+    }
+
+    if (token === unicycleRunToken) {
+      state.unicycleRunning = false;
+      options.showToast(t("unicycleCompleted", String(state.unicycleSentCount)), "success");
+    }
+  }
+
+  async function addManualFavorite(textValue: string): Promise<void> {
+    const text = String(textValue || "").replace(/\s+/g, " ").trim();
+    if (!text) return;
+    try {
+      const response = await writeFavoriteInBackground(text, room());
+      options.showToast(
+        response.added ? t("favoritesManualAdded") : t("favoritesAlreadySaved"),
+        "success",
+      );
+    } catch (error) {
+      options.showToast(favoriteErrorMessage(error), "error");
+    }
+  }
+
+  async function addUnicycleToFavorites(): Promise<void> {
+    const messages = Array.from(new Set(unicycleMessages(
+      state.unicycleConfig.content,
+      1_000,
+      1_000,
+    )));
+    if (!messages.length) {
+      options.showToast(t("unicycleEmpty"), "warning");
+      return;
+    }
+    let added = 0;
+    try {
+      for (const message of messages) {
+        const response = await writeFavoriteInBackground(message, room());
+        if (response.added) added += 1;
+      }
+      options.showToast(t("unicycleAddedToFavorites", String(added)), "success");
+    } catch (error) {
+      options.showToast(favoriteErrorMessage(error), "error");
+    }
+  }
+
+  async function addFavoriteToUnicycle(id: string): Promise<void> {
+    const item = repository.database.items.find((entry) => entry.id === id);
+    if (!item) return;
+    const content = [state.unicycleConfig.content.replace(/\s+$/, ""), item.text]
+      .filter(Boolean)
+      .join("\n");
+    await updateUnicycle({ ...state.unicycleConfig, content });
+    state.toolView = "unicycle";
+    options.showToast(t("favoritesAddedToUnicycle"), "success");
+  }
+
   function refresh(): void {
     state.room = room();
     state.currentCount = rankedFavorites(
@@ -351,27 +510,9 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
     }
   }
 
-  function radialOptions(): RadialOption[] {
-    const current = rankedFavorites(repository.database.items, room(), "current").slice(0, 6);
-    const raw: Array<Omit<RadialOption, "angle">> = current.map((item) => ({
-      detail: item.text,
-      favoriteId: item.id,
-      key: `favorite:${item.id}`,
-      kind: "favorite",
-      label: shortLabel(item.text)
-    }));
-    raw.push({ detail: t("favoritesRadialOtherDetail"), key: "other", kind: "other", label: t("favoritesRadialOther") });
-    raw.push({ detail: t("favoritesRadialMoreDetail"), key: "more", kind: "more", label: t("favoritesRadialMore") });
-    return raw.map((option, index) => ({
-      ...option,
-      angle: -90 + index * (360 / raw.length)
-    }));
-  }
-
   function close(): void {
     const focusTarget = state.mode === "panel" ? restoreFocus : null;
     state.mode = "closed";
-    state.selectedRadialKey = "";
     restoreFocus = null;
     if (focusTarget?.isConnected) {
       void nextTick(() => focusTarget.focus({ preventScroll: true }));
@@ -391,33 +532,6 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
     state.selectedRoomKey = "";
     state.mode = "panel";
     refresh();
-  }
-
-  function openRadial(): void {
-    if (!options.enabled()) return;
-    ensureHost();
-    const horizontalInset = Math.min(190, innerWidth / 2);
-    const verticalInset = Math.min(235, innerHeight / 2);
-    state.centerX = Math.max(horizontalInset, Math.min(pointerX, innerWidth - horizontalInset));
-    state.centerY = Math.max(verticalInset, Math.min(pointerY, innerHeight - verticalInset));
-    state.radialOptions = radialOptions();
-    state.selectedRadialKey = "";
-    state.mode = "radial";
-  }
-
-  function updateRadialSelection(x: number, y: number): void {
-    if (state.mode !== "radial") return;
-    const deltaX = x - state.centerX;
-    const deltaY = y - state.centerY;
-    const distance = Math.hypot(deltaX, deltaY);
-    if (distance < RADIAL_CANCEL_RADIUS || distance > RADIAL_MAX_RADIUS) {
-      state.selectedRadialKey = "";
-      return;
-    }
-    const angle = Math.atan2(deltaY, deltaX) * 180 / Math.PI;
-    const selected = [...state.radialOptions]
-      .sort((first, second) => angularDistance(first.angle, angle) - angularDistance(second.angle, angle))[0];
-    state.selectedRadialKey = selected?.key || "";
   }
 
   async function sendById(id: string): Promise<void> {
@@ -456,6 +570,31 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
     }
   }
 
+  async function reorder({ sourceId, targetId }: { sourceId: string; targetId: string }): Promise<void> {
+    if (state.sort !== "custom" || state.search || sourceId === targetId) return;
+    const selectedGroup = state.groups.find((group) => group.roomKey === state.selectedRoomKey);
+    const items = state.view === "current" ? state.items : selectedGroup?.items || [];
+    const orderedIds = items.map((item) => item.id);
+    const sourceIndex = orderedIds.indexOf(sourceId);
+    const targetIndex = orderedIds.indexOf(targetId);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    orderedIds.splice(targetIndex, 0, orderedIds.splice(sourceIndex, 1)[0]);
+    const targetRoomKey = state.view === "current"
+      ? state.room.roomKey
+      : selectedGroup?.roomKey || state.room.roomKey;
+    try {
+      await mutateFavoriteInBackground({
+        ids: orderedIds,
+        operation: "reorder-room",
+        room: room(),
+        targetRoomKey,
+      });
+      options.showToast(t("favoritesOrderSaved"), "success");
+    } catch (error) {
+      options.showToast(favoriteErrorMessage(error), "error");
+    }
+  }
+
   function changeView(view: FavoriteView): void {
     state.view = view;
     state.selectedRoomKey = "";
@@ -479,18 +618,13 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
   }
 
   function visiblePanelItems(): FavoriteDisplayItem[] {
+    if (state.toolView !== "favorites") return [];
     if (state.view === "current") return state.items;
     const group = state.groups.find((entry) => entry.roomKey === state.selectedRoomKey);
     if (!group) return [];
     const query = state.search.replace(/\s+/g, " ").trim().toLowerCase();
     if (!query || group.roomName.toLowerCase().includes(query)) return group.items;
     return group.items.filter((item) => item.normalizedText.includes(query));
-  }
-
-  function onPointerMove(event: PointerEvent): void {
-    pointerX = event.clientX;
-    pointerY = event.clientY;
-    updateRadialSelection(pointerX, pointerY);
   }
 
   function onKeyDown(event: KeyboardEvent): void {
@@ -518,10 +652,8 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
     event.preventDefault();
     event.stopImmediatePropagation();
     hotkeyDown = true;
-    holdTimer = setTimeout(() => {
-      holdTimer = undefined;
-      if (hotkeyDown) openRadial();
-    }, HOLD_DELAY);
+    if (state.mode === "panel") close();
+    else openPanel("current");
   }
 
   function onKeyUp(event: KeyboardEvent): void {
@@ -529,29 +661,10 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
     event.preventDefault();
     event.stopImmediatePropagation();
     hotkeyDown = false;
-    if (holdTimer !== undefined) {
-      clearTimeout(holdTimer);
-      holdTimer = undefined;
-      if (state.mode === "panel") close();
-      else openPanel("current");
-      return;
-    }
-    if (state.mode !== "radial") return;
-    const option = state.radialOptions.find((entry) => entry.key === state.selectedRadialKey);
-    if (!option) {
-      close();
-    } else if (option.favoriteId) {
-      void sendById(option.favoriteId);
-    } else {
-      openPanel(option.kind === "other" ? "other" : "all");
-    }
   }
 
   function cancelGesture(): void {
     hotkeyDown = false;
-    if (holdTimer !== undefined) clearTimeout(holdTimer);
-    holdTimer = undefined;
-    if (state.mode === "radial") close();
   }
 
   const storageChanged: Parameters<typeof chrome.storage.onChanged.addListener>[0] = (
@@ -560,8 +673,12 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
   ) => {
     if (areaName === "local" && changes[FAVORITES_STORAGE_KEY]) {
       void repository.load().catch((error) => {
-        console.warn("[Danmaku Echo] favorites refresh failed", error);
+        console.warn("[Bilibili Danmaku +1] favorites refresh failed", error);
       });
+    }
+    if (areaName === "local" && changes[UNICYCLE_STORAGE_KEY] && !state.unicycleRunning) {
+      state.unicycleConfig = normalizeUnicycleConfig(changes[UNICYCLE_STORAGE_KEY].newValue);
+      refreshUnicycleCount();
     }
   };
 
@@ -570,6 +687,7 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
       if (destroyed) return;
       destroyed = true;
       cancelGesture();
+      stopUnicycle(false);
       unsubscribe();
       uiObserver.disconnect();
       try {
@@ -578,7 +696,6 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
         // Reloading the unpacked extension invalidates the old isolated world.
       }
       document.removeEventListener(OPEN_REQUEST_EVENT, onExternalOpen);
-      document.removeEventListener("pointermove", onPointerMove, true);
       document.removeEventListener("keydown", onKeyDown, true);
       document.removeEventListener("keyup", onKeyUp, true);
       document.removeEventListener("fullscreenchange", ensureHost, true);
@@ -618,6 +735,7 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
   };
   runtimeScope.__danmakuEchoFavoritesRuntime = runtime;
   ensureHost();
+  loadUnicycleConfig();
   unsubscribe = repository.subscribe(() => {
     state.loading = false;
     refresh();
@@ -629,11 +747,10 @@ export function createFavoritesRuntime(options: FavoritesRuntimeOptions) {
   }).catch((error) => {
     state.loading = false;
     options.showToast(favoriteErrorMessage(error), "error");
-    console.warn("[Danmaku Echo] favorites load failed", error);
+    console.warn("[Bilibili Danmaku +1] favorites load failed", error);
   });
   uiObserver.observe(document.documentElement, { childList: true, subtree: true });
   document.addEventListener(OPEN_REQUEST_EVENT, onExternalOpen);
-  document.addEventListener("pointermove", onPointerMove, true);
   document.addEventListener("keydown", onKeyDown, true);
   document.addEventListener("keyup", onKeyUp, true);
   document.addEventListener("fullscreenchange", ensureHost, true);

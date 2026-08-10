@@ -20,21 +20,6 @@ const requestedScenario = String(
 
 const scenarios = [
   { name: "settings-zh", kind: "settings", locale: "zh-CN" },
-  { name: "settings-en", kind: "settings", locale: "en-US" },
-  { name: "huya-side", host: "www.huya.com", platform: "huya", query: "platform=huya" },
-  {
-    name: "huya-fullscreen",
-    host: "www.huya.com",
-    platform: "huya",
-    query: "platform=huya&fullscreen=1",
-  },
-  { name: "douyu-side", host: "www.douyu.com", platform: "douyu", query: "platform=douyu" },
-  {
-    name: "douyu-fullscreen",
-    host: "www.douyu.com",
-    platform: "douyu",
-    query: "platform=douyu&fullscreen=1",
-  },
   {
     name: "bilibili-side",
     host: "live.bilibili.com",
@@ -68,20 +53,6 @@ const scenarios = [
     platform: "bilibili",
     query: "platform=bilibili&rich=1&hoverperf=1&skipSide=1",
     timeout: 150_000,
-  },
-  {
-    name: "douyin-side",
-    host: "live.douyin.com",
-    platform: "douyin",
-    query: "platform=douyin",
-    timeout: 60_000,
-  },
-  {
-    name: "douyin-fullscreen",
-    host: "live.douyin.com",
-    platform: "douyin",
-    query: "platform=douyin&fullscreen=1",
-    timeout: 60_000,
   },
 ];
 
@@ -226,10 +197,7 @@ async function runScenario(browser, fixturePort, scenario, attempt) {
   const artifactDirectory = path.join(artifactRoot, browser.name);
   mkdirSync(artifactDirectory, { recursive: true });
   const hostRules = [
-    "MAP www.huya.com 127.0.0.1",
     "MAP live.bilibili.com 127.0.0.1",
-    "MAP www.douyu.com 127.0.0.1",
-    "MAP live.douyin.com 127.0.0.1",
     "EXCLUDE localhost",
   ].join(", ");
   const targetUrl = `http://${scenario.host}:${fixturePort}/?${scenario.query}&manual=1`;

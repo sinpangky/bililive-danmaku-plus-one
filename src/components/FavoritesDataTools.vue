@@ -5,6 +5,13 @@
       <small>{{ t("favoritesBackupDescription") }}</small>
     </span>
     <span class="favorites-data-actions">
+      <button type="button" :disabled="busy" @click="chooseStorageDirectory">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M3.5 7.5h6l1.8 2H20.5v8.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />
+          <path d="M3.5 8V6a2 2 0 0 1 2-2h4l1.8 2h5.2" />
+        </svg>
+        {{ t("favoritesDirectoryChoose") }}
+      </button>
       <button type="button" :disabled="busy" @click="exportBackup">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M12 4v10M8 10l4 4 4-4M5 18h14" />
@@ -35,6 +42,11 @@ import {
   exportFavoritesData,
   importFavoritesData
 } from "../features/favorites/repository";
+import {
+  FAVORITES_DIRECTORY_SYNC_MESSAGE,
+  saveFavoritesDirectoryHandle,
+  type WritableDirectoryHandle
+} from "../features/favorites/file-storage";
 import { t } from "../core/i18n";
 
 const emit = defineEmits<{
@@ -53,6 +65,35 @@ function localStorageArea(): chrome.storage.StorageArea {
 function backupFileName(): string {
   const day = new Date().toISOString().slice(0, 10);
   return `danmaku-echo-favorites-${day}.json`;
+}
+
+async function chooseStorageDirectory(): Promise<void> {
+  const picker = (window as typeof window & {
+    showDirectoryPicker?: (options: { id: string; mode: "readwrite" }) =>
+      Promise<WritableDirectoryHandle>;
+  }).showDirectoryPicker;
+  if (!picker) {
+    emit("status", t("favoritesDirectoryUnsupported"), "error");
+    return;
+  }
+  busy.value = true;
+  try {
+    const handle = await picker.call(window, { id: "danmaku-echo-favorites", mode: "readwrite" });
+    if (await handle.requestPermission({ mode: "readwrite" }) !== "granted") {
+      throw new Error(t("favoritesDirectoryPermissionDenied"));
+    }
+    await saveFavoritesDirectoryHandle(handle);
+    const response = await chrome.runtime.sendMessage({ type: FAVORITES_DIRECTORY_SYNC_MESSAGE });
+    if (!response?.ok || !response.synced) {
+      throw new Error(response?.error || t("favoritesDirectorySyncFailed"));
+    }
+    emit("status", t("favoritesDirectorySelected", handle.name), "saved");
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return;
+    emit("status", error instanceof Error ? error.message : t("favoritesDirectorySyncFailed"), "error");
+  } finally {
+    busy.value = false;
+  }
 }
 
 async function exportBackup(): Promise<void> {
@@ -103,6 +144,7 @@ async function importBackup(event: Event): Promise<void> {
       return;
     }
     const imported = await importFavoritesData(localStorageArea(), text);
+    await chrome.runtime.sendMessage({ type: FAVORITES_DIRECTORY_SYNC_MESSAGE });
     emit("status", t("favoritesBackupImported", String(imported.items.length)), "saved");
   } catch (error) {
     emit("status", error instanceof Error ? error.message : t("favoritesBackupImportFailed"), "error");

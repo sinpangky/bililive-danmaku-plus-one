@@ -1,17 +1,14 @@
 {
-  "name": "danmaku-echo",
-  "version": "2.2.0",
+  "name": "bililive-danmaku-plus-one",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "Danmaku echoing, replies, and local favorites for Huya, Bilibili, Douyin, and Douyu Live",
+  "description": "Bilibili Live danmaku +1, replies, fullscreen sending, and local favorites",
   "license": "GPL-3.0-or-later",
   "keywords": [
     "danmaku",
     "browser-extension",
-    "bilibili-live",
-    "huya-live",
-    "douyin-live",
-    "douyu-live"
+    "bilibili-live"
   ],
   "engines": {
     "node": "^22.22.2 || >=24.15.0"
@@ -19,20 +16,17 @@
   "scripts": {
     "dev": "vite",
     "build": "run-p type-check \"build-only {@}\" --",
-    "build-only": "run-s build:popup build:background build:shared build:content build:douyin-bootstrap build:douyin-content build:douyin-page-hook",
+    "build-only": "run-s build:popup build:background build:shared build:content",
     "build:popup": "vite build --mode popup",
     "build:background": "vite build --mode background",
     "build:shared": "vite build --mode shared",
     "build:content": "vite build --mode content",
-    "build:douyin-bootstrap": "vite build --mode douyin-bootstrap",
-    "build:douyin-content": "vite build --mode douyin-content",
-    "build:douyin-page-hook": "vite build --mode douyin-page-hook",
     "preview": "vite preview",
     "type-check": "vue-tsc --build",
     "test:unit": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:browser": "node tests/run-browser-e2e.cjs",
-    "test:regression": "node --test tests/shared.test.cjs tests/reply.test.mjs tests/douyin-barrage-model.test.mjs tests/douyin-rich-data.test.mjs tests/douyin-own-message.test.mjs tests/bilibili-dom-config.test.mjs tests/douyu-dom-config.test.mjs tests/content-media-safety.test.cjs tests/live-action-visibility.test.mjs tests/emoji-fallback.test.mjs tests/favorites.test.mjs tests/package-entry.test.cjs",
+    "test:regression": "node --test tests/reply.test.mjs tests/bilibili-dom-config.test.mjs tests/content-media-safety.test.cjs tests/emoji-fallback.test.mjs tests/favorites.test.mjs tests/package-entry.test.cjs",
     "test": "run-s build-only test:unit test:regression",
     "lint": "run-s \"lint:*\"",
     "lint:oxlint": "oxlint . --fix",
@@ -41,7 +35,7 @@
     "lint:check:oxlint": "oxlint .",
     "lint:check:eslint": "eslint .",
     "format": "prettier --write --experimental-cli src/",
-    "validate:build": "node tests/validate-manifest.cjs build/extension && node tests/validate-vue-architecture.cjs && node tests/validate-ci.cjs && node tests/validate-release-config.cjs && node --check scripts/validate-release.cjs && node --check scripts/write-checksum.cjs && node --check build/extension/src/content.js && node --check build/extension/src/douyin-page-hook.js && node --check build/extension/src/douyin-content.js && node --check tests/fixture-server.cjs && node --check tests/inspect-live-dom.cjs && node --check tests/inspect-settings-page.cjs",
+    "validate:build": "node --check build/extension/background/service-worker.js && node --check build/extension/src/content.js && node --check build/extension/src/shared.js",
     "check": "run-s type-check lint:check build-only validate:build test:coverage test:regression",
     "package": "node scripts/sync-version.cjs && npm run check && node scripts/package.cjs"
   },

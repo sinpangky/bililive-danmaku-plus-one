@@ -4,7 +4,7 @@
     <div class="topbar__actions">
       <div class="resource-links">
         <a
-          href="https://github.com/SadUnicorn171/danmaku-echo#使用方法"
+          href="https://github.com/SadUnicorn171/danmaku-echo"
           target="_blank"
           rel="noreferrer"
           :title="t('settingsHelp')"
@@ -13,18 +13,6 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.25"/><path d="M9.9 9.45a2.25 2.25 0 1 1 3.55 1.83c-.9.63-1.45 1.1-1.45 2.22"/><circle cx="12" cy="16.25" r=".6" class="filled"/></svg>
           <span>{{ t('settingsHelp') }}</span>
         </a>
-        <button
-          id="feedback-copy"
-          class="feedback-copy"
-          type="button"
-          :title="t('settingsCopyFeedbackTitle')"
-          :aria-label="t('settingsCopyFeedbackAria', feedbackEmail)"
-          @click="emit('copy-feedback', feedbackEmail)"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.5h14v9.25H9.25L5 19z"/></svg>
-          <span>{{ t('settingsFeedback') }}</span>
-          <code>{{ feedbackEmail }}</code>
-        </button>
         <button
           id="diagnostics-copy"
           class="feedback-copy"
@@ -57,13 +45,11 @@ import { t } from '../core/i18n'
 
 defineProps<{
   activeSectionTitle: string
-  feedbackEmail: string
 }>()
 
 const enabled = defineModel<boolean>('enabled', { required: true })
 const emit = defineEmits<{
   'copy-diagnostics': []
-  'copy-feedback': [email: string]
   save: []
 }>()
 </script>

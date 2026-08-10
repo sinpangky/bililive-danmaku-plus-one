@@ -135,13 +135,13 @@ import { DOUYIN_CONTENT_SOURCE, DOUYIN_PAGE_SOURCE } from "../platforms/douyin/p
         if (error) {
           debug.lastError = error.message || String(error);
           entry.response = { ok: false, error: debug.lastError };
-          console.warn("[Danmaku Echo][Douyin bootstrap] injection request failed", entry.response);
+          console.warn("[bililive-danmaku-plus-one][Douyin bootstrap] injection request failed", entry.response);
         } else {
           entry.response = normalizeInjectionResponse(response);
           if (!entry.response.ok) {
             debug.lastError = String(entry.response.error || "injection-failed");
           }
-          console.debug("[Danmaku Echo][Douyin bootstrap] injection request", entry);
+          console.debug("[bililive-danmaku-plus-one][Douyin bootstrap] injection request", entry);
         }
         syncMarker();
         pingPage(attempt);
@@ -149,7 +149,7 @@ import { DOUYIN_CONTENT_SOURCE, DOUYIN_PAGE_SOURCE } from "../platforms/douyin/p
     } catch (error: unknown) {
       debug.lastError = String(error instanceof Error ? error.message : error);
       entry.response = { ok: false, error: debug.lastError };
-      console.error("[Danmaku Echo][Douyin bootstrap] injection request threw", entry.response);
+      console.error("[bililive-danmaku-plus-one][Douyin bootstrap] injection request threw", entry.response);
       syncMarker();
     }
   }
@@ -161,7 +161,7 @@ import { DOUYIN_CONTENT_SOURCE, DOUYIN_PAGE_SOURCE } from "../platforms/douyin/p
     debug.pageReady = true;
     debug.pageVersion = String(event.data.version || "legacy");
     debug.instanceCount = Number(event.data.instanceCount) || 0;
-    console.info("[Danmaku Echo][Douyin bootstrap] page hook ready", {
+    console.info("[bililive-danmaku-plus-one][Douyin bootstrap] page hook ready", {
       version: debug.pageVersion,
       instanceCount: debug.instanceCount,
       sinceStart: Date.now() - startedAt
@@ -169,7 +169,7 @@ import { DOUYIN_CONTENT_SOURCE, DOUYIN_PAGE_SOURCE } from "../platforms/douyin/p
     syncMarker();
   });
 
-  console.info("[Danmaku Echo][Douyin bootstrap] started", {
+  console.info("[bililive-danmaku-plus-one][Douyin bootstrap] started", {
     href: location.href,
     readyState: document.readyState
   });

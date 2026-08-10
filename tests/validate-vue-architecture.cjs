@@ -84,7 +84,6 @@ const requiredVueComponents = [
   "src/features/favorites/FavoritesLauncher.vue",
   "src/components/live/ActionBar.vue",
   "src/components/live/ContentOverlay.vue",
-  "src/components/live/DouyinOverlay.vue",
   "src/components/live/FeedbackToast.vue"
 ];
 requiredVueComponents.forEach((relativePath) => {
@@ -103,9 +102,10 @@ if (favoritesLauncherSource.includes("expandedRoomKeys")
     || favoritesComponentSource.includes("bcp-favorites-group-items")) {
   throw new Error("Legacy inline room expansion remains in favorites UI");
 }
-if (favoritesComponentSource.includes("bcp-favorites-radial-item-icon")
-    || !/\.bcp-favorites-radial-item\s*\{[\s\S]*?border-radius:\s*50%/.test(favoritesCssSource)) {
-  throw new Error("Favorites radial choices must be circular and icon-free");
+if (favoritesComponentSource.includes("bcp-favorites-radial")
+    || favoritesCssSource.includes("bcp-favorites-radial")
+    || favoritesLauncherSource.includes("openRadial")) {
+  throw new Error("The removed Alt+Q long-press radial UI must not remain in source");
 }
 
 const popupHtml = fs.readFileSync(path.join(extensionRoot, "index.html"), "utf8");
@@ -116,37 +116,18 @@ if (!popupScriptMatch) {
 const popupScriptPath = popupScriptMatch[1].replace(/^(?:\.\/|\/)/, "");
 const popupBundle = fs.readFileSync(path.join(extensionRoot, popupScriptPath), "utf8");
 const contentBundle = fs.readFileSync(path.join(extensionRoot, "src", "content.js"), "utf8");
-const douyinContentBundle = fs.readFileSync(
-  path.join(extensionRoot, "src", "douyin-content.js"),
-  "utf8"
-);
-const pageHookBundle = fs.readFileSync(
-  path.join(extensionRoot, "src", "douyin-page-hook.js"),
-  "utf8"
-);
 for (const [name, source] of [
   ["popup", popupBundle],
-  ["content", contentBundle],
-  ["douyin content", douyinContentBundle]
+  ["content", contentBundle]
 ]) {
   if (!source.includes("createApp") || !source.includes("Vue")) {
     throw new Error(`${name} bundle does not contain the Vue runtime`);
   }
 }
-if (pageHookBundle.includes("function createAppContext")
-    || pageHookBundle.includes("@vue/runtime")) {
-  throw new Error("The document_start MAIN-world hook must not bundle the Vue runtime");
+if (!contentBundle.includes("danmakuEchoFavoritesV1")) {
+  throw new Error("The Bilibili content bundle must include the local favorites runtime");
 }
-if (!contentBundle.includes("danmakuEchoFavoritesV1")
-    || !douyinContentBundle.includes("danmakuEchoFavoritesV1")
-    || !contentBundle.includes("bcp-favorites-radial")
-    || !douyinContentBundle.includes("bcp-favorites-radial")) {
-  throw new Error("The Huya/Bilibili and Douyin bundles must include the local favorites runtime");
-}
-for (const [name, source] of [
-  ["Huya/Bilibili", contentBundle],
-  ["Douyin", douyinContentBundle]
-]) {
+for (const [name, source] of [["Bilibili", contentBundle]]) {
   if (!source.includes("attachShadow")
       || !source.includes("bcp-favorites-host")
       || !source.includes("data-bcp-favorites-runtime-owner")

@@ -17,16 +17,14 @@ const root = resolve(__dirname, "..");
 const REQUIRED_ENTRIES = Object.freeze([
   "manifest.json",
   "LICENSE",
+  "NOTICE.md",
+  "README.md",
   "index.html",
   "assets/danmaku-echo-icon.png",
   "assets/icons/icon-128.png",
   "background/service-worker.js",
   "src/shared.js",
   "src/content.js",
-  "src/douyin-bootstrap.js",
-  "src/douyin-page-hook.js",
-  "src/douyin-content.js",
-  "src/douyin-content.css",
 ]);
 const STORED_EXTENSIONS = new Set([".avif", ".gif", ".jpg", ".jpeg", ".png", ".webp", ".zip"]);
 
@@ -50,7 +48,7 @@ function extensionFiles(directory) {
   return files;
 }
 
-function archiveInput(extensionRoot, licensePath) {
+function archiveInput(extensionRoot, licensePath, noticePath, readmePath) {
   const input = Object.create(null);
   for (const file of extensionFiles(extensionRoot)) {
     const name = normalizedRelativePath(extensionRoot, file);
@@ -59,6 +57,8 @@ function archiveInput(extensionRoot, licensePath) {
     input[name] = [readFileSync(file), { level }];
   }
   input.LICENSE = [readFileSync(licensePath), { level: 9 }];
+  input["NOTICE.md"] = [readFileSync(noticePath), { level: 9 }];
+  input["README.md"] = [readFileSync(readmePath), { level: 9 }];
   return input;
 }
 
@@ -80,11 +80,19 @@ function packageArchive(options = {}) {
   const extensionRoot = join(projectRoot, "build", "extension");
   const manifestPath = join(extensionRoot, "manifest.json");
   const licensePath = join(projectRoot, "LICENSE");
+  const noticePath = join(projectRoot, "NOTICE.md");
+  const readmePath = join(projectRoot, "README.md");
   if (!existsSync(manifestPath)) {
     throw new Error("Build output is missing. Run npm run build first.");
   }
   if (!existsSync(licensePath) || !statSync(licensePath).isFile()) {
     throw new Error("Project LICENSE is missing.");
+  }
+  if (!existsSync(noticePath) || !statSync(noticePath).isFile()) {
+    throw new Error("Project NOTICE.md is missing.");
+  }
+  if (!existsSync(readmePath) || !statSync(readmePath).isFile()) {
+    throw new Error("Project README.md is missing.");
   }
 
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
@@ -94,11 +102,11 @@ function packageArchive(options = {}) {
       ? resolve(outputArgument)
       : resolve(projectRoot, outputArgument)
     : join(projectRoot, "dist");
-  const destination = join(outputDir, `danmaku-echo-v${manifest.version}.zip`);
+  const destination = join(outputDir, `bililive-danmaku-plus-one-v${manifest.version}.zip`);
 
   mkdirSync(outputDir, { recursive: true });
   rmSync(destination, { force: true });
-  const data = zipSync(archiveInput(extensionRoot, licensePath), {
+  const data = zipSync(archiveInput(extensionRoot, licensePath, noticePath, readmePath), {
     level: 9,
     // ZIP stores local wall-clock fields. Constructing a local date keeps the
     // encoded timestamp identical on runners in different time zones.

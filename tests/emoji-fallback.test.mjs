@@ -136,7 +136,7 @@ test("Bilibili uses its native editor and Emoji panel", () => {
   assert.match(contentSource, /findPlatformEmojiToggle\(input, includeHidden\)/);
   assert.match(contentSource, /async function repeatBilibiliFavoritePayload\(payload\)/);
   assert.match(contentSource, /t\(['"]toastOfficialEmojiNotFound['"]/);
-  assert.match(contentSource, /platformId === ['"]bilibili['"]\s*\? repeatBilibiliFavoritePayload\(payload\)/);
+  assert.match(contentSource, /sendFavorite:\s*repeatBilibiliFavoritePayload/);
   assert.match(contentSource, /setNativeValue\(input, message\)/);
   assert.match(contentSource, /item\.click\(\)/);
   assert.match(contentSource, /button\.click\(\)/);

@@ -4,12 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
-    <title>Danmaku Echo 隐私政策 / Privacy Policy</title>
+    <title>bililive-danmaku-plus-one 隐私政策 / Privacy Policy</title>
     <style>
       :root { font-family: Inter, "Noto Sans SC", system-ui, sans-serif; color-scheme: light dark; }
       body { margin: 0; background: Canvas; color: CanvasText; line-height: 1.7; }
       main { width: min(860px, calc(100% - 40px)); margin: 0 auto; padding: 56px 0 80px; }
-      h1 { margin: 0 0 8px; font-size: clamp(2rem, 5vw, 3rem); letter-spacing: -.04em; }
+      h1 { margin: 0 0 8px; font-size: clamp(2rem, 5vw, 3rem); }
       h2 { margin-top: 40px; padding-top: 8px; border-top: 1px solid color-mix(in srgb, CanvasText 18%, transparent); }
       h3 { margin-top: 28px; }
       .meta { color: GrayText; }
@@ -20,34 +20,30 @@
   </head>
   <body>
     <main>
-      <h1>Danmaku Echo</h1>
-      <p class="meta">隐私政策 / Privacy Policy · 生效日期 / Effective: 2026-08-03</p>
+      <h1>bililive-danmaku-plus-one</h1>
+      <p class="meta">隐私政策 / Privacy Policy · 2026-08-10</p>
       <nav aria-label="Languages"><a href="#zh-cn">中文</a><a href="#english">English</a></nav>
 
       <section id="zh-cn" lang="zh-CN">
         <h2>中文</h2>
-        <p>Danmaku Echo 不收集、传输、出售或与第三方共享个人数据，也不使用远程代码或分析服务。</p>
+        <p>本扩展仅在 B 站直播页面提供弹幕 +1、回复、全屏发送、本地收藏和用户主动配置的独轮车循环发送，不收集、出售或共享用户数据，也不使用分析、广告、跟踪或远程代码。</p>
         <h3>本地数据</h3>
-        <p>扩展设置由浏览器的 <code>storage.sync</code> 保存，是否跨设备同步由浏览器账户和浏览器设置决定。弹幕收藏及其必要的显示资源信息仅保存在 <code>storage.local</code>，不会由本扩展上传。卸载扩展或清除扩展数据可能删除这些内容。</p>
-        <h3>页面访问与权限</h3>
-        <p>扩展仅在虎牙直播、哔哩哔哩直播、抖音直播和斗鱼直播页面识别弹幕，并通过网站现有的官方输入框和交互控件执行用户明确发起的 +1 或回复操作。<code>scripting</code> 权限仅用于抖音直播单页路由切换后恢复扩展运行时。扩展不会读取或保存 Cookie、密码、CSRF、登录令牌或请求体。</p>
-        <h3>诊断信息</h3>
-        <p>“复制当前页面诊断”只在内存中生成结构化状态，并在用户点击后复制到剪贴板。诊断不包含弹幕正文、用户名、UID、房间号、完整 URL、Cookie、CSRF、收藏内容或请求体；扩展不会自动上传或持久化诊断。</p>
-        <h3>变更与联系</h3>
-        <p>政策变更会在此页面和项目版本记录中公布。问题可通过 <a href="https://github.com/SadUnicorn171/danmaku-echo/issues">GitHub Issues</a> 联系维护者。</p>
+        <p>设置由 <code>storage.sync</code> 保存。收藏和独轮车配置保存在 <code>storage.local</code>；收藏只在用户明确选择并授权目录后同步到本地 JSON 文件。扩展不会上传收藏。</p>
+        <h3>页面访问与发送</h3>
+        <p>扩展仅访问 <code>live.bilibili.com</code>。普通模式使用 B 站官方输入框；全屏模式可在 B 站页面上下文中发起用户明确要求的官方弹幕请求。CSRF 值只用于当次 B 站请求，不写入存储或诊断，也不发送给 B 站之外的服务。</p>
+        <h3>诊断</h3>
+        <p>诊断仅在用户点击后复制，且不包含弹幕正文、账号信息、Cookie、CSRF、收藏内容、房间号或完整 URL，不会自动上传。</p>
       </section>
 
       <section id="english" lang="en">
         <h2>English</h2>
-        <p>Danmaku Echo does not collect, transmit, sell, or share personal data. It does not use remote code or analytics services.</p>
+        <p>This extension provides +1, reply preparation, fullscreen sending, local favorites, and a user-configured repeating sender only on Bilibili Live. It does not collect, sell, or share user data and uses no analytics, advertising, tracking, or remote code.</p>
         <h3>Local data</h3>
-        <p>Extension preferences are stored with the browser's <code>storage.sync</code>; browser account settings determine whether they synchronize between devices. Danmaku favorites and the resource metadata needed to display them stay in <code>storage.local</code> and are never uploaded by this extension. Uninstalling the extension or clearing extension data may remove them.</p>
-        <h3>Site access and permissions</h3>
-        <p>The extension recognizes danmaku only on Huya Live, Bilibili Live, Douyin Live, and Douyu Live pages. It uses the sites' existing official editors and controls for user-initiated +1 and reply actions. The <code>scripting</code> permission is used only to restore the extension runtime after Douyin single-page navigation. The extension does not read or store cookies, passwords, CSRF values, login tokens, or request bodies.</p>
+        <p>Preferences use <code>storage.sync</code>. Favorites and repeating-sender settings stay in <code>storage.local</code>; favorites are synchronized to local JSON files only after the user explicitly selects and authorizes a folder. Favorites are never uploaded by the extension.</p>
+        <h3>Site access and sending</h3>
+        <p>The extension accesses only <code>live.bilibili.com</code>. It uses the official editor in normal mode and may perform a user-requested official danmaku request in the Bilibili page context during fullscreen. CSRF values are used only for that Bilibili request and are never stored, included in diagnostics, or sent elsewhere.</p>
         <h3>Diagnostics</h3>
-        <p>“Copy current-page diagnostics” generates structural state in memory and copies it only after a user click. It excludes danmaku text, usernames, UIDs, room identifiers, full URLs, cookies, CSRF values, favorites, and request bodies. Diagnostics are neither uploaded nor persisted automatically.</p>
-        <h3>Changes and contact</h3>
-        <p>Policy changes will be published on this page and in the project changelog. Contact the maintainer through <a href="https://github.com/SadUnicorn171/danmaku-echo/issues">GitHub Issues</a>.</p>
+        <p>Diagnostics are copied only after a user action. They exclude danmaku text, account information, cookies, CSRF values, favorites, room identifiers, and full URLs, and are never uploaded automatically.</p>
       </section>
     </main>
   </body>

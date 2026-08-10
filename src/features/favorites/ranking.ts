@@ -35,6 +35,11 @@ function compareFavorites(
   second: FavoriteDisplayItem,
   sort: FavoriteSort
 ): number {
+  if (sort === "custom") {
+    return first.customOrder - second.customOrder
+      || first.sortTimestamp - second.sortTimestamp
+      || first.id.localeCompare(second.id);
+  }
   if (sort === "time-asc") {
     return first.sortTimestamp - second.sortTimestamp
       || first.createdAt - second.createdAt
@@ -59,6 +64,8 @@ function displayItem(
   return {
     ...item,
     belongsToCurrentRoom: belongsToRoom(item, room.roomKey),
+    customOrder: Number(item.roomStats[roomKey || room.roomKey]?.customOrder)
+      || collectedAt(item, roomKey),
     sourceLabel: sourceLabel(item, room, roomKey),
     sortTimestamp: collectedAt(item, roomKey)
   };

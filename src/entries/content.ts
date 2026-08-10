@@ -1,7 +1,5 @@
 // @ts-nocheck -- platform DOM adapter; typed modules cover its stable boundaries.
-import { LIVE_PLATFORM_CONFIG, isSupportedContentPlatform } from '../platforms/live/config'
 import {
-  shouldHideNativeDanmakuCapsule,
   visibleActionsForSurface,
 } from '../platforms/live/action-visibility'
 import {
@@ -9,13 +7,8 @@ import {
   unicodeEmojiFallbackText,
 } from '../platforms/live/emoji-fallback'
 import { SenderCorrelationCache } from '../platforms/live/sender-correlation'
-import {
-  DOUYU_NATIVE_DANMAKU_ACTION_MARKER,
-  DOUYU_NATIVE_DANMAKU_ACTION_SELECTORS,
-  DOUYU_NATIVE_DANMAKU_CAPSULE_CONTAINER_SELECTORS,
-  DouyuNativeCapsuleVisibilityController,
-  findDouyuNativeDanmakuCapsuleTargets,
-} from '../platforms/douyu/native-capsule'
+import { createBilibiliAdapter } from '../platforms/bilibili/adapter'
+import { BILIBILI_PLATFORM_CONFIG } from '../platforms/bilibili/config'
 import {
   BILIBILI_CHAT_ACTION_SURFACES,
   BILIBILI_CHAT_ACTION_TEXT,
@@ -29,20 +22,16 @@ import {
   isBilibiliAdvertisementLabel,
   isBilibiliAdvertisementMarker,
 } from '../platforms/bilibili/dom-config'
+import { BILIBILI_SEND_MESSAGE } from '../platforms/bilibili/page-send'
 import { normalizedAssetKeys as normalizedRichAssetKeys } from '../platforms/douyin/rich-data'
 import { createFavoritesRuntime } from '../features/favorites/launcher'
 import { createContentOverlay } from '../components/live/content-overlay'
 import { createDiagnosticsCollector } from '../core/diagnostics'
-import { createLivePlatformAdapter } from '../platforms/live/adapters'
 import {
   BILIBILI_NATIVE_PANEL_IDENTITY_ATTRIBUTES,
-  DOUYU_EMOJI_SURFACE_SELECTORS,
-  DOUYU_EMOJI_TOGGLE_SELECTORS,
   EDITABLE_CONTROL_SELECTOR,
   EMOJI_DISPLAY_ATTRIBUTES,
   EMOJI_METADATA_ATTRIBUTES,
-  HUYA_EMOJI_SURFACE_SELECTORS,
-  HUYA_EMOJI_TOGGLE_SELECTORS,
   LEGACY_BILIBILI_EXCLUSIVE_ASSET_KEY_PREFIX,
   NATIVE_PANEL_ASSET_KEY_PREFIX,
   PLATFORM_EMOJI_CATEGORY_SELECTORS,
@@ -66,28 +55,18 @@ import { t } from '../core/i18n'
   'use strict'
 
   const shared = globalThis.DanmakuEchoShared
-  const platformId = shared && shared.detectPlatform(location.hostname)
+  const platformId = 'bilibili'
 
-  if (!shared || !isSupportedContentPlatform(platformId) || globalThis.__bulletPlusOneLoaded) {
+  if (!shared || !/(^|\.)live\.bilibili\.com$/i.test(location.hostname) || globalThis.__bulletPlusOneLoaded) {
     return
   }
 
   globalThis.__bulletPlusOneLoaded = true
 
-  const config = LIVE_PLATFORM_CONFIG[platformId]
-  const platformName = t(platformId === 'bilibili'
-    ? 'platformBilibili'
-    : platformId === 'douyu'
-      ? 'platformDouyu'
-      : 'platformHuya')
-  const platformAdapter = createLivePlatformAdapter(platformId)
-  const INERT_SNAPSHOT_SKIP_SELECTOR = inertSnapshotSkipSelector([
-    `[${DOUYU_NATIVE_DANMAKU_ACTION_MARKER}]`,
-    ...DOUYU_NATIVE_DANMAKU_ACTION_SELECTORS,
-  ])
-  const DOUYU_NATIVE_DANMAKU_ACTION_SELECTOR = DOUYU_NATIVE_DANMAKU_ACTION_SELECTORS.join(',')
-  const DOUYU_NATIVE_DANMAKU_CAPSULE_CONTAINER_SELECTOR =
-    DOUYU_NATIVE_DANMAKU_CAPSULE_CONTAINER_SELECTORS.join(',')
+  const config = BILIBILI_PLATFORM_CONFIG
+  const platformName = t('platformBilibili')
+  const platformAdapter = createBilibiliAdapter()
+  const INERT_SNAPSHOT_SKIP_SELECTOR = inertSnapshotSkipSelector()
   const OVERLAY_HOVER_PADDING = 14
   const OVERLAY_LEAVE_DELAY = 160
   const BILIBILI_OVERLAY_ROW_SELECTOR = '.bili-danmaku-x-dm'
@@ -104,19 +83,19 @@ import { t } from '../core/i18n'
     sender: '',
     selectedAt: 0,
     senderCorrelation: new SenderCorrelationCache(),
-    douyuNativeCapsuleVisibility: new DouyuNativeCapsuleVisibilityController(),
-    douyuNativeCapsuleMutationRoots: new Set(),
     senderObserver: null,
     senderScanTimer: 0,
     senderLastScanAt: 0,
     richPayload: null,
     hideTimer: 0,
     lastActionAt: 0,
+    sendInProgress: false,
     roots: [document],
     rootsCachedAt: 0,
     ui: null,
     portal: null,
     actionBar: null,
+    actionReferenceFontSize: 0,
     button: null,
     replyButton: null,
     favoriteButton: null,
@@ -380,6 +359,13 @@ import { t } from '../core/i18n'
     return null
   }
 
+  function pathInsideBilibiliVideo(path) {
+    if (platformId !== 'bilibili') return true
+    return path.some(
+      (item) => item instanceof Element && Boolean(closestMatching(item, config.videoRoots)),
+    )
+  }
+
   function elementMarker(element) {
     if (!(element instanceof Element)) {
       return ''
@@ -609,6 +595,10 @@ import { t } from '../core/i18n'
         ? { element: overlay, kind: 'overlay' }
         : null
     }
+
+    // This personal Bilibili build intentionally exposes actions only for
+    // scrolling danmaku over the player, never for the right-side chat list.
+    if (platformId === 'bilibili') return null
 
     if (
       pathTouchesBilibiliQuickInput(path) ||
@@ -1565,147 +1555,6 @@ import { t } from '../core/i18n'
         now,
       })
     })
-    markDouyuOwnMessages()
-  }
-
-  function currentDouyuUserName() {
-    if (platformId !== 'douyu') return ''
-    const candidates = queryAllDeep([
-      '.FansMedalEnter-enterName',
-      '.ChatSpeak .FansMedalPanel-enter',
-      "[class*='FansMedalEnter-enterName']",
-    ])
-    for (const candidate of candidates) {
-      const name = shared.normalizeSenderName(
-        candidate.textContent || candidate.getAttribute('title'),
-      )
-      if (name) return name
-    }
-    return ''
-  }
-
-  function douyuNativeCapsuleBoundary(element) {
-    let boundary = element
-    for (let depth = 0; depth < 6; depth += 1) {
-      const parent = boundary.parentElement
-      if (!parent || parent === document.body || parent === document.documentElement) {
-        break
-      }
-      boundary = parent
-      if (boundary.matches("[class*='danmuItem-']")) break
-    }
-    return boundary
-  }
-
-  function scanDouyuNativeDanmakuCapsules() {
-    if (platformId !== 'douyu') return
-
-    if (!shouldHideNativeDanmakuCapsule(state.settings, platformId)) {
-      state.douyuNativeCapsuleVisibility.showAll()
-      state.douyuNativeCapsuleMutationRoots.clear()
-      return
-    }
-
-    state.douyuNativeCapsuleVisibility.releaseDisconnected()
-    state.douyuNativeCapsuleVisibility.reinforce()
-    const actionElements = queryAllDeep(DOUYU_NATIVE_DANMAKU_ACTION_SELECTORS).filter(
-      (element) => !isOwned(element),
-    )
-    const roots = new Set(
-      queryAllDeep(config.overlayMessages)
-        .slice(-160)
-        .map((element) => element.closest("[class*='danmuItem-']") || element)
-        .filter((element) => !isOwned(element)),
-    )
-    actionElements.forEach((action) => {
-      roots.add(douyuNativeCapsuleBoundary(action))
-    })
-    state.douyuNativeCapsuleMutationRoots.forEach((root) => {
-      if (root.isConnected && !isOwned(root)) roots.add(root)
-    })
-    state.douyuNativeCapsuleMutationRoots.clear()
-
-    const activeTargets = new Set()
-    actionElements.forEach((target) => activeTargets.add(target))
-    queryAllDeep(DOUYU_NATIVE_DANMAKU_CAPSULE_CONTAINER_SELECTORS)
-      .filter((element) => !isOwned(element))
-      .forEach((target) => activeTargets.add(target))
-    roots.forEach((root) => {
-      findDouyuNativeDanmakuCapsuleTargets(root).forEach((target) => {
-        if (!isOwned(target)) activeTargets.add(target)
-      })
-    })
-    state.douyuNativeCapsuleVisibility.hide(activeTargets)
-  }
-
-  function mutationContainsDouyuNativeDanmakuCapsule(mutation) {
-    if (platformId !== 'douyu') return false
-
-    const elements = []
-    if (mutation.target instanceof Element) elements.push(mutation.target)
-    Array.from(mutation.addedNodes || []).forEach((node) => {
-      if (node instanceof Element) elements.push(node)
-    })
-
-    let found = false
-    elements.forEach((element) => {
-      if (isOwned(element)) return
-      try {
-        const action = element.matches(DOUYU_NATIVE_DANMAKU_ACTION_SELECTOR)
-          ? element
-          : element.querySelector(DOUYU_NATIVE_DANMAKU_ACTION_SELECTOR)
-        const container = element.matches(DOUYU_NATIVE_DANMAKU_CAPSULE_CONTAINER_SELECTOR)
-          ? element
-          : element.querySelector(DOUYU_NATIVE_DANMAKU_CAPSULE_CONTAINER_SELECTOR)
-        if (action || container) {
-          state.douyuNativeCapsuleMutationRoots.add(container || douyuNativeCapsuleBoundary(action))
-          found = true
-          return
-        }
-      } catch {
-        // Fall through to the text-label detector for future Douyu variants.
-      }
-
-      const text = String(element.textContent || '').replace(/\s+/gu, '')
-      if (
-        text &&
-        text.length <= 120 &&
-        ['+1', '回复', '收藏'].filter((label) => text.includes(label)).length >= 2
-      ) {
-        state.douyuNativeCapsuleMutationRoots.add(douyuNativeCapsuleBoundary(element))
-        found = true
-      }
-    })
-    return found
-  }
-
-  function markDouyuOwnMessages() {
-    if (platformId !== 'douyu') return
-    const ownName = currentDouyuUserName()
-    if (!ownName) return
-
-    queryAllDeep(config.messages)
-      .slice(-240)
-      .forEach((row) => {
-        if (isOwned(row)) return
-        const own = senderFromChatContext(row) === ownName
-        if (own) row.setAttribute('data-bcp-douyu-own-chat', 'true')
-        else row.removeAttribute('data-bcp-douyu-own-chat')
-        const content = messageElementFromCandidate(row)
-        if (content && own) content.setAttribute('data-bcp-douyu-own-chat-content', 'true')
-        else if (content) content.removeAttribute('data-bcp-douyu-own-chat-content')
-      })
-
-    queryAllDeep(config.overlayMessages)
-      .slice(-120)
-      .forEach((message) => {
-        if (isOwned(message)) return
-        if (senderFromElement(message) === ownName) {
-          message.setAttribute('data-bcp-douyu-own-overlay', 'true')
-        } else {
-          message.removeAttribute('data-bcp-douyu-own-overlay')
-        }
-      })
   }
 
   function scheduleSenderCacheScan(delay) {
@@ -1809,7 +1658,7 @@ import { t } from '../core/i18n'
     cancelHide()
     if (action === 'reply') {
       void prepareReply().catch((error) => {
-        console.warn('[Danmaku Echo] reply preparation failed', {
+        console.warn('[bililive-danmaku-plus-one] reply preparation failed', {
           platform: platformId,
           reason: error instanceof Error ? error.message : String(error),
         })
@@ -1947,11 +1796,38 @@ import { t } from '../core/i18n'
     }
 
     const rect = positionTarget.getBoundingClientRect()
+    const messageElement = state.candidate
+      ? messageElementFromCandidate(state.candidate)
+      : null
+    const fontTarget = messageElement instanceof Element ? messageElement : state.candidate
+    const computedFontSize = fontTarget instanceof Element
+      ? Number.parseFloat(getComputedStyle(fontTarget).fontSize)
+      : 0
+    const fontRect = fontTarget instanceof Element ? fontTarget.getBoundingClientRect() : null
+    const layoutHeight = fontTarget instanceof HTMLElement ? fontTarget.offsetHeight : 0
+    const renderedScale = fontRect && layoutHeight > 0
+      ? Math.max(0.25, Math.min(fontRect.height / layoutHeight, 4))
+      : 1
+    const renderedFontSize = computedFontSize * renderedScale
+    if (state.candidateKind === 'overlay' && renderedFontSize > 0) {
+      if (state.actionReferenceFontSize <= 0) {
+        state.actionReferenceFontSize = renderedFontSize
+      }
+      const actionScale = Math.max(
+        0.5,
+        Math.min(renderedFontSize / state.actionReferenceFontSize, 2),
+      )
+      state.actionBar.style.setProperty('--bcp-action-scale', String(actionScale))
+    } else {
+      state.actionBar.style.setProperty('--bcp-action-scale', '1')
+    }
     const buttonRect = state.actionBar.getBoundingClientRect()
-    const preferredLeft = rect.right + 8
-    const fallbackLeft = rect.right - buttonRect.width - 4
-    const left = preferredLeft + buttonRect.width <= innerWidth - 8 ? preferredLeft : fallbackLeft
-    const top = rect.top + (rect.height - buttonRect.height) / 2
+    const left = rect.left + (rect.width - buttonRect.width) / 2
+    const preferredTop = rect.bottom + 8
+    const fallbackTop = rect.top - buttonRect.height - 8
+    const top = preferredTop + buttonRect.height <= innerHeight - 8
+      ? preferredTop
+      : fallbackTop
 
     state.actionBar.style.left = `${Math.max(8, Math.min(left, innerWidth - buttonRect.width - 8))}px`
     state.actionBar.style.top = `${Math.max(8, Math.min(top, innerHeight - buttonRect.height - 8))}px`
@@ -2349,7 +2225,7 @@ import { t } from '../core/i18n'
           scanDom: attempt === 0,
         })
       } catch (error) {
-        console.warn('[Danmaku Echo] sender resolution failed', {
+        console.warn('[bililive-danmaku-plus-one] sender resolution failed', {
           attempt: attempt + 1,
           platform: platformId,
           reason: error instanceof Error ? error.message : String(error),
@@ -2513,24 +2389,10 @@ import { t } from '../core/i18n'
           fullscreenElement() ||
           closestMatching(editor, config.videoRoots) ||
           queryAllDeep(config.videoRoots).find((element) => isVisible(element))
-        let container = editor.closest(BILIBILI_QUICK_BAR_SELECTORS.join(','))
-        if (!container || container === editor) {
-          container = editor.parentElement || editor
-          const playerRect = player && player.getBoundingClientRect()
-          let current = container
-          for (let depth = 0; current && current !== player && depth < 5; depth += 1) {
-            const rect = current.getBoundingClientRect()
-            const widthLimit =
-              playerRect && playerRect.width > 0
-                ? playerRect.width * 0.9
-                : Math.max(800, innerWidth * 0.8)
-            if (rect.height <= 0 || rect.height > 120 || rect.width > widthLimit) {
-              break
-            }
-            container = current
-            current = current.parentElement
-          }
-        }
+        const container = editor.closest(BILIBILI_QUICK_BAR_SELECTORS.join(','))
+        // Never guess an ancestor here. A wrong guess can hide the entire
+        // danmaku layer until another trusted user event restores its styles.
+        if (!container || container === editor || container === player) continue
         if (state.hiddenBilibiliQuickBars.has(container)) {
           state.hiddenBilibiliQuickBars.get(container).hiddenAt = Date.now()
           container.style.setProperty('display', 'none', 'important')
@@ -2733,22 +2595,18 @@ import { t } from '../core/i18n'
 
     release()
     if (platformId === 'bilibili') {
-      // The fullscreen player focuses its quick editor again after its send
-      // handler returns. Recheck across that short asynchronous focus cycle.
-      ;[80, 200, 400, 700, 1100, 1600].forEach((delay) => setTimeout(release, delay))
+      // One next-tick blur is enough for the native editor. Long delayed blur
+      // cycles interfere with selecting the next danmaku after a +1 action.
+      setTimeout(release, 80)
     }
   }
 
   function platformEmojiToggleSelectors() {
-    if (platformId === 'bilibili') return BILIBILI_EMOJI_TOGGLE_SELECTORS
-    if (platformId === 'douyu') return DOUYU_EMOJI_TOGGLE_SELECTORS
-    return HUYA_EMOJI_TOGGLE_SELECTORS
+    return BILIBILI_EMOJI_TOGGLE_SELECTORS
   }
 
   function platformEmojiSurfaceSelectors() {
-    if (platformId === 'bilibili') return BILIBILI_EMOJI_SURFACE_SELECTORS
-    if (platformId === 'douyu') return DOUYU_EMOJI_SURFACE_SELECTORS
-    return HUYA_EMOJI_SURFACE_SELECTORS
+    return BILIBILI_EMOJI_SURFACE_SELECTORS
   }
 
   function platformEmojiItemCandidates(includeHidden = false) {
@@ -3354,55 +3212,97 @@ import { t } from '../core/i18n'
 
   async function repeatMessage(message) {
     const now = Date.now()
-    if (now - state.lastActionAt < 700) {
+    if (state.sendInProgress || now - state.lastActionAt < 700) {
       showToast(t('toastActionTooFast'), 'warning')
       return false
     }
     state.lastActionAt = now
+    state.sendInProgress = true
+    state.ui?.setSending(true)
 
-    const input = findInput()
-    if (!input) {
-      showToast(t('toastEditorNotFound', platformName), 'error')
-      return false
-    }
+    try {
+      // Bilibili's fullscreen editors are mounted lazily and reject synthetic
+      // key events in several player variants. Send plain text through the
+      // site's authenticated page context first while fullscreen is active.
+      if (fullscreenActive() && (await sendBilibiliViaPageContext(message))) {
+        showToast(t('toastPlusOneSent'), 'success')
+        return true
+      }
 
-    setNativeValue(input, message)
-    await new Promise((resolve) => setTimeout(resolve, 80))
-    let button = findSendButton(input)
+      const input = findInput()
+      if (!input) {
+        showToast(t('toastEditorNotFound', platformName), 'error')
+        return false
+      }
 
-    if (button) {
-      button.click()
-    } else {
-      pressEnter(input)
-    }
+      setNativeValue(input, message)
+      await new Promise((resolve) => setTimeout(resolve, 80))
+      let button = findSendButton(input)
+
+      if (button) {
+        button.click()
+      } else {
+        pressEnter(input)
+      }
 
     // Live sites occasionally replace or temporarily disable their send
     // control after the editor updates. Do not report success merely because a
     // stale button accepted click(); a successful send consumes the editor.
-    let consumed = await waitForInputConsumption(input, message, 320)
-    if (!consumed) {
-      pressEnter(input)
-      consumed = await waitForInputConsumption(input, message, 260)
-    }
+      let consumed = await waitForInputConsumption(input, message, 320)
+      if (!consumed) {
+        pressEnter(input)
+        consumed = await waitForInputConsumption(input, message, 260)
+      }
 
     // Re-query after the framework has processed the input event. Bilibili in
     // particular may mount an enabled send control only after that update.
-    if (!consumed) {
-      button = findSendButton(input)
-      if (button) {
-        button.click()
-        consumed = await waitForInputConsumption(input, message, 320)
+      if (!consumed) {
+        button = findSendButton(input)
+        if (button) {
+          button.click()
+          consumed = await waitForInputConsumption(input, message, 320)
+        }
       }
-    }
 
-    if (!consumed) {
-      showToast(t('toastAutomaticSendFailed'), 'error')
-      return false
-    }
+      if (!consumed) {
+        showToast(t('toastAutomaticSendFailed'), 'error')
+        return false
+      }
 
-    releaseInputFocus(input)
-    showToast(t('toastPlusOneSent'), 'success')
-    return true
+      releaseInputFocus(input)
+      showToast(t('toastPlusOneSent'), 'success')
+      return true
+    } finally {
+      state.sendInProgress = false
+      state.ui?.setSending(false)
+    }
+  }
+
+  function sendBilibiliViaPageContext(message) {
+    return new Promise((resolve) => {
+      let settled = false
+      const finish = (success) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve(success)
+      }
+      const timer = setTimeout(() => finish(false), 5000)
+      try {
+        chrome.runtime.sendMessage(
+          { type: BILIBILI_SEND_MESSAGE, message },
+          (response) => {
+            if (chrome.runtime.lastError) {
+              finish(false)
+              return
+            }
+            finish(Boolean(response?.ok))
+          },
+        )
+      } catch {
+        finish(false)
+      }
+    })
   }
 
   function onPlusOneClick(event) {
@@ -3414,12 +3314,16 @@ import { t } from '../core/i18n'
     const message = state.message
     const richPayload = state.richPayload
     diagnostics.record({ type: 'action.plus-one', stage: state.candidateKind || 'unknown' })
-    if (richPayload && richPayload.assets.length) {
-      repeatPlatformRichPayload(richPayload)
-    } else if (message) {
-      repeatMessage(message)
-    }
-    scheduleHide()
+    const sendOperation = richPayload && richPayload.assets.length
+      ? repeatPlatformRichPayload(richPayload)
+      : message
+        ? repeatMessage(message)
+        : null
+    // The send operation has captured its payload. Release the frozen clone
+    // and resume the original animation immediately so the next danmaku can
+    // be selected without waiting for hover timers or moving off the toolbar.
+    clearSelection()
+    void sendOperation
   }
 
   function onPointerOver(event) {
@@ -3437,20 +3341,23 @@ import { t } from '../core/i18n'
       return
     }
 
+    if (
+      !pathInsideBilibiliVideo(path) ||
+      pathTouchesBilibiliQuickInput(path) ||
+      pathTouchesBilibiliChatActions(path) ||
+      pathTouchesBilibiliChatAdvertisement(path)
+    ) {
+      if (state.candidate) clearSelection()
+      return
+    }
+
     const found = findCandidate(path)
     if (found && found.element !== state.candidate) {
       selectCandidate(found.element, found.kind)
     } else if (!found && platformId === 'bilibili') {
-      if (
-        pathTouchesBilibiliChatActions(path) ||
-        pathTouchesBilibiliChatAdvertisement(path)
-      ) {
-        if (state.candidate) clearSelection()
-        return
-      }
       const elements = document.elementsFromPoint(event.clientX, event.clientY)
       const pointFound = findCandidate(elements)
-      if (pointFound && pointFound.element !== state.candidate) {
+      if (pointFound && pointFound.kind === 'overlay' && pointFound.element !== state.candidate) {
         selectCandidate(pointFound.element, pointFound.kind)
       }
     }
@@ -3522,22 +3429,33 @@ import { t } from '../core/i18n'
     state.pointerX = event.clientX
     state.pointerY = event.clientY
 
-    if (state.candidateKind === 'overlay' && state.frozenClone && state.frozenClone.isConnected) {
-      const insideHoverZone = isInsideFrozenHoverZone(state.pointerX, state.pointerY)
-      if (insideHoverZone) {
-        cancelHide()
-      } else {
-        scheduleHide()
-      }
+    // A long frozen danmaku can extend beyond the player bounds. Keep the
+    // selection while the pointer is still over that exact snapshot so its
+    // action bar remains reachable outside the video rectangle.
+    if (
+      state.candidateKind === 'overlay' &&
+      state.frozenClone &&
+      state.frozenClone.isConnected &&
+      isInsideFrozenHoverZone(state.pointerX, state.pointerY)
+    ) {
+      cancelHide()
       return
     }
 
-    if (state.candidateKind === 'chat') {
-      const path = event.composedPath ? event.composedPath() : [event.target]
-      if (pathTouchesBilibiliChatActions(path)) {
-        clearSelection()
-        return
-      }
+    const path = event.composedPath ? event.composedPath() : [event.target]
+    if (
+      !pathInsideBilibiliVideo(path) ||
+      pathTouchesBilibiliQuickInput(path) ||
+      pathTouchesBilibiliChatActions(path) ||
+      pathTouchesBilibiliChatAdvertisement(path)
+    ) {
+      if (state.candidate) clearSelection()
+      return
+    }
+
+    if (state.candidateKind === 'overlay' && state.frozenClone && state.frozenClone.isConnected) {
+      scheduleHide()
+      return
     }
 
     if (state.pointerFrame) {
@@ -3591,7 +3509,12 @@ import { t } from '../core/i18n'
     }
 
     const path = event.composedPath ? event.composedPath() : [event.target]
-    if (pathTouchesBilibiliChatActions(path)) {
+    if (
+      !pathInsideBilibiliVideo(path) ||
+      pathTouchesBilibiliQuickInput(path) ||
+      pathTouchesBilibiliChatActions(path) ||
+      pathTouchesBilibiliChatAdvertisement(path)
+    ) {
       return
     }
     let found = findCandidate(path)
@@ -3605,8 +3528,9 @@ import { t } from '../core/i18n'
 
     event.preventDefault()
     event.stopPropagation()
-    repeatMessage(state.message)
-    scheduleHide()
+    const message = state.message
+    clearSelection()
+    void repeatMessage(message)
   }
 
   function onViewportChange() {
@@ -3640,8 +3564,6 @@ import { t } from '../core/i18n'
     state.rootsCachedAt = 0
     state.bilibiliOverlayCandidates = []
     state.bilibiliOverlayCandidatesCachedAt = 0
-    state.douyuNativeCapsuleVisibility.showAll()
-    state.douyuNativeCapsuleMutationRoots.clear()
     platformAdapter.cleanup()
   }
 
@@ -3679,19 +3601,8 @@ import { t } from '../core/i18n'
     requestAnimationFrame(updateButtonPosition)
   }
 
-  function syncDouyuNativeCapsuleRootAttribute() {
-    const hideDouyuNativeCapsule = shouldHideNativeDanmakuCapsule(state.settings, platformId)
-    if (hideDouyuNativeCapsule) {
-      document.documentElement.setAttribute('data-bcp-douyu-native-capsule-hidden', 'true')
-    } else {
-      document.documentElement.removeAttribute('data-bcp-douyu-native-capsule-hidden')
-    }
-  }
-
   function applySettings(saved) {
     state.settings = shared.mergeSettings(saved)
-    syncDouyuNativeCapsuleRootAttribute()
-    scanDouyuNativeDanmakuCapsules()
     shared.applyPlatformColors(document.documentElement, state.settings.colors[platformId])
     renderActionBar()
     if (!isEnabled()) {
@@ -3702,14 +3613,6 @@ import { t } from '../core/i18n'
   function startSenderObserver() {
     if (state.senderObserver || !document.documentElement) return
     state.senderObserver = new MutationObserver((mutations) => {
-      let nativeCapsuleRelevant = false
-      if (platformId === 'douyu') {
-        mutations.forEach((mutation) => {
-          if (mutationContainsDouyuNativeDanmakuCapsule(mutation)) {
-            nativeCapsuleRelevant = true
-          }
-        })
-      }
       const relevant = mutations.some((mutation) => {
         const target =
           mutation.target instanceof Element
@@ -3749,45 +3652,24 @@ import { t } from '../core/i18n'
       if (relevant) {
         scheduleSenderCacheScan(40)
       }
-      if (relevant || nativeCapsuleRelevant) {
-        scanDouyuNativeDanmakuCapsules()
-      }
     })
     const observerOptions = {
       childList: true,
       subtree: true,
       characterData: true,
     }
-    if (platformId === 'douyu') {
-      observerOptions.attributes = true
-      observerOptions.attributeFilter = [
-        'aria-hidden',
-        'aria-label',
-        'class',
-        'data-action',
-        'hidden',
-        'style',
-        'title',
-      ]
-    }
     state.senderObserver.observe(document.documentElement, observerOptions)
     scheduleSenderCacheScan(0)
-    scanDouyuNativeDanmakuCapsules()
   }
 
-  syncDouyuNativeCapsuleRootAttribute()
   storageGet().then(applySettings)
   ensureButton()
   startSenderObserver()
   state.favoritesRuntime = createFavoritesRuntime({
     enabled: () => isEnabled() && state.settings.actions.favorite,
+    maxMessageLength: config.maxLength,
     platform: platformId,
-    sendFavorite: (payload) =>
-      platformId === 'bilibili'
-        ? repeatBilibiliFavoritePayload(payload)
-        : payload.assets.length
-          ? repeatPlatformRichPayload(payload)
-          : repeatMessage(payload.text),
+    sendFavorite: repeatBilibiliFavoritePayload,
     showToast,
   })
   document.addEventListener('pointerover', onPointerOver, true)

@@ -37,15 +37,6 @@
         <span>{{ t('settingsSideCapsule') }}</span>
       </a>
       <a
-        :class="['nav-item', { 'is-active': activeSection === 'native-danmaku-capsule' }]"
-        href="#native-danmaku-capsule"
-        :aria-current="activeSection === 'native-danmaku-capsule' ? 'location' : undefined"
-        @click.prevent="emit('navigate', 'native-danmaku-capsule')"
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="5" height="5" rx=".5"/><rect x="10" y="4" width="5" height="5" rx=".5"/><rect x="16" y="4" width="5" height="5" rx=".5"/><rect x="4" y="10" width="5" height="5" rx=".5"/><rect x="16" y="10" width="5" height="5" rx=".5"/><rect x="4" y="16" width="5" height="5" rx=".5"/><rect x="10" y="16" width="5" height="5" rx=".5"/><rect x="16" y="16" width="5" height="5" rx=".5"/><path d="M9 8h2v8H9zM14 8h2v8h-2z"/></svg>
-        <span>{{ t('settingsNativeCapsule') }}</span>
-      </a>
-      <a
         :class="['nav-item', { 'is-active': activeSection === 'platform-colors' }]"
         href="#platform-colors"
         :aria-current="activeSection === 'platform-colors' ? 'location' : undefined"

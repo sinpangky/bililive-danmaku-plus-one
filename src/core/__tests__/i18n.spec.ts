@@ -16,15 +16,15 @@ describe('extension i18n', () => {
     expect(Object.keys(locale('en')).sort()).toEqual(Object.keys(locale('zh_CN')).sort())
   })
 
-  it('uses localized manifest messages', () => {
+  it('uses a fixed Chinese manifest identity', () => {
     const manifest = JSON.parse(readFileSync(
       resolve(process.cwd(), 'public/manifest.json'),
       'utf8',
     ))
     expect(manifest.default_locale).toBe('zh_CN')
-    expect(manifest.name).toBe('__MSG_extensionName__')
-    expect(manifest.description).toBe('__MSG_extensionDescription__')
-    expect(manifest.action.default_title).toBe('__MSG_extensionActionTitle__')
+    expect(manifest.name).toBe('bililive-danmaku-plus-one')
+    expect(manifest.description).toContain('B站直播')
+    expect(manifest.action.default_title).toBe('bililive-danmaku-plus-one 设置')
   })
 
   it('falls back to Chinese when a runtime message is unavailable', () => {
@@ -40,12 +40,13 @@ describe('extension i18n', () => {
     }
   })
 
-  it('uses browser messages and supports scalar and array substitutions', () => {
+  it('keeps Chinese text regardless of browser language and supports substitutions', () => {
     const getMessage = vi.fn<(key: string) => string>(
       (key) => key === 'actionReply' ? 'Reply' : '',
     )
     vi.stubGlobal('chrome', { i18n: { getMessage } })
-    expect(t('actionReply')).toBe('Reply')
+    expect(t('actionReply')).toBe('回复')
+    expect(getMessage).not.toHaveBeenCalled()
     expect(t('actionRepeatTitle', ['first'])).toContain('first')
     expect(t('actionRepeatTitle', 'second')).toContain('second')
     expect(t('missingKey')).toBe('missingKey')

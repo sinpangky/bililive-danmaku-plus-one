@@ -227,7 +227,7 @@ async function inspect() {
       enableInIncognito: false,
       path: path.resolve(extensionPath),
     });
-    if (!loaded?.id) throw new Error("Browser did not return an extension id after loading Danmaku Echo.");
+    if (!loaded?.id) throw new Error("Browser did not return an extension id after loading bililive-danmaku-plus-one.");
     const targetResult = await sendBrowser("Target.getTargets");
     const target = targetResult.targetInfos.find((item) => item.type === "page");
     if (!target) throw new Error("Could not find the browser page target after loading the extension.");
@@ -1889,38 +1889,24 @@ async function inspect() {
       document.dispatchEvent(new KeyboardEvent("keydown", {
         altKey: true, bubbles: true, code: "KeyQ", key: "q"
       }));
-      await delay(230);
-      const favoritesRadial = favoritesRoot.querySelector(".bcp-favorites-radial");
-      const longPressRadialAvailable = Boolean(favoritesRadial
-        && Array.from(favoritesRadial.querySelectorAll(".bcp-favorites-radial-item"))
-          .some((item) => String(item.textContent || "").includes("侧边聊天")));
+      await delay(40);
+      const altQPanelToggleAvailable = Boolean(
+        favoritesRoot.querySelector(".bcp-favorites-panel")
+      );
       const favoritesFullscreenHostCorrect = !fullscreenMode || Boolean(
         document.fullscreenElement
           && favoritesPortal?.parentElement === document.fullscreenElement
       );
-      const radialFavorite = Array.from(
-        favoritesRadial?.querySelectorAll(".bcp-favorites-radial-item.is-favorite") || []
-      ).find((item) => String(item.textContent || "").includes("侧边聊天"));
-      if (radialFavorite) {
-        const rect = radialFavorite.getBoundingClientRect();
-        document.dispatchEvent(new PointerEvent("pointermove", {
-          bubbles: true,
-          clientX: rect.left + rect.width / 2,
-          clientY: rect.top + rect.height / 2,
-          pointerType: "mouse"
-        }));
-        await delay(120);
-      }
-      const radialFavoriteSelected = Boolean(
-        radialFavorite && radialFavorite.classList.contains("is-selected")
-      );
       document.dispatchEvent(new KeyboardEvent("keyup", {
         altKey: true, bubbles: true, code: "KeyQ", key: "q"
       }));
-      await delay(760);
-      const radialQuickSendSucceeded = radialFavoriteSelected
-        && favoritesPortal?.dataset.bcpFavoritesLastSend === "侧边聊天滚动测试"
-        && favoritesPortal?.dataset.bcpFavoritesLastSendResult === "success";
+      document.dispatchEvent(new KeyboardEvent("keydown", {
+        altKey: true, bubbles: true, code: "KeyQ", key: "q"
+      }));
+      document.dispatchEvent(new KeyboardEvent("keyup", {
+        altKey: true, bubbles: true, code: "KeyQ", key: "q"
+      }));
+      await delay(40);
 
       let usernameActionRejected = true;
       let userPanelRejected = true;
@@ -2139,6 +2125,9 @@ async function inspect() {
       return {
         platform,
         messagePlusOneAvailable,
+        bilibiliVideoOnlyScope: platform !== "bilibili" || Boolean(
+          !messagePlusOneAvailable && !favoriteButton && !replyButton
+        ),
         threeActionUi,
         scrollPauseMarkerAbsent,
         scrollStart,
@@ -2155,9 +2144,7 @@ async function inspect() {
         favoriteSendFeedback,
         favoriteRuntimeSendText,
         favoriteRuntimeSendResult,
-        longPressRadialAvailable,
-        radialFavoriteSelected,
-        radialQuickSendSucceeded,
+        altQPanelToggleAvailable,
         favoritesFullscreenHostCorrect,
         replyButtonAvailable: Boolean(replyButton),
         replyPrefilled,
@@ -2182,7 +2169,27 @@ async function inspect() {
         userPanelRejected
       };
     })()`);
-    const sideChatAssertions = [
+    const sideChatAssertions = (normalizedInjectPlatform === "bilibili" ? [
+      "bilibiliVideoOnlyScope",
+      "threeActionUi",
+      "scrollPauseMarkerAbsent",
+      "scrollingRemainsEnabled",
+      "manualScrollPreserved",
+      "favoriteUiSingleton",
+      "currentRoomFocused",
+      "altQPanelToggleAvailable",
+      "favoritesFullscreenHostCorrect",
+      "replyDidNotSend",
+      "replySurfaceCorrect",
+      "overlayReplyButtonAvailable",
+      "overlayReplyPrefilled",
+      "overlayReplyInputFocused",
+      "overlayReplyDidNotSend",
+      "ownMessageFramed",
+      "advertisementRejected",
+      "usernameActionRejected",
+      "userPanelRejected"
+    ] : [
       "messagePlusOneAvailable",
       "threeActionUi",
       "scrollPauseMarkerAbsent",
@@ -2192,9 +2199,7 @@ async function inspect() {
       "favoriteUiSingleton",
       "currentRoomFocused",
       "favoriteQuickSendSucceeded",
-      "longPressRadialAvailable",
-      "radialFavoriteSelected",
-      "radialQuickSendSucceeded",
+      "altQPanelToggleAvailable",
       "favoritesFullscreenHostCorrect",
       "replyButtonAvailable",
       "replyPrefilled",
@@ -2212,7 +2217,7 @@ async function inspect() {
       "advertisementRejected",
       "usernameActionRejected",
       "userPanelRejected"
-    ].filter((key) => {
+    ]).filter((key) => {
       const fullscreen = targetParameters.get("fullscreen") === "1";
       if (fullscreen && key === "missingSenderSafe") return false;
       if (fullscreen && normalizedInjectPlatform === "bilibili"
@@ -2466,6 +2471,39 @@ async function inspect() {
       }));
       await delay(80);
       const plusOne = document.querySelector(".bcp-one-button:not([hidden])");
+      const selectedDanmaku = document.querySelector(".bcp-one-frozen");
+      const selectedActionBar = document.querySelector(".bcp-one-actions:not([hidden])");
+      const selectedDanmakuRect = selectedDanmaku?.getBoundingClientRect();
+      const selectedActionRect = selectedActionBar?.getBoundingClientRect();
+      const actionBarBelowSelected = Boolean(
+        selectedDanmakuRect && selectedActionRect
+          && selectedActionRect.top >= selectedDanmakuRect.bottom + 7
+          && Math.abs(
+            (selectedActionRect.left + selectedActionRect.width / 2)
+              - (selectedDanmakuRect.left + selectedDanmakuRect.width / 2)
+          ) <= 1.5
+      );
+      const selectedRow = image?.closest(".bili-danmaku-x-dm");
+      const originalSelectedFontSize = selectedRow?.style.fontSize || "";
+      const initialSelectedFontSize = selectedRow
+        ? Number.parseFloat(getComputedStyle(selectedRow).fontSize)
+        : 0;
+      if (selectedRow && initialSelectedFontSize > 0) {
+        selectedRow.style.fontSize = String(initialSelectedFontSize * 1.5) + "px";
+        window.dispatchEvent(new Event("resize"));
+        await delay(80);
+      }
+      const scaledActionRect = selectedActionBar?.getBoundingClientRect();
+      const proportionalActionBarScaling = Boolean(
+        selectedActionRect && scaledActionRect
+          && Math.abs(scaledActionRect.width / selectedActionRect.width - 1.5) <= 0.06
+          && Math.abs(scaledActionRect.height / selectedActionRect.height - 1.5) <= 0.06
+      );
+      if (selectedRow) {
+        selectedRow.style.fontSize = originalSelectedFontSize;
+        window.dispatchEvent(new Event("resize"));
+        await delay(80);
+      }
       const selectedImageMessage = Boolean(plusOne
         && String(plusOne.getAttribute("aria-label") || "").includes("主播挥手"));
       const favoriteButton = document.querySelector(
@@ -2483,16 +2521,113 @@ async function inspect() {
       document.dispatchEvent(new KeyboardEvent("keyup", {
         altKey: true, bubbles: true, code: "KeyQ", key: "q"
       }));
-      await delay(100);
+      await delay(240);
       const favoritesHost = document.querySelector(".bcp-favorites-host");
       const favoritesRoot = favoritesHost?.shadowRoot || document;
       const favoritesPanel = favoritesRoot.querySelector(".bcp-favorites-panel");
+      const favoritesViewPanelRect = favoritesPanel?.getBoundingClientRect();
+      const functionPanelTitleCorrect = String(
+        favoritesPanel?.querySelector("#bcp-favorites-title")?.textContent || ""
+      ).trim() === "功能面板" && !favoritesPanel?.querySelector(".bcp-favorites-subtitle");
+      const favoriteSendControl = favoritesPanel?.querySelector(".bcp-favorites-send");
+      const favoriteSendStyle = favoriteSendControl ? getComputedStyle(favoriteSendControl) : null;
+      const favoriteSendWhiteBlack = Boolean(
+        favoriteSendStyle?.backgroundColor === "rgb(255, 255, 255)"
+          && favoriteSendStyle.color === "rgb(23, 25, 29)"
+          && favoriteSendStyle.webkitTextFillColor === "rgb(23, 25, 29)"
+      );
+      const customSortSelected = Boolean(
+        favoritesPanel?.querySelector(".bcp-favorites-sort select")?.value === "custom"
+          && favoritesPanel?.querySelector(".bcp-favorites-drag-handle")
+      );
+      const favoritesActiveTab = favoritesPanel?.querySelector(
+        ".bcp-favorites-tabs [aria-selected='true']"
+      );
+      const favoritesPanelStyle = favoritesPanel ? getComputedStyle(favoritesPanel) : null;
+      const favoritesActiveTabStyle = favoritesActiveTab
+        ? getComputedStyle(favoritesActiveTab)
+        : null;
+      const favoritesPanelColors = favoritesPanelStyle
+        ? [favoritesPanelStyle.backgroundColor, favoritesPanelStyle.color]
+        : [];
+      const favoritesActiveTabColors = favoritesActiveTabStyle
+        ? [favoritesActiveTabStyle.backgroundColor, favoritesActiveTabStyle.color]
+        : [];
+      const favoritesDarkTheme = Boolean(
+        favoritesPanelColors[0] === "rgb(23, 25, 29)"
+          && favoritesPanelColors[1] === "rgb(255, 255, 255)"
+          && favoritesActiveTabColors[0] === "rgb(255, 255, 255)"
+          && favoritesActiveTabColors[1] === "rgb(23, 25, 29)"
+      );
       const favoriteRichAssetsAccepted = Boolean(
         favoriteButton
           && favoritesPanel
           && Array.from(favoritesPanel.querySelectorAll(".bcp-favorites-text"))
             .some((item) => String(item.textContent || "").includes("主播挥手"))
       );
+      const manualToggle = favoritesPanel?.querySelector(".bcp-favorites-manual-toggle");
+      const manualToggleStyle = manualToggle ? getComputedStyle(manualToggle) : null;
+      const manualToggleInRoom = Boolean(
+        manualToggle?.closest(".bcp-favorites-room")
+          && manualToggleStyle?.backgroundColor === "rgb(255, 255, 255)"
+          && manualToggleStyle.color === "rgb(23, 25, 29)"
+      );
+      manualToggle?.click();
+      await delay(40);
+      const manualInput = favoritesPanel?.querySelector(".bcp-favorites-manual-form input");
+      if (manualInput) {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+        setter.call(manualInput, "手动收藏测试");
+        manualInput.dispatchEvent(new InputEvent("input", {
+          bubbles: true, composed: true, data: "手动收藏测试", inputType: "insertText"
+        }));
+        await delay(40);
+        favoritesPanel.querySelector(".bcp-favorites-manual-form button")?.click();
+        await delay(300);
+      }
+      const manualFavoriteAdded = Array.from(
+        favoritesPanel?.querySelectorAll(".bcp-favorites-text") || []
+      ).some((item) => String(item.textContent || "").includes("手动收藏测试"));
+      const manualFavoriteRow = Array.from(
+        favoritesPanel?.querySelectorAll(".bcp-favorites-text") || []
+      ).find((item) => String(item.textContent || "").includes("手动收藏测试"))?.closest("li");
+      manualFavoriteRow?.querySelector(".bcp-favorites-add-unicycle")?.click();
+      await delay(180);
+      const unicycleTextarea = favoritesPanel?.querySelector(".bcp-unicycle textarea");
+      const unicycleViewPanelRect = favoritesPanel?.getBoundingClientRect();
+      const unicycleTextareaRect = unicycleTextarea?.getBoundingClientRect();
+      const functionPanelPositionStable = Boolean(
+        favoritesViewPanelRect && unicycleViewPanelRect
+          && Math.abs(favoritesViewPanelRect.top - unicycleViewPanelRect.top) <= 1
+          && Math.abs(favoritesViewPanelRect.height - unicycleViewPanelRect.height) <= 1
+      );
+      const unicycleTextareaCompact = Boolean(
+        unicycleTextarea?.rows === 2
+          && unicycleTextareaRect
+          && unicycleTextareaRect.height <= 70
+      );
+      const unicycleFeaturesAvailable = Boolean(
+        unicycleTextarea?.value.includes("手动收藏测试")
+          && favoritesPanel?.querySelector(".bcp-unicycle-segmented")
+          && favoritesPanel?.querySelector("#bcp-unicycle-max-length")
+          && favoritesPanel?.querySelector(".bcp-unicycle-save-favorites")
+          && favoritesPanel?.querySelector(".bcp-unicycle-start")
+      );
+      if (unicycleTextarea) {
+        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
+        setter.call(unicycleTextarea, String(unicycleTextarea.value || "") + "\\n独轮车转收藏测试");
+        unicycleTextarea.dispatchEvent(new InputEvent("input", {
+          bubbles: true, composed: true, data: "独轮车转收藏测试", inputType: "insertText"
+        }));
+        await delay(60);
+        favoritesPanel?.querySelector(".bcp-unicycle-save-favorites")?.click();
+        await delay(360);
+      }
+      favoritesPanel?.querySelector(".bcp-function-tabs button")?.click();
+      await delay(100);
+      const unicycleAddedToFavorites = Array.from(
+        favoritesPanel?.querySelectorAll(".bcp-favorites-text") || []
+      ).some((item) => String(item.textContent || "").includes("独轮车转收藏测试"));
       document.dispatchEvent(new KeyboardEvent("keydown", {
         bubbles: true, code: "Escape", key: "Escape"
       }));
@@ -2913,8 +3048,22 @@ async function inspect() {
         stressSenderFailures,
         videoImageSelected: Boolean(image && image.closest(".bilibili-live-player-video-danmaku")),
         selectedImageMessage,
+        actionBarBelowSelected,
+        proportionalActionBarScaling,
         favoriteButtonAvailable: Boolean(favoriteButton),
         favoriteRichAssetsAccepted,
+        functionPanelTitleCorrect,
+        favoriteSendWhiteBlack,
+        customSortSelected,
+        manualToggleInRoom,
+        manualFavoriteAdded,
+        functionPanelPositionStable,
+        unicycleTextareaCompact,
+        unicycleFeaturesAvailable,
+        unicycleAddedToFavorites,
+        favoritesDarkTheme,
+        favoritesPanelColors,
+        favoritesActiveTabColors,
         favoriteWarning,
         sentAsImage,
         echoImageRendered: Boolean(echoImage),
@@ -3018,8 +3167,20 @@ async function inspect() {
       : [
           "videoImageSelected",
           "selectedImageMessage",
+          "actionBarBelowSelected",
+          "proportionalActionBarScaling",
           "favoriteButtonAvailable",
           "favoriteRichAssetsAccepted",
+          "functionPanelTitleCorrect",
+          "favoriteSendWhiteBlack",
+          "customSortSelected",
+          "manualToggleInRoom",
+          "manualFavoriteAdded",
+          "functionPanelPositionStable",
+          "unicycleTextareaCompact",
+          "unicycleFeaturesAvailable",
+          "unicycleAddedToFavorites",
+          "favoritesDarkTheme",
           "sentAsImage",
           "echoImageRendered",
           "videoReplyButtonAvailable",

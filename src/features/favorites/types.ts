@@ -25,9 +25,11 @@ export interface FavoritePayload {
 
 export interface FavoriteWriteRequest {
   id?: string;
-  operation?: "add-to-room" | "favorite" | "record-sent" | "remove";
+  ids?: string[];
+  operation?: "add-to-room" | "favorite" | "record-sent" | "remove" | "reorder-room";
   payload?: unknown;
   room: RoomContext;
+  targetRoomKey?: string;
   text?: string;
   type: typeof FAVORITE_WRITE_MESSAGE;
 }
@@ -56,6 +58,7 @@ export interface FavoriteOrigin {
 
 export interface FavoriteRoomStats {
   addedToRoomAt?: number;
+  customOrder?: number;
   lastSentAt: number;
   pinned: boolean;
   sendCount: number;
@@ -84,10 +87,11 @@ export interface FavoritesDatabase {
 }
 
 export type FavoriteView = "all" | "current" | "other";
-export type FavoriteSort = "send-count" | "time-asc" | "time-desc";
+export type FavoriteSort = "custom" | "send-count" | "time-asc" | "time-desc";
 
 export interface FavoriteDisplayItem extends FavoriteDanmaku {
   belongsToCurrentRoom: boolean;
+  customOrder: number;
   sourceLabel: string;
   sortTimestamp: number;
 }

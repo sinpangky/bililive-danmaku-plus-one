@@ -60,8 +60,13 @@ test("keeps long-running Bilibili hover work bounded", () => {
   assert.ok(findCandidateSource, "findCandidate should exist");
   assert.ok(
     findCandidateSource[0].indexOf("closestFromPath(path, config.overlayMessages)")
-      < findCandidateSource[0].indexOf("pathTouchesBilibiliQuickInput(path)"),
-    "Bilibili video danmaku should take the fast path before chat-only guards"
+      < findCandidateSource[0].indexOf("if (platformId === 'bilibili') return null"),
+    "Bilibili video danmaku should take the fast path before side-chat rejection"
+  );
+  assert.match(
+    findCandidateSource[0],
+    /if \(platformId === ['"]bilibili['"]\) return null/,
+    "the personal Bilibili build must not select right-side chat messages"
   );
 
   const selectCandidateSource = contentSource.match(
@@ -79,13 +84,52 @@ test("keeps long-running Bilibili hover work bounded", () => {
     /function onPointerMove\(event\) \{[\s\S]*?\n  \}/
   );
   assert.ok(pointerMoveSource, "onPointerMove should exist");
-  assert.ok(
-    pointerMoveSource[0].indexOf("state.frozenClone && state.frozenClone.isConnected")
-      < pointerMoveSource[0].indexOf("pathTouchesBilibiliChatActions(path)"),
-    "a frozen Bilibili danmaku must bypass chat-action detection"
+  assert.match(contentSource, /function pathInsideBilibiliVideo\(path\)/);
+  assert.match(
+    contentSource,
+    /function onPointerOver\(event\)[\s\S]*?!pathInsideBilibiliVideo\(path\)/
+  );
+  assert.match(
+    contentSource,
+    /function onPointerMove\(event\)[\s\S]*?!pathInsideBilibiliVideo\(path\)[\s\S]*?findOverlayAtPoint/
+  );
+  assert.match(
+    contentSource,
+    /function onAltClick\(event\)[\s\S]*?!pathInsideBilibiliVideo\(path\)/
   );
   assert.match(
     contentSource,
     /if \(target && isInsideBilibiliPlayerOutsideChat\(target\)\) \{\s*return false/
   );
+});
+
+test("positions the action bar centered below the selected danmaku", () => {
+  const positionSource = contentSource.match(
+    /function updateButtonPosition\(\) \{[\s\S]*?\n  \}/
+  );
+  assert.ok(positionSource, "updateButtonPosition should exist");
+  assert.match(
+    positionSource[0],
+    /const left = rect\.left \+ \(rect\.width - buttonRect\.width\) \/ 2/
+  );
+  assert.match(positionSource[0], /const preferredTop = rect\.bottom \+ 8/);
+  assert.match(positionSource[0], /const fallbackTop = rect\.top - buttonRect\.height - 8/);
+  assert.doesNotMatch(positionSource[0], /rect\.right \+ 8/);
+});
+
+test("scales the complete action bar with the rendered danmaku font size", () => {
+  const positionSource = contentSource.match(
+    /function updateButtonPosition\(\) \{[\s\S]*?\n  \}/
+  );
+  assert.ok(positionSource, "updateButtonPosition should exist");
+  assert.match(positionSource[0], /const renderedFontSize = computedFontSize \* renderedScale/);
+  assert.match(positionSource[0], /renderedFontSize \/ state\.actionReferenceFontSize/);
+  assert.match(positionSource[0], /setProperty\(['"]--bcp-action-scale['"]/);
+
+  const overlaySource = fs.readFileSync(
+    path.join(__dirname, "..", "src", "components", "live", "ContentOverlay.vue"),
+    "utf8"
+  );
+  assert.match(overlaySource, /transform:\s*scale\(var\(--bcp-action-scale, 1\)\)/);
+  assert.match(overlaySource, /transform-origin:\s*top left/);
 });

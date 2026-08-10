@@ -21,23 +21,44 @@
         <div class="bcp-favorites-brand">
           <span class="bcp-favorites-brand-mark" aria-hidden="true">+1</span>
           <span class="bcp-favorites-heading">
-            <strong id="bcp-favorites-title">{{ t("settingsFavorites") }}</strong>
+            <strong id="bcp-favorites-title">{{ t("functionPanelTitle") }}</strong>
           </span>
         </div>
-        <button
-          type="button"
-          class="bcp-favorites-icon-button bcp-favorites-close"
-          :aria-label="t('favoritesClosePanel')"
-          :title="t('favoritesCloseEsc')"
-          @click="emit('close')"
-        >
-          &#10005;
-        </button>
+        <span class="bcp-favorites-header-actions">
+          <button
+            type="button"
+            class="bcp-favorites-icon-button bcp-favorites-close"
+            :aria-label="t('favoritesClosePanel')"
+            :title="t('favoritesCloseEsc')"
+            @click="emit('close')"
+          >
+            &#10005;
+          </button>
+        </span>
       </header>
 
-      <div class="bcp-favorites-subtitle">{{ t("favoritesSubtitle") }}</div>
+      <div class="bcp-favorites-divider" aria-hidden="true" />
+
+      <nav class="bcp-function-tabs" :aria-label="t('functionPanelTitle')">
+        <button
+          type="button"
+          :class="{ 'is-active': state.toolView === 'favorites' }"
+          @click="emit('toolView', 'favorites')"
+        >
+          {{ t("settingsFavorites") }}
+        </button>
+        <button
+          type="button"
+          :class="{ 'is-active': state.toolView === 'unicycle' }"
+          @click="emit('toolView', 'unicycle')"
+        >
+          {{ t("unicycleTitle") }}
+        </button>
+      </nav>
 
       <div class="bcp-favorites-divider" aria-hidden="true" />
+
+      <template v-if="state.toolView === 'favorites'">
 
       <div class="bcp-favorites-room">
         <span class="bcp-favorites-room-icon" aria-hidden="true">
@@ -49,7 +70,34 @@
         <span class="bcp-favorites-room-count">
           <strong>{{ t("favoritesCount", String(state.currentCount)) }}</strong>
         </span>
+        <button
+          type="button"
+          class="bcp-favorites-manual-toggle"
+          :aria-expanded="manualFavoriteOpen"
+          :aria-label="t('favoritesManualAdd')"
+          :title="t('favoritesManualAdd')"
+          @click="manualFavoriteOpen = !manualFavoriteOpen"
+        >
+          +
+        </button>
       </div>
+
+      <form
+        v-if="manualFavoriteOpen"
+        class="bcp-favorites-manual-form"
+        @submit.prevent="submitManualFavorite"
+      >
+        <input
+          ref="manualFavoriteRef"
+          v-model="manualFavoriteText"
+          type="text"
+          maxlength="1000"
+          :placeholder="t('favoritesManualPlaceholder')"
+        >
+        <button type="submit" :disabled="!manualFavoriteText.trim()">
+          {{ t("favoritesManualSave") }}
+        </button>
+      </form>
 
       <div class="bcp-favorites-divider" aria-hidden="true" />
 
@@ -124,6 +172,7 @@
             <option value="send-count">{{ t("favoritesSortSendCount") }}</option>
             <option value="time-desc">{{ t("favoritesSortTimeDesc") }}</option>
             <option value="time-asc">{{ t("favoritesSortTimeAsc") }}</option>
+            <option value="custom">{{ t("favoritesSortCustom") }}</option>
           </select>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4" /></svg>
         </label>
@@ -156,9 +205,15 @@
           v-for="(item, index) in state.items"
           :key="item.id"
           :item="item"
+          :dragging-id="draggingId"
           :pending-remove-id="pendingRemoveId"
+          :reorder-enabled="reorderEnabled"
           :shortcut-index="index"
           @add-to-room="emit('addToRoom', $event)"
+          @add-to-unicycle="emit('addToUnicycle', $event)"
+          @drag-end="draggingId = ''"
+          @drag-start="draggingId = $event"
+          @drop="dropFavorite($event)"
           @request-remove="confirmRemove"
           @send="emit('send', $event)"
         />
@@ -195,9 +250,15 @@
           v-for="(item, index) in selectedItems"
           :key="`${selectedRoom.roomKey}:${item.id}`"
           :item="item"
+          :dragging-id="draggingId"
           :pending-remove-id="pendingRemoveId"
+          :reorder-enabled="reorderEnabled"
           :shortcut-index="index"
           @add-to-room="emit('addToRoom', $event)"
+          @add-to-unicycle="emit('addToUnicycle', $event)"
+          @drag-end="draggingId = ''"
+          @drag-start="draggingId = $event"
+          @drop="dropFavorite($event)"
           @request-remove="confirmRemove"
           @send="emit('send', $event)"
         />
@@ -211,10 +272,6 @@
           <span>{{ t("favoritesShortcutOpen") }}</span>
         </span>
         <span class="bcp-favorites-shortcut-group">
-          <kbd>Alt+Q</kbd>
-          <span>{{ t("favoritesShortcutWheel") }}</span>
-        </span>
-        <span class="bcp-favorites-shortcut-group">
           <kbd>1-9</kbd>
           <span>{{ t("favoritesShortcutSend") }}</span>
         </span>
@@ -223,68 +280,64 @@
           <span>{{ selectedRoom ? t('favoritesBackToRoom') : t('favoritesClose') }}</span>
         </span>
       </footer>
+      </template>
+
+      <UnicyclePanel
+        v-else
+        :config="state.unicycleConfig"
+        :last-message="state.unicycleLastMessage"
+        :message-count="state.unicycleMessageCount"
+        :platform-max-length="state.platformMaxLength"
+        :running="state.unicycleRunning"
+        :sent-count="state.unicycleSentCount"
+        @add-to-favorites="emit('addUnicycleToFavorites')"
+        @start="emit('unicycleStart')"
+        @stop="emit('unicycleStop')"
+        @update="emit('unicycleUpdate', $event)"
+      />
     </section>
 
-    <div
-      v-else-if="state.mode === 'radial'"
-      class="bcp-favorites-radial"
-      :style="{ left: `${state.centerX}px`, top: `${state.centerY}px` }"
-      data-bcp-favorites-owned="true"
-      role="menu"
-      :aria-label="t('favoritesWheelAria')"
-    >
-      <div class="bcp-favorites-radial-hint" aria-hidden="true">
-        {{ t("favoritesWheelHint") }}
-      </div>
-      <div :class="['bcp-favorites-radial-center', { 'has-selection': selectedOption }]">
-        <span v-if="!selectedOption" class="bcp-favorites-radial-monogram" aria-hidden="true">+1</span>
-        <strong>{{ selectedOption?.label || t('favoritesWheel') }}</strong>
-        <span>{{ selectedOption ? selectionHint : t('favoritesWheelMove') }}</span>
-      </div>
-      <button
-        v-for="option in state.radialOptions"
-        :key="option.key"
-        type="button"
-        :class="['bcp-favorites-radial-item', `is-${option.kind}`, {
-          'is-selected': option.key === state.selectedRadialKey
-        }]"
-        :style="{
-          left: `${Math.cos(option.angle * Math.PI / 180) * 132}px`,
-          top: `${Math.sin(option.angle * Math.PI / 180) * 132}px`
-        }"
-        tabindex="-1"
-      >
-        <span>{{ option.label }}</span>
-        <small>{{ option.detail }}</small>
-      </button>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import FavoriteItemRow from "./FavoriteItemRow.vue";
+import UnicyclePanel from "./UnicyclePanel.vue";
 import type { PlatformId } from "../../core/types";
 import type { FavoriteSort, FavoriteView } from "./types";
+import type { UnicycleConfig } from "./unicycle";
 import type { FavoritesLauncherState } from "./launcher";
 import { t } from "../../core/i18n";
 
 const props = defineProps<{ state: FavoritesLauncherState }>();
 const emit = defineEmits<{
   addToRoom: [id: string];
+  addToUnicycle: [id: string];
+  addManualFavorite: [text: string];
+  addUnicycleToFavorites: [];
   changeView: [view: FavoriteView];
   close: [];
   remove: [id: string];
+  reorder: [payload: { sourceId: string; targetId: string }];
   search: [value: string];
   send: [id: string];
   selectRoom: [roomKey: string];
   sort: [sort: FavoriteSort];
+  toolView: [view: "favorites" | "unicycle"];
+  unicycleStart: [];
+  unicycleStop: [];
+  unicycleUpdate: [config: UnicycleConfig];
   backToRooms: [];
 }>();
 
 const panelRef = ref<HTMLElement | null>(null);
 const searchRef = ref<HTMLInputElement | null>(null);
 const pendingRemoveId = ref("");
+const draggingId = ref("");
+const manualFavoriteOpen = ref(false);
+const manualFavoriteRef = ref<HTMLInputElement | null>(null);
+const manualFavoriteText = ref("");
 const tabs: Array<{ key: FavoriteView; label: string }> = [
   { key: "current", label: t("favoritesCurrent") },
   { key: "other", label: t("favoritesOtherRooms") },
@@ -308,11 +361,9 @@ const selectedItems = computed(() => {
   }
   return group.items.filter((item) => item.normalizedText.includes(normalizedSearch.value));
 });
-const selectedOption = computed(() => props.state.radialOptions
-  .find((option) => option.key === props.state.selectedRadialKey));
-const selectionHint = computed(() => selectedOption.value?.kind === "favorite"
-  ? t("favoritesReleaseToSend")
-  : t("favoritesReleaseToOpen"));
+const reorderEnabled = computed(() => props.state.sort === "custom"
+  && !props.state.search
+  && (props.state.view === "current" || Boolean(selectedRoom.value)));
 const hasResults = computed(() => props.state.view === "current"
   ? Boolean(props.state.items.length)
   : selectedRoom.value
@@ -379,6 +430,20 @@ function confirmRemove(id: string): void {
   pendingRemoveId.value = id;
 }
 
+function dropFavorite(targetId: string): void {
+  if (!draggingId.value || draggingId.value === targetId) return;
+  emit("reorder", { sourceId: draggingId.value, targetId });
+  draggingId.value = "";
+}
+
+function submitManualFavorite(): void {
+  const text = manualFavoriteText.value.replace(/\s+/g, " ").trim();
+  if (!text) return;
+  emit("addManualFavorite", text);
+  manualFavoriteText.value = "";
+  manualFavoriteOpen.value = false;
+}
+
 function platformLabel(platform: PlatformId): string {
   if (platform === "bilibili") return t("platformBilibili");
   if (platform === "douyin") return t("platformDouyin");
@@ -393,6 +458,18 @@ function focusSearch(): void {
 watch(() => [props.state.mode, props.state.view, props.state.search,
   props.state.sort, props.state.selectedRoomKey], () => {
   pendingRemoveId.value = "";
+  draggingId.value = "";
+});
+
+watch(manualFavoriteOpen, async (open) => {
+  if (!open) return;
+  await nextTick();
+  manualFavoriteRef.value?.focus({ preventScroll: true });
+});
+
+watch(() => props.state.toolView, () => {
+  manualFavoriteOpen.value = false;
+  draggingId.value = "";
 });
 
 watch(() => props.state.mode, async (mode) => {

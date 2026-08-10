@@ -1,5 +1,25 @@
 <template>
-  <li>
+  <li
+    :class="{ 'is-dragging': draggingId === item.id, 'is-reorderable': reorderEnabled }"
+    @dragover.prevent="reorderEnabled && emit('dragOver', item.id)"
+    @drop.prevent="reorderEnabled && emit('drop', item.id)"
+  >
+    <button
+      v-if="reorderEnabled"
+      type="button"
+      class="bcp-favorites-drag-handle"
+      draggable="true"
+      :aria-label="t('favoritesDragAria', item.text)"
+      :title="t('favoritesDragTitle')"
+      @dragstart="emit('dragStart', item.id)"
+      @dragend="emit('dragEnd')"
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="8" cy="7" r="1" /><circle cx="16" cy="7" r="1" />
+        <circle cx="8" cy="12" r="1" /><circle cx="16" cy="12" r="1" />
+        <circle cx="8" cy="17" r="1" /><circle cx="16" cy="17" r="1" />
+      </svg>
+    </button>
     <span
       v-if="shortcutIndex >= 0 && shortcutIndex < 9"
       class="bcp-favorites-shortcut"
@@ -48,6 +68,16 @@
       >
         {{ pendingRemoveId === item.id ? t('favoritesConfirm') : t('favoritesRemove') }}
       </button>
+      <button
+        v-if="item.belongsToCurrentRoom"
+        type="button"
+        class="bcp-favorites-secondary bcp-favorites-add-unicycle"
+        :aria-label="t('favoritesAddToUnicycleAria', item.text)"
+        :title="t('favoritesAddToUnicycle')"
+        @click="emit('addToUnicycle', item.id)"
+      >
+        {{ t("favoritesAddToUnicycle") }}
+      </button>
     </span>
   </li>
 </template>
@@ -59,12 +89,19 @@ import { t, uiLocale } from "../../core/i18n";
 
 const props = defineProps<{
   item: FavoriteDisplayItem;
+  draggingId: string;
   pendingRemoveId: string;
+  reorderEnabled: boolean;
   shortcutIndex: number;
 }>();
 
 const emit = defineEmits<{
   addToRoom: [id: string];
+  addToUnicycle: [id: string];
+  dragEnd: [];
+  dragOver: [id: string];
+  dragStart: [id: string];
+  drop: [id: string];
   requestRemove: [id: string];
   send: [id: string];
 }>();

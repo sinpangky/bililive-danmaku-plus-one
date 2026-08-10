@@ -19,10 +19,6 @@ function fixtureProject() {
     "background/service-worker.js": "void 0",
     "src/shared.js": "void 0",
     "src/content.js": "void 0",
-    "src/douyin-bootstrap.js": "void 0",
-    "src/douyin-page-hook.js": "void 0",
-    "src/douyin-content.js": "void 0",
-    "src/douyin-content.css": "body{}",
   };
   for (const [relative, value] of Object.entries(files)) {
     const destination = path.join(extension, ...relative.split("/"));
@@ -30,6 +26,8 @@ function fixtureProject() {
     writeFileSync(destination, value);
   }
   writeFileSync(path.join(root, "LICENSE"), "test license");
+  writeFileSync(path.join(root, "NOTICE.md"), "test notice");
+  writeFileSync(path.join(root, "README.md"), "test readme");
   return root;
 }
 
@@ -40,9 +38,11 @@ test("creates the same deterministic archive without a platform shell", () => {
     const second = packageArchive({ root, outputDir: "second output" });
     assert.equal(first.hash, second.hash);
     assert.deepEqual(first.entries, second.entries);
-    assert.equal(path.basename(first.destination), "danmaku-echo-v9.8.7.zip");
+    assert.equal(path.basename(first.destination), "bililive-danmaku-plus-one-v9.8.7.zip");
     const contents = unzipSync(readFileSync(first.destination));
     assert.equal(Buffer.from(contents.LICENSE).toString("utf8"), "test license");
+    assert.equal(Buffer.from(contents["NOTICE.md"]).toString("utf8"), "test notice");
+    assert.equal(Buffer.from(contents["README.md"]).toString("utf8"), "test readme");
     assert.ok(Object.keys(contents).every((name) => !name.includes("\\")));
   } finally {
     rmSync(root, { recursive: true, force: true });

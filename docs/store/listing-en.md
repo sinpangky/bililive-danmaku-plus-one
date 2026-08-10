@@ -1,23 +1,19 @@
-# Store listing and privacy disclosures (2.2.0)
+# bililive-danmaku-plus-one store listing (0.0.1)
 
 ## Single purpose
 
-Danmaku Echo provides consistent danmaku actions on Huya, Bilibili, Douyin, and Douyu Live: users can echo a side-chat or on-video message through the site's official editor, prepare a reply, and keep reusable danmaku in browser-local favorites.
+bililive-danmaku-plus-one provides +1, reply preparation, fullscreen sending, local favorites, and a user-configured repeating sender for on-video danmaku on Bilibili Live. Side chat and areas outside the player do not trigger on-video danmaku selection.
 
 ## Permission justifications
 
-- **Storage:** saves user-selected settings and locally favorited danmaku. Browser sync may synchronize settings; favorites remain in local extension storage. Schema v2 remains backward compatible.
-- **Scripting:** restores the packaged Douyin live runtime after single-page navigation into a supported live route. It neither downloads nor executes remote code.
-- **Host access:** recognizes danmaku and drives the existing official editor on supported Huya, Bilibili, Douyin, and Douyu live pages. The broader `www.douyin.com/*` match only detects navigation into `/follow/live/*`; non-live routes run a lightweight URL bootstrap.
+- **Storage:** saves settings, browser-local favorites, and the handle for a local folder explicitly selected by the user.
+- **Scripting:** performs a user-initiated official danmaku request in the Bilibili page context when the player is in web or native fullscreen.
+- **Host access:** recognizes on-video danmaku and uses the official editor or send endpoint only on `https://live.bilibili.com/*`.
 
-## Remote code
+## Remote code and data use
 
-No. All JavaScript, CSS, images, and dependencies are bundled in the submitted Manifest V3 package. There are no external scripts or modules, remote Wasm, `eval()`, `new Function()`, or downloaded executable code.
+All JavaScript, CSS, images, and dependencies are bundled in the Manifest V3 package. The extension does not collect, upload, sell, or share user data. Favorites and repeating-sender settings stay in `storage.local`; favorites are synchronized to a local folder only after explicit user authorization. Privacy-filtered diagnostics are copied only after a user action and are never uploaded automatically.
 
-## Data use
+## Origin
 
-The extension does not collect, upload, sell, or share user data. Preferences use browser-managed storage, and favorites stay in `storage.local`. Diagnostics are privacy-filtered, generated in memory, and copied only after a user action; they are not persisted or uploaded.
-
-## Privacy policy
-
-https://sadunicorn171.github.io/danmaku-echo/
+Based on [SadUnicorn171/danmaku-echo](https://github.com/SadUnicorn171/danmaku-echo) 2.2.0 and distributed under GPL-3.0-or-later.

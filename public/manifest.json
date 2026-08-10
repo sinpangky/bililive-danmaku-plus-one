@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "__MSG_extensionName__",
-  "description": "__MSG_extensionDescription__",
+  "name": "bililive-danmaku-plus-one",
+  "description": "B站直播弹幕 +1、回复、全屏发送与本地收藏工具。",
   "default_locale": "zh_CN",
-  "version": "2.2.0",
+  "version": "0.0.1",
   "icons": {
     "16": "assets/icons/icon-16.png",
     "32": "assets/icons/icon-32.png",
@@ -15,14 +15,13 @@
     "scripting"
   ],
   "host_permissions": [
-    "*://live.douyin.com/*",
-    "*://www.douyin.com/*"
+    "*://live.bilibili.com/*"
   ],
   "background": {
     "service_worker": "background/service-worker.js"
   },
   "action": {
-    "default_title": "__MSG_extensionActionTitle__",
+    "default_title": "bililive-danmaku-plus-one 设置",
     "default_popup": "index.html",
     "default_icon": {
       "16": "assets/icons/icon-16.png",
@@ -34,67 +33,6 @@
     "open_in_tab": true
   },
   "content_scripts": [
-    {
-      "matches": [
-        "*://live.douyin.com/*",
-        "*://www.douyin.com/follow/live/*"
-      ],
-      "js": [
-        "src/douyin-page-hook.js"
-      ],
-      "run_at": "document_start",
-      "world": "MAIN"
-    },
-    {
-      "matches": [
-        "*://live.douyin.com/*",
-        "*://www.douyin.com/*"
-      ],
-      "js": [
-        "src/douyin-bootstrap.js"
-      ],
-      "run_at": "document_start"
-    },
-    {
-      "matches": [
-        "*://live.douyin.com/*",
-        "*://www.douyin.com/follow/live/*"
-      ],
-      "js": [
-        "src/shared.js",
-        "src/douyin-content.js"
-      ],
-      "css": [
-        "src/douyin-content.css"
-      ],
-      "run_at": "document_start"
-    },
-    {
-      "matches": [
-        "*://*.huya.com/*"
-      ],
-      "js": [
-        "src/shared.js",
-        "src/content.js"
-      ],
-      "css": [
-        "src/content.css"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "*://*.douyu.com/*"
-      ],
-      "js": [
-        "src/shared.js",
-        "src/content.js"
-      ],
-      "css": [
-        "src/content.css"
-      ],
-      "run_at": "document_idle"
-    },
     {
       "matches": [
         "*://live.bilibili.com/*"

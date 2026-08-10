@@ -55,21 +55,19 @@ const emit = defineEmits<{
 .bcp-one-actions {
   all: initial;
   align-items: center;
-  background: linear-gradient(
-    0deg,
-    var(--bcp-action-start, #fd8101),
-    var(--bcp-action-end, #fd8101)
-  );
+  background: #17191d;
   border: 0;
-  border-radius: 16px;
+  border-radius: 8px;
   box-sizing: border-box;
-  color: var(--bcp-action-text, #fff);
+  color: #fff;
   display: flex;
-  height: 40px;
+  height: 30px;
   overflow: hidden;
   padding: 0;
   pointer-events: auto;
   position: fixed;
+  transform: scale(var(--bcp-action-scale, 1));
+  transform-origin: top left;
   user-select: none;
   width: max-content;
   z-index: 2147483647;
@@ -84,12 +82,12 @@ const emit = defineEmits<{
   align-items: center;
   align-self: stretch;
   box-sizing: border-box;
-  color: var(--bcp-action-text, #fff);
+  color: #fff;
   cursor: pointer;
   display: flex;
-  flex: 0 0 56px;
+  flex: 0 0 42px;
   font:
-    600 16px/22px 'Inter',
+    600 12px/18px 'Inter',
     -apple-system,
     BlinkMacSystemFont,
     'Segoe UI',
@@ -98,18 +96,18 @@ const emit = defineEmits<{
     'ss01' on,
     'cv01' on;
   justify-content: center;
-  min-width: 56px;
-  padding: 0 12px;
+  min-width: 42px;
+  padding: 0 8px;
   pointer-events: auto;
   transition:
     background-color 140ms ease,
     transform 140ms ease;
   white-space: nowrap;
-  width: 56px;
+  width: 42px;
 }
 
 .bcp-one-action[data-action="plus-one"] {
-  font-size: 14.4px;
+  font-size: 11px;
 }
 
 .bcp-one-action:hover {
@@ -121,8 +119,8 @@ const emit = defineEmits<{
 }
 
 .bcp-one-action:focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--bcp-focus-ring, #fd8101) 55%, transparent);
-  outline-offset: -3px;
+  outline: 2px solid #fff;
+  outline-offset: -2px;
 }
 
 .bcp-one-action-divider {
@@ -131,16 +129,16 @@ const emit = defineEmits<{
   border-radius: 999px;
   box-sizing: border-box;
   display: block;
-  flex: 0 0 2px;
-  height: 24px;
-  max-width: 2px;
-  min-width: 2px;
+  flex: 0 0 1px;
+  height: 18px;
+  max-width: 1px;
+  min-width: 1px;
   pointer-events: none;
-  width: 2px;
+  width: 1px;
 }
 
 .bcp-one-target {
-  outline: 1px solid color-mix(in srgb, var(--bcp-selection, #fd8101) 55%, transparent) !important;
+  outline: 1px solid rgb(23 25 29 / 72%) !important;
   outline-offset: 2px !important;
 }
 

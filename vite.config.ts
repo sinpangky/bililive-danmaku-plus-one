@@ -28,22 +28,6 @@ const extensionEntries: Record<string, ExtensionEntry> = {
     fileName: 'src/content.js',
     name: 'DanmakuEchoContent',
   },
-  'douyin-bootstrap': {
-    entry: 'src/entries/douyin-bootstrap.ts',
-    fileName: 'src/douyin-bootstrap.js',
-    name: 'DanmakuEchoDouyinBootstrap',
-  },
-  'douyin-content': {
-    cssFileName: 'src/douyin-content',
-    entry: 'src/entries/douyin-content.ts',
-    fileName: 'src/douyin-content.js',
-    name: 'DanmakuEchoDouyinContent',
-  },
-  'douyin-page-hook': {
-    entry: 'src/entries/douyin-page-hook.ts',
-    fileName: 'src/douyin-page-hook.js',
-    name: 'DanmakuEchoDouyinPageHook',
-  },
 }
 
 const sharedConfig = {

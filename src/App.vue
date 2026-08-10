@@ -10,9 +10,7 @@
       <SettingsTopbar
         v-model:enabled="settings.enabled"
         :active-section-title="activeSectionTitle"
-        :feedback-email="feedbackEmail"
         @copy-diagnostics="copyCurrentPageDiagnostics"
-        @copy-feedback="copyFeedbackEmail"
         @save="save"
       />
 
@@ -88,36 +86,6 @@
                 :title="t('settingsSideCapsulePlatformTitle', t('platformBilibili'))"
                 :description="t('settingsSideCapsulePlatformDescription', t('platformBilibili'))"
                 :aria-label="t('settingsSideCapsulePlatformAria', t('platformBilibili'))"
-                @change="save"
-              />
-              <SettingSwitch
-                id="side-chat-capsule-huya"
-                v-model="settings.sideChatCapsule.huya"
-                :title="t('settingsSideCapsulePlatformTitle', t('platformHuya'))"
-                :description="t('settingsSideCapsulePlatformDescription', t('platformHuya'))"
-                :aria-label="t('settingsSideCapsulePlatformAria', t('platformHuya'))"
-                @change="save"
-              />
-              <SettingSwitch
-                id="side-chat-capsule-douyu"
-                v-model="settings.sideChatCapsule.douyu"
-                :title="t('settingsSideCapsulePlatformTitle', t('platformDouyu'))"
-                :description="t('settingsSideCapsulePlatformDescription', t('platformDouyu'))"
-                :aria-label="t('settingsSideCapsulePlatformAria', t('platformDouyu'))"
-                @change="save"
-              />
-            </div>
-          </section>
-
-          <section id="native-danmaku-capsule" class="settings-section" aria-labelledby="native-capsule-title">
-            <h2 id="native-capsule-title">{{ t('settingsDouyuNativeTitle') }}</h2>
-            <div class="settings-card">
-              <SettingSwitch
-                id="native-danmaku-capsule-douyu"
-                v-model="settings.nativeDanmakuCapsule.douyu"
-                :title="t('settingsDouyuNativeToggle')"
-                :description="t('settingsDouyuNativeDescription')"
-                :aria-label="t('settingsDouyuNativeToggle')"
                 @change="save"
               />
             </div>
@@ -208,10 +176,6 @@
                   <span class="favorites-flow-index">2</span>
                   <span><strong>{{ t('settingsFavoritesStepList') }}</strong><small><kbd>Alt</kbd> + <kbd>Q</kbd>{{ t('settingsFavoritesStepListDescription') }}</small></span>
                 </li>
-                <li>
-                  <span class="favorites-flow-index">3</span>
-                  <span><strong>{{ t('settingsFavoritesStepWheel') }}</strong><small>{{ t('settingsFavoritesStepWheelDescription') }} <kbd>Q</kbd>。</small></span>
-                </li>
               </ol>
 
               <div class="favorites-guide-note">
@@ -250,12 +214,8 @@ import { useSettings } from "./composables/useSettings";
 import { t } from "./core/i18n";
 import { SETTINGS_SECTION_IDS } from "./core/settings-sections";
 
-const feedbackEmail = "sadunicorn1113@gmail.com";
 const platforms: ReadonlyArray<{ id: PlatformId; label: string }> = [
-  { id: "bilibili", label: t("platformBilibili") },
-  { id: "douyin", label: t("platformDouyin") },
-  { id: "douyu", label: t("platformDouyu") },
-  { id: "huya", label: t("platformHuya") }
+  { id: "bilibili", label: t("platformBilibili") }
 ];
 const colorFields: ReadonlyArray<{
   defaultValue: string;
@@ -275,7 +235,6 @@ const colorFields: ReadonlyArray<{
 ];
 
 const {
-  copyFeedbackEmail,
   save,
   settings,
   setStatus,
@@ -292,7 +251,6 @@ const customColorCount = computed(() => platforms.reduce((total, platform) => (
 const activeSectionTitle = computed(() => ({
   "favorites-guide": t("settingsFavorites"),
   "general-settings": t("settingsGeneral"),
-  "native-danmaku-capsule": t("settingsNativeCapsule"),
   "platform-colors": t("settingsColors"),
   "platform-connections": t("settingsPlatforms"),
   "side-chat-capsule": t("settingsSideCapsule")
