@@ -261,11 +261,11 @@ async function main() {
     );
   }
   mkdirSync(artifactRoot, { recursive: true });
-  const fixturePort = await availablePort();
-  const fixture = await startFixtureServer(fixturePort);
   const summary = [];
-  try {
-    for (const browser of browsers) {
+  for (const browser of browsers) {
+    const fixturePort = await availablePort();
+    const fixture = await startFixtureServer(fixturePort);
+    try {
       for (const scenario of scenarios.filter((entry) =>
         !requestedScenario || entry.name === requestedScenario
       )) {
@@ -289,9 +289,9 @@ async function main() {
         });
         process.stdout.write(`${passed ? "PASS" : "FAIL"} ${browser.name} ${scenario.name}\n`);
       }
+    } finally {
+      fixture.kill();
     }
-  } finally {
-    fixture.kill();
   }
   writeFileSync(
     path.join(artifactRoot, "summary.json"),

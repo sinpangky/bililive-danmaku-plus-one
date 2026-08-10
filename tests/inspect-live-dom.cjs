@@ -2235,6 +2235,14 @@ async function inspect() {
     const bilibiliRichEvaluation = evaluateValue(`(async () => {
       document.body.dataset.bilibiliRichStage = "starting";
       const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+      const waitFor = async (predicate, timeout = 3_000) => {
+        const deadline = performance.now() + timeout;
+        while (performance.now() < deadline) {
+          if (predicate()) return true;
+          await delay(40);
+        }
+        return Boolean(predicate());
+      };
       const legacyExclusiveMode =
         new URL(location.href).searchParams.get("legacyexclusive") === "1";
       const lazyEmojiMode = new URL(location.href).searchParams.get("lazyemoji") === "1";
@@ -2525,6 +2533,9 @@ async function inspect() {
       const favoritesHost = document.querySelector(".bcp-favorites-host");
       const favoritesRoot = favoritesHost?.shadowRoot || document;
       const favoritesPanel = favoritesRoot.querySelector(".bcp-favorites-panel");
+      await waitFor(() => Array.from(
+        favoritesPanel?.querySelectorAll(".bcp-favorites-text") || []
+      ).some((item) => String(item.textContent || "").includes("主播挥手")));
       const favoritesViewPanelRect = favoritesPanel?.getBoundingClientRect();
       const functionPanelTitleCorrect = String(
         favoritesPanel?.querySelector("#bcp-favorites-title")?.textContent || ""
