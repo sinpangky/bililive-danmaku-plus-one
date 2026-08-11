@@ -603,7 +603,7 @@ test("renders the function panel, manual favorite entry, wheelbarrow, and drag c
   const content = readFileSync(resolve(root, "src", "entries", "content.ts"), "utf8");
   const moveStart = content.indexOf("function onPointerMove(event)");
   const frozenGuard = content.indexOf("isInsideFrozenHoverZone(state.pointerX, state.pointerY)", moveStart);
-  const playerGuard = content.indexOf("!pathInsideBilibiliVideo(path)", moveStart);
+  const playerGuard = content.indexOf("!pathInsideEnabledBilibiliSurface(path)", moveStart);
 
   assert.match(launcherView, /t\("functionPanelTitle"\)/);
   assert.doesNotMatch(launcherView, /t\("favoritesSubtitle"\)/);

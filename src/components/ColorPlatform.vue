@@ -51,7 +51,9 @@ const emit = defineEmits<{
   updateColor: [key: ColorSettingKey, value: string];
 }>();
 
-const customCount = computed(() => Object.values(props.colors).filter(Boolean).length);
+const customCount = computed(() => props.fields.filter((field) => (
+  props.colors[field.key] !== field.defaultValue
+)).length);
 </script>
 
 <style lang="scss">
@@ -110,11 +112,11 @@ const customCount = computed(() => Object.values(props.colors).filter(Boolean).l
 }
 
 .color-platform summary:hover {
-  background: rgb(255 255 255 / 58%);
+  background: rgb(255 255 255 / 4%);
 }
 
 .color-platform summary:focus-visible {
-  outline: 2px solid rgb(39 174 96 / 38%);
+  outline: 2px solid rgb(255 255 255 / 48%);
   outline-offset: -2px;
 }
 
@@ -180,7 +182,7 @@ const customCount = computed(() => Object.values(props.colors).filter(Boolean).l
 .color-picker:focus-visible,
 .color-reset:focus-visible,
 .platform-color-reset:focus-visible {
-  outline: 2px solid rgb(39 174 96 / 38%);
+  outline: 2px solid rgb(255 255 255 / 48%);
   outline-offset: 1px;
 }
 

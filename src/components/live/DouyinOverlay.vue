@@ -163,7 +163,7 @@ function hasRenderableContent(content: unknown[]): boolean {
 .bcp-douyin-dom-track[data-hovered='true'] > .bcp-douyin-dom-barrage,
 .bcp-douyin-dom-track:focus-within > .bcp-douyin-dom-barrage {
   background: transparent;
-  box-shadow: 0 0 0 3px var(--bcp-selection, #fd8101);
+  box-shadow: 0 0 0 3px var(--bcp-selection, #17191d);
 }
 
 .bcp-douyin-dom-track[data-hovered='true'],
@@ -191,10 +191,10 @@ function hasRenderableContent(content: unknown[]): boolean {
  */
 .bcp-douyin-dom-barrage[data-own='true'] .bcp-douyin-dom-content {
   background: color-mix(in srgb,
-    var(--bcp-selection, #fd8101) 18%, transparent);
+    var(--bcp-selection, #17191d) 18%, transparent);
   border-radius: 7px;
   outline: 3px solid color-mix(in srgb,
-    var(--bcp-selection, #fd8101) 96%, transparent);
+    var(--bcp-selection, #17191d) 96%, transparent);
   outline-offset: 3px;
 }
 
@@ -214,8 +214,8 @@ function hasRenderableContent(content: unknown[]): boolean {
 .bcp-douyin-dom-action {
   align-items: center;
   background: linear-gradient(0deg,
-    var(--bcp-action-start, #fd8101),
-    var(--bcp-action-end, #fd8101));
+    var(--bcp-action-start, #17191d),
+    var(--bcp-action-end, #17191d));
   border-radius: 16px;
   box-sizing: border-box;
   display: inline-flex;
@@ -282,7 +282,7 @@ function hasRenderableContent(content: unknown[]): boolean {
 
 .bcp-douyin-dom-action-item:focus-visible {
   outline: 3px solid color-mix(in srgb,
-    var(--bcp-focus-ring, #fd8101) 55%, transparent);
+    var(--bcp-focus-ring, #fff) 55%, transparent);
   outline-offset: -3px;
 }
 
@@ -315,7 +315,7 @@ function hasRenderableContent(content: unknown[]): boolean {
     linear-gradient(145deg,
       color-mix(in srgb, var(--bcp-panel-text, #fff) 12%, transparent),
       transparent 50%),
-    color-mix(in srgb, var(--bcp-panel-background, #fd8101) 58%, transparent);
+    color-mix(in srgb, var(--bcp-panel-background, #17191d) 58%, transparent);
   border: 1px solid color-mix(in srgb,
     var(--bcp-panel-text, #fff) 20%, transparent);
   border-radius: 16px;
@@ -402,8 +402,8 @@ function hasRenderableContent(content: unknown[]): boolean {
 .bcp-douyin-actions {
   align-items: center;
   background: linear-gradient(0deg,
-    var(--bcp-action-start, #fd8101),
-    var(--bcp-action-end, #fd8101));
+    var(--bcp-action-start, #17191d),
+    var(--bcp-action-end, #17191d));
   border-radius: 16px;
   box-sizing: border-box;
   display: inline-flex;
@@ -455,7 +455,7 @@ function hasRenderableContent(content: unknown[]): boolean {
 
 .bcp-douyin-action-item:focus-visible {
   outline: 3px solid color-mix(in srgb,
-    var(--bcp-focus-ring, #fd8101) 55%, transparent);
+    var(--bcp-focus-ring, #fff) 55%, transparent);
   outline-offset: -3px;
 }
 
@@ -481,7 +481,7 @@ function hasRenderableContent(content: unknown[]): boolean {
 
 .bcp-douyin-toast {
   align-items: center;
-  background: var(--bcp-panel-background, #fd8101);
+  background: var(--bcp-panel-background, #17191d);
   border: 0;
   border-radius: 16px;
   box-sizing: border-box;

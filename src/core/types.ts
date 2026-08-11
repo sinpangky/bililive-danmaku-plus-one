@@ -32,6 +32,7 @@ export interface NativeDanmakuCapsuleSettings {
 }
 
 export interface ActionSettings {
+  copy: boolean
   favorite: boolean
   plusOne: boolean
   reply: boolean
@@ -49,6 +50,7 @@ export interface ExtensionSettings {
 
 export interface SharedExtensionApi {
   COLOR_SETTING_KEYS: readonly ColorSettingKey[]
+  DEFAULT_LIVE_COLORS: Readonly<ColorSettings>
   DEFAULT_SETTINGS: ExtensionSettings
   applyPlatformColors(root: unknown, colors: unknown): void
   detectPlatform(hostname: unknown, pathname: unknown): PlatformId | null
@@ -88,7 +90,7 @@ export interface DanmakuDescriptor {
 }
 
 export interface ActionResult {
-  action: 'favorite' | 'plus-one' | 'reply'
+  action: 'copy' | 'favorite' | 'plus-one' | 'reply'
   durationMs: number
   platformFeedback?: string
   reason?: string

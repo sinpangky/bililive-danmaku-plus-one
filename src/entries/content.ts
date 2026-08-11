@@ -1,11 +1,6 @@
 // @ts-nocheck -- platform DOM adapter; typed modules cover its stable boundaries.
-import {
-  visibleActionsForSurface,
-} from '../platforms/live/action-visibility'
-import {
-  orderedBracketEmojiText,
-  unicodeEmojiFallbackText,
-} from '../platforms/live/emoji-fallback'
+import { visibleActionsForSurface } from '../platforms/live/action-visibility'
+import { unicodeEmojiFallbackText } from '../platforms/live/emoji-fallback'
 import { SenderCorrelationCache } from '../platforms/live/sender-correlation'
 import { createBilibiliAdapter } from '../platforms/bilibili/adapter'
 import { BILIBILI_PLATFORM_CONFIG } from '../platforms/bilibili/config'
@@ -21,12 +16,19 @@ import {
   BILIBILI_QUICK_INPUTS,
   isBilibiliAdvertisementLabel,
   isBilibiliAdvertisementMarker,
+  isBilibiliDecorativePrefixImage,
 } from '../platforms/bilibili/dom-config'
+import {
+  classifyBilibiliRichPayload,
+  isBilibiliNativePanelAsset,
+  isSingleBilibiliEmojiPayload,
+} from '../platforms/bilibili/rich-payload'
 import { BILIBILI_SEND_MESSAGE } from '../platforms/bilibili/page-send'
 import { normalizedAssetKeys as normalizedRichAssetKeys } from '../platforms/douyin/rich-data'
 import { createFavoritesRuntime } from '../features/favorites/launcher'
 import { createContentOverlay } from '../components/live/content-overlay'
 import { createDiagnosticsCollector } from '../core/diagnostics'
+import { writeClipboardText } from '../core/clipboard'
 import {
   BILIBILI_NATIVE_PANEL_IDENTITY_ATTRIBUTES,
   EDITABLE_CONTROL_SELECTOR,
@@ -57,7 +59,11 @@ import { t } from '../core/i18n'
   const shared = globalThis.DanmakuEchoShared
   const platformId = 'bilibili'
 
-  if (!shared || !/(^|\.)live\.bilibili\.com$/i.test(location.hostname) || globalThis.__bulletPlusOneLoaded) {
+  if (
+    !shared ||
+    !/(^|\.)live\.bilibili\.com$/i.test(location.hostname) ||
+    globalThis.__bulletPlusOneLoaded
+  ) {
     return
   }
 
@@ -587,6 +593,13 @@ import { t } from '../core/i18n'
     return null
   }
 
+  function pathInsideEnabledBilibiliSurface(path) {
+    if (platformId !== 'bilibili' || pathInsideBilibiliVideo(path)) {
+      return true
+    }
+    return state.settings.sideChatCapsule.bilibili && Boolean(findChatRoot(path))
+  }
+
   function findCandidate(path) {
     const overlayMatch = closestFromPath(path, config.overlayMessages)
     if (overlayMatch) {
@@ -595,10 +608,6 @@ import { t } from '../core/i18n'
         ? { element: overlay, kind: 'overlay' }
         : null
     }
-
-    // This personal Bilibili build intentionally exposes actions only for
-    // scrolling danmaku over the player, never for the right-side chat list.
-    if (platformId === 'bilibili') return null
 
     if (
       pathTouchesBilibiliQuickInput(path) ||
@@ -688,11 +697,7 @@ import { t } from '../core/i18n'
       platformId === 'bilibili' && element.matches(BILIBILI_OVERLAY_ROW_SELECTOR)
     if (bilibiliOverlayRow) {
       const rect = element.getBoundingClientRect()
-      return (
-        rect.height >= 8 &&
-        rect.height <= Math.min(120, innerHeight * 0.22) &&
-        rect.width >= 4
-      )
+      return rect.height >= 8 && rect.height <= Math.min(120, innerHeight * 0.22) && rect.width >= 4
     }
 
     if (!isVisible(element)) {
@@ -802,6 +807,27 @@ import { t } from '../core/i18n'
       frozenTarget &&
       pointInside(frozenTarget.getBoundingClientRect(), x, y, OVERLAY_HOVER_PADDING)
     )
+  }
+
+  function isInsideChatHoverZone(x, y) {
+    if (
+      state.candidateKind !== 'chat' ||
+      !state.candidate?.isConnected ||
+      !state.actionBar?.isConnected ||
+      state.actionBar.hidden
+    ) {
+      return false
+    }
+
+    const candidateRect = state.candidate.getBoundingClientRect()
+    const actionRect = state.actionBar.getBoundingClientRect()
+    const hoverRect = {
+      bottom: Math.max(candidateRect.bottom, actionRect.bottom),
+      left: Math.min(candidateRect.left, actionRect.left),
+      right: Math.max(candidateRect.right, actionRect.right),
+      top: Math.min(candidateRect.top, actionRect.top),
+    }
+    return pointInside(hoverRect, x, y, 4)
   }
 
   function findOverlayAtPoint(x, y) {
@@ -1073,6 +1099,9 @@ import { t } from '../core/i18n'
       })
     })
     return images.filter((image) => {
+      if (platformId === 'bilibili' && isBilibiliDecorativePrefixImage(image, candidate)) {
+        return false
+      }
       if (closestMatching(image, config.userNames)) return false
       let marker = ''
       let current = image
@@ -1194,32 +1223,6 @@ import { t } from '../core/i18n'
     return parts
   }
 
-  function isBilibiliNativePanelAsset(asset) {
-    return Boolean(
-      asset &&
-        Array.isArray(asset.keys) &&
-        asset.keys.some((key) => {
-          const normalized = String(key || '').toLowerCase()
-          return (
-            normalized.startsWith(NATIVE_PANEL_ASSET_KEY_PREFIX) ||
-            normalized.startsWith(LEGACY_BILIBILI_EXCLUSIVE_ASSET_KEY_PREFIX)
-          )
-        }),
-    )
-  }
-
-  function bilibiliInlineEmojiText(payload) {
-    if (
-      platformId !== 'bilibili' ||
-      !payload ||
-      !Array.isArray(payload.assets) ||
-      payload.assets.some(isBilibiliNativePanelAsset)
-    ) {
-      return ''
-    }
-    return orderedBracketEmojiText(payload)
-  }
-
   function assetMatchScore(element, asset) {
     const descriptor = assetDescriptorFromElement(element)
     if (!descriptor || !asset || !Array.isArray(asset.keys)) {
@@ -1304,18 +1307,44 @@ import { t } from '../core/i18n'
     return payload.text || ''
   }
 
+  function isBilibiliNativePanelElement(element) {
+    if (platformId !== 'bilibili' || !(element instanceof Element)) return false
+    const nativeSelector = [
+      "[data-type='1']",
+      ...BILIBILI_NATIVE_PANEL_IDENTITY_ATTRIBUTES.map((attribute) => `[${attribute}]`),
+    ].join(',')
+    try {
+      if (element.matches(nativeSelector) || element.querySelector(nativeSelector)) return true
+    } catch {
+      // Fall through to semantic panel/category markers.
+    }
+
+    let current = element
+    for (let depth = 0; current && depth < 6; depth += 1) {
+      const marker = [
+        elementMarker(current),
+        current.getAttribute('data-category'),
+        current.getAttribute('data-group'),
+        current.getAttribute('data-pack'),
+      ]
+        .filter(Boolean)
+        .join(' ')
+      if (/(?:room|anchor|exclusive|special|custom|房间|主播|专属)/i.test(marker)) return true
+      if (matchesAny(current, BILIBILI_EMOJI_SURFACE_SELECTORS)) break
+      current = current.parentElement
+    }
+    return false
+  }
+
   async function enrichRichPayloadAssetNames(payload, options) {
     if (!payload || !Array.isArray(payload.assets) || !payload.assets.length) return payload
     const resolveBilibiliNative = Boolean(options && options.resolveBilibiliNative)
     let resolvedSingleBilibiliItem = null
-    const input =
-      platformId === 'bilibili' ? findBilibiliEmojiEditor() || findInput() : findInput()
+    const input = platformId === 'bilibili' ? findBilibiliEmojiEditor() || findInput() : findInput()
     for (let index = 0; index < payload.assets.length; index += 1) {
       const asset = payload.assets[index]
       const shouldResolveNative =
-        platformId === 'bilibili' &&
-        resolveBilibiliNative &&
-        !isBilibiliNativePanelAsset(asset)
+        platformId === 'bilibili' && resolveBilibiliNative && !isBilibiliNativePanelAsset(asset)
       if (emojiTokenQuality(asset && asset.token) >= 3 && !shouldResolveNative) continue
       let item =
         platformId === 'bilibili'
@@ -1328,8 +1357,9 @@ import { t } from '../core/i18n'
             : await openPlatformEmojiForAsset(input, asset)
       }
       if (item) {
+        const isNativeBilibiliItem = isBilibiliNativePanelElement(item)
         enrichRichPayloadAsset(payload, index, item)
-        if (platformId === 'bilibili' && payload.assets.length === 1) {
+        if (platformId === 'bilibili' && payload.assets.length === 1 && isNativeBilibiliItem) {
           resolvedSingleBilibiliItem = item
         }
       }
@@ -1633,6 +1663,7 @@ import { t } from '../core/i18n'
     const host = fullscreenElement() || document.documentElement
     if (!state.ui) {
       state.ui = createContentOverlay({
+        onCopy: onCopyActionClick,
         onFavorite: onFavoriteActionClick,
         onPlaceholder: onPlaceholderActionClick,
         onPlusOne: onPlusOneClick,
@@ -1665,6 +1696,28 @@ import { t } from '../core/i18n'
         showToast(t('toastSenderUnknown'), 'error')
       })
     }
+  }
+
+  async function onCopyActionClick(event) {
+    event.preventDefault()
+    event.stopPropagation()
+    cancelHide()
+    if (
+      !visibleActionsForSurface(state.settings, platformId, state.candidateKind).copy ||
+      !state.message
+    ) {
+      return
+    }
+    const bilibiliClassification =
+      platformId === 'bilibili' && state.richPayload
+        ? classifyBilibiliRichPayload(state.richPayload)
+        : null
+    const copyText =
+      bilibiliClassification?.kind === 'room-emoji-single'
+        ? bilibiliClassification.text
+        : state.message
+    const copied = await writeClipboardText(copyText)
+    showToast(t(copied ? 'toastCopied' : 'toastCopyFailed'), copied ? 'success' : 'error')
   }
 
   async function onFavoriteActionClick(event) {
@@ -1796,18 +1849,14 @@ import { t } from '../core/i18n'
     }
 
     const rect = positionTarget.getBoundingClientRect()
-    const messageElement = state.candidate
-      ? messageElementFromCandidate(state.candidate)
-      : null
+    const messageElement = state.candidate ? messageElementFromCandidate(state.candidate) : null
     const fontTarget = messageElement instanceof Element ? messageElement : state.candidate
-    const computedFontSize = fontTarget instanceof Element
-      ? Number.parseFloat(getComputedStyle(fontTarget).fontSize)
-      : 0
+    const computedFontSize =
+      fontTarget instanceof Element ? Number.parseFloat(getComputedStyle(fontTarget).fontSize) : 0
     const fontRect = fontTarget instanceof Element ? fontTarget.getBoundingClientRect() : null
     const layoutHeight = fontTarget instanceof HTMLElement ? fontTarget.offsetHeight : 0
-    const renderedScale = fontRect && layoutHeight > 0
-      ? Math.max(0.25, Math.min(fontRect.height / layoutHeight, 4))
-      : 1
+    const renderedScale =
+      fontRect && layoutHeight > 0 ? Math.max(0.25, Math.min(fontRect.height / layoutHeight, 4)) : 1
     const renderedFontSize = computedFontSize * renderedScale
     if (state.candidateKind === 'overlay' && renderedFontSize > 0) {
       if (state.actionReferenceFontSize <= 0) {
@@ -1822,12 +1871,19 @@ import { t } from '../core/i18n'
       state.actionBar.style.setProperty('--bcp-action-scale', '1')
     }
     const buttonRect = state.actionBar.getBoundingClientRect()
-    const left = rect.left + (rect.width - buttonRect.width) / 2
-    const preferredTop = rect.bottom + 8
-    const fallbackTop = rect.top - buttonRect.height - 8
-    const top = preferredTop + buttonRect.height <= innerHeight - 8
-      ? preferredTop
-      : fallbackTop
+    let left
+    let top
+    if (state.candidateKind === 'chat') {
+      const preferredLeft = rect.left - buttonRect.width - 6
+      const fallbackRight = rect.right + 6
+      left = preferredLeft >= 8 ? preferredLeft : fallbackRight
+      top = rect.top + (rect.height - buttonRect.height) / 2
+    } else {
+      left = rect.left + (rect.width - buttonRect.width) / 2
+      const preferredTop = rect.bottom + 8
+      const fallbackTop = rect.top - buttonRect.height - 8
+      top = preferredTop + buttonRect.height <= innerHeight - 8 ? preferredTop : fallbackTop
+    }
 
     state.actionBar.style.left = `${Math.max(8, Math.min(left, innerWidth - buttonRect.width - 8))}px`
     state.actionBar.style.top = `${Math.max(8, Math.min(top, innerHeight - buttonRect.height - 8))}px`
@@ -1864,13 +1920,9 @@ import { t } from '../core/i18n'
     if (state.candidateKind === 'overlay') {
       freezeOverlayCandidate(candidate)
     }
-    state.sender = senderFromCandidate(
-      candidate,
-      message,
-      state.candidateKind,
-      state.selectedAt,
-      { scanDom: false },
-    )
+    state.sender = senderFromCandidate(candidate, message, state.candidateKind, state.selectedAt, {
+      scanDom: false,
+    })
 
     ensureButton()
     state.ui.showActionBar(message, state.sender)
@@ -2677,7 +2729,8 @@ import { t } from '../core/i18n'
     const interactive = element.closest("button,[role='button'],li")
     if (interactive) return interactive
     const parentItem =
-      element.parentElement && element.parentElement.closest(PLATFORM_EMOJI_ITEM_SELECTORS.join(','))
+      element.parentElement &&
+      element.parentElement.closest(PLATFORM_EMOJI_ITEM_SELECTORS.join(','))
     return parentItem || element.closest(PLATFORM_EMOJI_ITEM_SELECTORS.join(',')) || element
   }
 
@@ -2765,9 +2818,10 @@ import { t } from '../core/i18n'
         const marker = elementMarker(element)
         const rect = element.getBoundingClientRect()
         const visible = isVisible(element)
-        const distance = inputRect && visible
-          ? Math.abs(rect.left - inputRect.right) + Math.abs(rect.top - inputRect.top)
-          : 0
+        const distance =
+          inputRect && visible
+            ? Math.abs(rect.left - inputRect.right) + Math.abs(rect.top - inputRect.top)
+            : 0
         let scopeBonus = 0
         let parent = input && input.parentElement
         for (let depth = 0; parent && depth < 6; depth += 1, parent = parent.parentElement) {
@@ -3034,7 +3088,7 @@ import { t } from '../core/i18n'
     if (unicodeFallback) {
       return repeatMessage(unicodeFallback)
     }
-    const shouldResolveBilibiliSingleImage = Boolean(bilibiliFavoriteImagePayload(payload))
+    const shouldResolveBilibiliSingleImage = isSingleBilibiliEmojiPayload(payload)
     if (
       platformId === 'bilibili' &&
       payload &&
@@ -3048,18 +3102,26 @@ import { t } from '../core/i18n'
       await enrichRichPayloadAssetNames(payload, { resolveBilibiliNative: true })
     }
     const bilibiliSingleImagePayload = bilibiliFavoriteImagePayload(payload)
-    const bilibiliInlineText = bilibiliSingleImagePayload ? '' : bilibiliInlineEmojiText(payload)
-    if (bilibiliInlineText) {
-      return repeatMessage(bilibiliInlineText)
+    const bilibiliClassification =
+      platformId === 'bilibili' ? classifyBilibiliRichPayload(payload) : null
+    if (
+      bilibiliClassification &&
+      (bilibiliClassification.kind === 'unicode-emoji-text' ||
+        bilibiliClassification.kind === 'inline-emoji-text')
+    ) {
+      return repeatMessage(bilibiliClassification.text)
+    }
+    if (bilibiliClassification?.kind === 'room-emoji-mixed') {
+      showToast(t('toastRoomEmojiMustBeSentAlone'), 'error')
+      return false
     }
     const asset = payload && Array.isArray(payload.assets) ? payload.assets[0] : null
     const nativeBilibiliAsset =
-      platformId === 'bilibili' && isBilibiliNativePanelAsset(asset)
+      platformId === 'bilibili' &&
+      bilibiliClassification?.kind === 'room-emoji-single' &&
+      isBilibiliNativePanelAsset(asset)
     if (bilibiliSingleImagePayload && !nativeBilibiliAsset) {
-      showToast(
-        t('toastOfficialEmojiNotUnique', bilibiliSingleImagePayload.text),
-        'error',
-      )
+      showToast(t('toastOfficialEmojiNotUnique', bilibiliSingleImagePayload.text), 'error')
       return false
     }
     const now = Date.now()
@@ -3073,10 +3135,9 @@ import { t } from '../core/i18n'
       showToast(t('toastImageResourceNotFound', platformName), 'error')
       return false
     }
-    const item =
-      nativeBilibiliAsset
-        ? await openUniqueBilibiliPlatformEmoji(input, asset)
-        : await openPlatformEmojiForAsset(input, asset)
+    const item = nativeBilibiliAsset
+      ? await openUniqueBilibiliPlatformEmoji(input, asset)
+      : await openPlatformEmojiForAsset(input, asset)
     if (!item || typeof item.click !== 'function') {
       showToast(t('toastEmojiPanelNoMatch', platformName), 'error')
       return false
@@ -3170,10 +3231,9 @@ import { t } from '../core/i18n'
       .toLowerCase()
       .slice(0, 180)
     const marker = `${NATIVE_PANEL_ASSET_KEY_PREFIX}resolved:${identity}`
-    asset.keys = Array.from(new Set([marker, ...(Array.isArray(asset.keys) ? asset.keys : [])])).slice(
-      0,
-      48,
-    )
+    asset.keys = Array.from(
+      new Set([marker, ...(Array.isArray(asset.keys) ? asset.keys : [])]),
+    ).slice(0, 48)
     const emojiPart = Array.isArray(payload.parts)
       ? payload.parts.find((part) => part && part.type === 'emoji' && part.asset)
       : null
@@ -3187,7 +3247,9 @@ import { t } from '../core/i18n'
   async function repeatBilibiliFavoritePayload(payload) {
     const imagePayload = bilibiliFavoriteImagePayload(payload)
     if (!imagePayload) {
-      return payload.assets.length ? repeatPlatformRichPayload(payload) : repeatMessage(payload.text)
+      return payload.assets.length
+        ? repeatPlatformRichPayload(payload)
+        : repeatMessage(payload.text)
     }
     if (imagePayload.assets.some(isBilibiliNativePanelAsset)) {
       return repeatPlatformRichPayload(imagePayload)
@@ -3200,10 +3262,7 @@ import { t } from '../core/i18n'
     }
     const item = await openUniqueBilibiliPlatformEmoji(input, imagePayload.assets[0])
     if (!item) {
-      showToast(
-        t('toastOfficialEmojiNotFound', imagePayload.text),
-        'error',
-      )
+      showToast(t('toastOfficialEmojiNotFound', imagePayload.text), 'error')
       return false
     }
     markBilibiliPayloadAsNativePanel(imagePayload, item)
@@ -3245,17 +3304,17 @@ import { t } from '../core/i18n'
         pressEnter(input)
       }
 
-    // Live sites occasionally replace or temporarily disable their send
-    // control after the editor updates. Do not report success merely because a
-    // stale button accepted click(); a successful send consumes the editor.
+      // Live sites occasionally replace or temporarily disable their send
+      // control after the editor updates. Do not report success merely because a
+      // stale button accepted click(); a successful send consumes the editor.
       let consumed = await waitForInputConsumption(input, message, 320)
       if (!consumed) {
         pressEnter(input)
         consumed = await waitForInputConsumption(input, message, 260)
       }
 
-    // Re-query after the framework has processed the input event. Bilibili in
-    // particular may mount an enabled send control only after that update.
+      // Re-query after the framework has processed the input event. Bilibili in
+      // particular may mount an enabled send control only after that update.
       if (!consumed) {
         button = findSendButton(input)
         if (button) {
@@ -3289,16 +3348,13 @@ import { t } from '../core/i18n'
       }
       const timer = setTimeout(() => finish(false), 5000)
       try {
-        chrome.runtime.sendMessage(
-          { type: BILIBILI_SEND_MESSAGE, message },
-          (response) => {
-            if (chrome.runtime.lastError) {
-              finish(false)
-              return
-            }
-            finish(Boolean(response?.ok))
-          },
-        )
+        chrome.runtime.sendMessage({ type: BILIBILI_SEND_MESSAGE, message }, (response) => {
+          if (chrome.runtime.lastError) {
+            finish(false)
+            return
+          }
+          finish(Boolean(response?.ok))
+        })
       } catch {
         finish(false)
       }
@@ -3314,11 +3370,12 @@ import { t } from '../core/i18n'
     const message = state.message
     const richPayload = state.richPayload
     diagnostics.record({ type: 'action.plus-one', stage: state.candidateKind || 'unknown' })
-    const sendOperation = richPayload && richPayload.assets.length
-      ? repeatPlatformRichPayload(richPayload)
-      : message
-        ? repeatMessage(message)
-        : null
+    const sendOperation =
+      richPayload && richPayload.assets.length
+        ? repeatPlatformRichPayload(richPayload)
+        : message
+          ? repeatMessage(message)
+          : null
     // The send operation has captured its payload. Release the frozen clone
     // and resume the original animation immediately so the next danmaku can
     // be selected without waiting for hover timers or moving off the toolbar.
@@ -3333,16 +3390,20 @@ import { t } from '../core/i18n'
 
     const path = event.composedPath ? event.composedPath() : [event.target]
     if (isOwned(event.target)) {
-      return
-    }
-
-    if (isInsideFrozenHoverZone(event.clientX, event.clientY)) {
       cancelHide()
       return
     }
 
     if (
-      !pathInsideBilibiliVideo(path) ||
+      isInsideFrozenHoverZone(event.clientX, event.clientY) ||
+      isInsideChatHoverZone(event.clientX, event.clientY)
+    ) {
+      cancelHide()
+      return
+    }
+
+    if (
+      !pathInsideEnabledBilibiliSurface(path) ||
       pathTouchesBilibiliQuickInput(path) ||
       pathTouchesBilibiliChatActions(path) ||
       pathTouchesBilibiliChatAdvertisement(path)
@@ -3429,6 +3490,11 @@ import { t } from '../core/i18n'
     state.pointerX = event.clientX
     state.pointerY = event.clientY
 
+    if (isInsideChatHoverZone(state.pointerX, state.pointerY)) {
+      cancelHide()
+      return
+    }
+
     // A long frozen danmaku can extend beyond the player bounds. Keep the
     // selection while the pointer is still over that exact snapshot so its
     // action bar remains reachable outside the video rectangle.
@@ -3444,7 +3510,7 @@ import { t } from '../core/i18n'
 
     const path = event.composedPath ? event.composedPath() : [event.target]
     if (
-      !pathInsideBilibiliVideo(path) ||
+      !pathInsideEnabledBilibiliSurface(path) ||
       pathTouchesBilibiliQuickInput(path) ||
       pathTouchesBilibiliChatActions(path) ||
       pathTouchesBilibiliChatAdvertisement(path)
@@ -3486,7 +3552,10 @@ import { t } from '../core/i18n'
       return
     }
 
-    if (isInsideFrozenHoverZone(event.clientX, event.clientY)) {
+    if (
+      isInsideFrozenHoverZone(event.clientX, event.clientY) ||
+      isInsideChatHoverZone(event.clientX, event.clientY)
+    ) {
       cancelHide()
       return
     }
@@ -3510,7 +3579,7 @@ import { t } from '../core/i18n'
 
     const path = event.composedPath ? event.composedPath() : [event.target]
     if (
-      !pathInsideBilibiliVideo(path) ||
+      !pathInsideEnabledBilibiliSurface(path) ||
       pathTouchesBilibiliQuickInput(path) ||
       pathTouchesBilibiliChatActions(path) ||
       pathTouchesBilibiliChatAdvertisement(path)
@@ -3534,6 +3603,10 @@ import { t } from '../core/i18n'
   }
 
   function onViewportChange() {
+    if (state.candidateKind === 'chat') {
+      updateButtonPosition()
+      return
+    }
     requestAnimationFrame(updateButtonPosition)
   }
 
@@ -3567,11 +3640,41 @@ import { t } from '../core/i18n'
     platformAdapter.cleanup()
   }
 
+  function invalidateDomDiscoveryCaches() {
+    state.roots = [document]
+    state.rootsCachedAt = 0
+    state.bilibiliOverlayCandidates = []
+    state.bilibiliOverlayCandidatesCachedAt = 0
+  }
+
   function onVisibilityChange() {
     if (document.hidden) {
       releaseTransientResources()
     } else {
       startSenderObserver()
+    }
+  }
+
+  function resumeRuntime(stage) {
+    invalidateDomDiscoveryCaches()
+    ensureButton()
+    startSenderObserver()
+    scheduleSenderCacheScan(0)
+    diagnostics.record({ type: 'runtime.resumed', stage })
+  }
+
+  function onPageHide(event) {
+    if (event && event.persisted) {
+      releaseTransientResources()
+      diagnostics.record({ type: 'runtime.suspended', stage: 'bfcache' })
+      return
+    }
+    destroyRuntime()
+  }
+
+  function onPageShow(event) {
+    if (event && event.persisted) {
+      resumeRuntime('bfcache')
     }
   }
 
@@ -3588,6 +3691,8 @@ import { t } from '../core/i18n'
     document.removeEventListener('fullscreenchange', onFullscreenChange, true)
     document.removeEventListener('webkitfullscreenchange', onFullscreenChange, true)
     document.removeEventListener('visibilitychange', onVisibilityChange)
+    removeEventListener('pagehide', onPageHide)
+    removeEventListener('pageshow', onPageShow)
     removeEventListener('scroll', onViewportChange, true)
     removeEventListener('resize', onViewportChange)
     chrome.runtime.onMessage.removeListener(onDiagnosticsMessage)
@@ -3613,6 +3718,22 @@ import { t } from '../core/i18n'
   function startSenderObserver() {
     if (state.senderObserver || !document.documentElement) return
     state.senderObserver = new MutationObserver((mutations) => {
+      const playerStructureChanged = mutations.some((mutation) =>
+        Array.from(mutation.addedNodes || []).some((node) => {
+          if (!(node instanceof Element)) return false
+          if (matchesAny(node, config.videoRoots)) return true
+          try {
+            return Boolean(node.querySelector(config.videoRoots.join(',')))
+          } catch {
+            return false
+          }
+        }),
+      )
+      if (playerStructureChanged) {
+        invalidateDomDiscoveryCaches()
+        ensurePortal()
+        diagnostics.record({ type: 'runtime.player-remounted', stage: 'mutation' })
+      }
       const relevant = mutations.some((mutation) => {
         const target =
           mutation.target instanceof Element
@@ -3681,7 +3802,8 @@ import { t } from '../core/i18n'
   document.addEventListener('fullscreenchange', onFullscreenChange, true)
   document.addEventListener('webkitfullscreenchange', onFullscreenChange, true)
   document.addEventListener('visibilitychange', onVisibilityChange)
-  addEventListener('pagehide', destroyRuntime, { once: true })
+  addEventListener('pagehide', onPageHide)
+  addEventListener('pageshow', onPageShow)
   addEventListener('scroll', onViewportChange, true)
   addEventListener('resize', onViewportChange, { passive: true })
   chrome.runtime.onMessage.addListener(onDiagnosticsMessage)

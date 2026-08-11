@@ -1,8 +1,8 @@
-# bililive-danmaku-plus-one store listing (0.0.1)
+# bililive-danmaku-plus-one store listing (0.0.2)
 
 ## Single purpose
 
-bililive-danmaku-plus-one provides +1, reply preparation, fullscreen sending, local favorites, and a user-configured repeating sender for on-video danmaku on Bilibili Live. Side chat and areas outside the player do not trigger on-video danmaku selection.
+bililive-danmaku-plus-one provides +1, copy, reply preparation, fullscreen sending, local favorites, and a user-configured repeating sender for danmaku on Bilibili Live. An optional side-chat capsule exposes the same quick actions without covering message text; side chat never triggers on-video danmaku selection.
 
 ## Permission justifications
 

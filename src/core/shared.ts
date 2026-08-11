@@ -45,8 +45,21 @@ const COLOR_CSS_VARIABLES: Record<ColorSettingKey, string> = Object.freeze({
   error: '--bcp-error',
 })
 
-function emptyColorSettings(): ColorSettings {
-  return Object.fromEntries(COLOR_SETTING_KEYS.map((key) => [key, ''])) as ColorSettings
+export const DEFAULT_LIVE_COLORS: Readonly<ColorSettings> = Object.freeze({
+  actionStart: '#17191D',
+  actionEnd: '#17191D',
+  actionText: '#FFFFFF',
+  focusRing: '#FFFFFF',
+  selection: '#17191D',
+  panelBackground: '#17191D',
+  panelText: '#FFFFFF',
+  success: '#27AE60',
+  warning: '#E6A000',
+  error: '#FF4747',
+})
+
+function defaultColorSettings(): ColorSettings {
+  return { ...DEFAULT_LIVE_COLORS }
 }
 
 export const DEFAULT_SETTINGS: ExtensionSettings = Object.freeze({
@@ -54,6 +67,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = Object.freeze({
   altClick: true,
   actions: Object.freeze({
     plusOne: true,
+    copy: true,
     reply: true,
     favorite: true,
   }),
@@ -72,10 +86,10 @@ export const DEFAULT_SETTINGS: ExtensionSettings = Object.freeze({
     douyu: false,
   }),
   colors: Object.freeze({
-    huya: Object.freeze(emptyColorSettings()),
-    bilibili: Object.freeze(emptyColorSettings()),
-    douyin: Object.freeze(emptyColorSettings()),
-    douyu: Object.freeze(emptyColorSettings()),
+    huya: Object.freeze(defaultColorSettings()),
+    bilibili: Object.freeze(defaultColorSettings()),
+    douyin: Object.freeze(defaultColorSettings()),
+    douyu: Object.freeze(defaultColorSettings()),
   }),
 })
 
@@ -91,7 +105,10 @@ export function normalizeHexColor(value: unknown): string {
 function mergeColorSettings(saved: unknown): ColorSettings {
   const value = isRecord(saved) ? saved : {}
   return Object.fromEntries(
-    COLOR_SETTING_KEYS.map((key) => [key, normalizeHexColor(value[key])]),
+    COLOR_SETTING_KEYS.map((key) => [
+      key,
+      normalizeHexColor(value[key]) || DEFAULT_LIVE_COLORS[key],
+    ]),
   ) as ColorSettings
 }
 
@@ -214,6 +231,7 @@ export function mergeSettings(saved?: unknown): ExtensionSettings {
     altClick: typeof value.altClick === 'boolean' ? value.altClick : DEFAULT_SETTINGS.altClick,
     actions: {
       plusOne: typeof savedActions.plusOne === 'boolean' ? savedActions.plusOne : true,
+      copy: typeof savedActions.copy === 'boolean' ? savedActions.copy : true,
       reply: typeof savedActions.reply === 'boolean' ? savedActions.reply : true,
       favorite: typeof savedActions.favorite === 'boolean' ? savedActions.favorite : true,
     },
@@ -254,6 +272,7 @@ export function mergeSettings(saved?: unknown): ExtensionSettings {
 
 const shared: SharedExtensionApi = Object.freeze({
   COLOR_SETTING_KEYS,
+  DEFAULT_LIVE_COLORS,
   DEFAULT_SETTINGS,
   applyPlatformColors,
   detectPlatform,

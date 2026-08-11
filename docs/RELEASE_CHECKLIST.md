@@ -14,8 +14,10 @@
 
 - [ ] Chrome: Bilibili on-video danmaku in normal, web-fullscreen, and native fullscreen modes.
 - [ ] The side chat and areas outside the player do not activate on-video danmaku selection.
-- [ ] Plain text, Unicode emoji, consecutive image emotes, and mixed text/image order.
-- [ ] +1, reply preparation, favorite, sender correlation, and own-message outline.
+- [ ] Optional side-chat capsule stays outside the message row and remains reachable while chat scrolls.
+- [ ] Plain text, Unicode emoji, inline Bilibili emotes, single room emotes, and mixed text/image order.
+- [ ] Honor-level, fan-medal, and floating-danmaku decorations are excluded from message content.
+- [ ] +1, copy, reply preparation, favorite, sender correlation, and own-message outline.
 - [ ] Existing schema-v2 favorites remain available after updating the unpacked/store build.
 - [ ] Manual favorites, custom drag order, unicycle configuration, and favorites-to-unicycle transfers work.
 - [ ] No active rate-limit or mute testing through repeated real messages.

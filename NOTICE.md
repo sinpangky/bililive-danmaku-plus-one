@@ -5,7 +5,7 @@
 
 - Upstream baseline: `v2.2.0`
 - Upstream baseline commit: `66343540290c61e9221c6dc700aefc3ace2836df`
-- Current modified release: `0.0.1`
+- Current modified release: `0.0.2`
 - License: `GPL-3.0-or-later`; see [LICENSE](LICENSE)
 
 The modified version narrows the shipped extension to Bilibili Live and adds

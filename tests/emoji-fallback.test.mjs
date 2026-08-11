@@ -1,224 +1,289 @@
-import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import test from "node:test";
-import vm from "node:vm";
-import { resolve } from "node:path";
-import { build } from "vite";
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import test from 'node:test'
+import vm from 'node:vm'
+import { resolve } from 'node:path'
+import { build } from 'vite'
 
-const root = resolve(import.meta.dirname, "..");
+const root = resolve(import.meta.dirname, '..')
 const buildResult = await build({
   configFile: false,
-  logLevel: "silent",
+  logLevel: 'silent',
   publicDir: false,
   root,
   build: {
     emptyOutDir: false,
     lib: {
-      entry: resolve(root, "src", "platforms", "live", "emoji-fallback.ts"),
-      fileName: () => "emoji-fallback.js",
-      formats: ["iife"],
-      name: "DanmakuEchoEmojiFallback"
+      entry: resolve(root, 'src', 'platforms', 'live', 'emoji-fallback.ts'),
+      fileName: () => 'emoji-fallback.js',
+      formats: ['iife'],
+      name: 'DanmakuEchoEmojiFallback',
     },
     minify: false,
-    outDir: resolve(root, "build", "test-artifacts"),
+    outDir: resolve(root, 'build', 'test-artifacts'),
     sourcemap: false,
-    target: "chrome110",
-    write: false
-  }
-});
-const output = Array.isArray(buildResult) ? buildResult[0] : buildResult;
-const source = output.output.find((entry) => entry.type === "chunk")?.code;
-if (!source) throw new Error("Could not build Emoji fallback test module");
-const context = {};
-context.globalThis = context;
-vm.runInNewContext(source, context, { filename: "emoji-fallback.js" });
-const { orderedBracketEmojiText, unicodeEmojiFallbackText } = context.DanmakuEchoEmojiFallback;
+    target: 'chrome110',
+    write: false,
+  },
+})
+const output = Array.isArray(buildResult) ? buildResult[0] : buildResult
+const source = output.output.find((entry) => entry.type === 'chunk')?.code
+if (!source) throw new Error('Could not build Emoji fallback test module')
+const context = {}
+context.globalThis = context
+vm.runInNewContext(source, context, { filename: 'emoji-fallback.js' })
+const { orderedBracketEmojiText, unicodeEmojiFallbackText } = context.DanmakuEchoEmojiFallback
 
-test("uses the full message when every image asset has an exact Unicode Emoji token", () => {
-  assert.equal(unicodeEmojiFallbackText({
-    text: "晚上好 👩🏽‍💻",
-    assets: [{ token: "👩🏽‍💻" }]
-  }), "晚上好 👩🏽‍💻");
-  assert.equal(unicodeEmojiFallbackText({
-    text: "👨‍👩‍👧‍👦 🇨🇳 1️⃣",
-    assets: [{ token: "👨‍👩‍👧‍👦" }, { token: "🇨🇳" }, { token: "1️⃣" }]
-  }), "👨‍👩‍👧‍👦 🇨🇳 1️⃣");
-});
+test('uses the full message when every image asset has an exact Unicode Emoji token', () => {
+  assert.equal(
+    unicodeEmojiFallbackText({
+      text: '晚上好 👩🏽‍💻',
+      assets: [{ token: '👩🏽‍💻' }],
+    }),
+    '晚上好 👩🏽‍💻',
+  )
+  assert.equal(
+    unicodeEmojiFallbackText({
+      text: '👨‍👩‍👧‍👦 🇨🇳 1️⃣',
+      assets: [{ token: '👨‍👩‍👧‍👦' }, { token: '🇨🇳' }, { token: '1️⃣' }],
+    }),
+    '👨‍👩‍👧‍👦 🇨🇳 1️⃣',
+  )
+})
 
-test("does not replace platform image Emoji with a bracketed resource name", () => {
-  assert.equal(unicodeEmojiFallbackText({
-    text: "[主播挥手]",
-    assets: [{ token: "[主播挥手]" }]
-  }), "");
-});
+test('does not replace platform image Emoji with a bracketed resource name', () => {
+  assert.equal(
+    unicodeEmojiFallbackText({
+      text: '[主播挥手]',
+      assets: [{ token: '[主播挥手]' }],
+    }),
+    '',
+  )
+})
 
-test("requires a Unicode token for every image asset", () => {
-  assert.equal(unicodeEmojiFallbackText({
-    text: "你好 👋",
-    assets: [{ token: "👋" }, { token: "" }]
-  }), "");
-  assert.equal(unicodeEmojiFallbackText({ text: "你好 👋", assets: [] }), "");
-});
+test('requires a Unicode token for every image asset', () => {
+  assert.equal(
+    unicodeEmojiFallbackText({
+      text: '你好 👋',
+      assets: [{ token: '👋' }, { token: '' }],
+    }),
+    '',
+  )
+  assert.equal(unicodeEmojiFallbackText({ text: '你好 👋', assets: [] }), '')
+})
 
-test("rebuilds Bilibili bracket Emoji in the original DOM order", () => {
-  assert.equal(orderedBracketEmojiText({
-    assets: [{ token: "[大哭]" }],
-    parts: [{ type: "emoji", asset: { token: "[大哭]" } }],
-    text: "[大哭]"
-  }), "[大哭]");
-  assert.equal(orderedBracketEmojiText({
-    assets: [{ token: "[大哭]" }, { token: "[大哭]" }],
-    parts: [
-      { type: "text", text: "加油啊" },
-      { type: "emoji", asset: { token: "[大哭]" } },
-      { type: "emoji", asset: { token: "[大哭]" } }
-    ],
-    text: "加油啊 [大哭] [大哭]"
-  }), "加油啊[大哭][大哭]");
-  assert.equal(orderedBracketEmojiText({
-    assets: [{ token: "[哇]" }, { token: "[大哭]" }],
-    parts: [
-      { type: "emoji", asset: { token: "[哇]" } },
-      { type: "text", text: "文字" },
-      { type: "emoji", asset: { token: "[大哭]" } }
-    ]
-  }), "[哇]文字[大哭]");
-});
+test('rebuilds Bilibili bracket Emoji in the original DOM order', () => {
+  assert.equal(
+    orderedBracketEmojiText({
+      assets: [{ token: '[大哭]' }],
+      parts: [{ type: 'emoji', asset: { token: '[大哭]' } }],
+      text: '[大哭]',
+    }),
+    '[大哭]',
+  )
+  assert.equal(
+    orderedBracketEmojiText({
+      assets: [{ token: '[大哭]' }, { token: '[大哭]' }],
+      parts: [
+        { type: 'text', text: '加油啊' },
+        { type: 'emoji', asset: { token: '[大哭]' } },
+        { type: 'emoji', asset: { token: '[大哭]' } },
+      ],
+      text: '加油啊 [大哭] [大哭]',
+    }),
+    '加油啊[大哭][大哭]',
+  )
+  assert.equal(
+    orderedBracketEmojiText({
+      assets: [{ token: '[哇]' }, { token: '[大哭]' }],
+      parts: [
+        { type: 'emoji', asset: { token: '[哇]' } },
+        { type: 'text', text: '文字' },
+        { type: 'emoji', asset: { token: '[大哭]' } },
+      ],
+    }),
+    '[哇]文字[大哭]',
+  )
+})
 
-test("does not guess a bracket Emoji order from incomplete rich parts", () => {
-  assert.equal(orderedBracketEmojiText({
-    assets: [{ token: "[哇]" }, { token: "[大哭]" }],
-    parts: [{ type: "emoji", asset: { token: "[哇]" } }]
-  }), "");
-  assert.equal(orderedBracketEmojiText({
-    assets: [{ token: "[主播开心]" }],
-    parts: [{ type: "emoji", asset: { token: "" } }]
-  }), "");
-});
+test('does not guess a bracket Emoji order from incomplete rich parts', () => {
+  assert.equal(
+    orderedBracketEmojiText({
+      assets: [{ token: '[哇]' }, { token: '[大哭]' }],
+      parts: [{ type: 'emoji', asset: { token: '[哇]' } }],
+    }),
+    '',
+  )
+  assert.equal(
+    orderedBracketEmojiText({
+      assets: [{ token: '[主播开心]' }],
+      parts: [{ type: 'emoji', asset: { token: '' } }],
+    }),
+    '',
+  )
+})
 
-test("all three live adapters use the shared lossless Emoji fallback", () => {
-  const sharedLiveSource = readFileSync(resolve(root, "src", "entries", "content.ts"), "utf8");
-  const douyinSource = readFileSync(resolve(root, "src", "entries", "douyin-content.ts"), "utf8");
-  assert.match(sharedLiveSource, /const unicodeFallback = unicodeEmojiFallbackText\(payload\);?/);
-  assert.match(sharedLiveSource, /repeatPlatformRichPayload\(richPayload\);?/);
-  assert.match(douyinSource, /const unicodeFallback = unicodeEmojiFallbackText\(payload\);?/);
-  assert.match(douyinSource, /reason: ["']unicode-emoji-fallback["']/);
-});
+test('all three live adapters use the shared lossless Emoji fallback', () => {
+  const sharedLiveSource = readFileSync(resolve(root, 'src', 'entries', 'content.ts'), 'utf8')
+  const douyinSource = readFileSync(resolve(root, 'src', 'entries', 'douyin-content.ts'), 'utf8')
+  assert.match(sharedLiveSource, /const unicodeFallback = unicodeEmojiFallbackText\(payload\);?/)
+  assert.match(sharedLiveSource, /repeatPlatformRichPayload\(richPayload\);?/)
+  assert.match(douyinSource, /const unicodeFallback = unicodeEmojiFallbackText\(payload\);?/)
+  assert.match(douyinSource, /reason: ["']unicode-emoji-fallback["']/)
+})
 
-test("Bilibili uses its native editor and Emoji panel", () => {
-  const contentSource = readFileSync(resolve(root, "src", "entries", "content.ts"), "utf8");
-  const fixtureSource = readFileSync(resolve(root, "tests", "fixture-server.cjs"), "utf8");
-  assert.match(contentSource, /function emojiMetadataElements\(element, image\)/);
-  assert.match(contentSource, /closestMatching\(element, config\.overlayMessages\)/);
-  assert.match(contentSource, /async function findPlatformEmojiAcrossCategories\(asset\)/);
-  assert.match(contentSource, /enrichRichPayloadAssetNames\(payload, \{ resolveBilibiliNative: true \}\)/);
-  assert.match(contentSource, /function refreshRichPayloadText\(payload\)/);
+test('Bilibili uses its native editor and Emoji panel', () => {
+  const contentSource = readFileSync(resolve(root, 'src', 'entries', 'content.ts'), 'utf8')
+  const fixtureSource = readFileSync(resolve(root, 'tests', 'fixture-server.cjs'), 'utf8')
+  assert.match(contentSource, /function emojiMetadataElements\(element, image\)/)
+  assert.match(contentSource, /closestMatching\(element, config\.overlayMessages\)/)
+  assert.match(contentSource, /async function findPlatformEmojiAcrossCategories\(asset\)/)
   assert.match(
     contentSource,
-    /markBilibiliPayloadAsNativePanel\(payload, resolvedSingleBilibiliItem\)/
-  );
-  assert.match(contentSource, /async function repeatPlatformRichPayload\(payload\)/);
+    /enrichRichPayloadAssetNames\(payload, \{ resolveBilibiliNative: true \}\)/,
+  )
+  assert.match(contentSource, /function refreshRichPayloadText\(payload\)/)
   assert.match(
     contentSource,
-    /const bilibiliInlineText = bilibiliSingleImagePayload \? ['"]['"] : bilibiliInlineEmojiText\(payload\)/
-  );
-  assert.match(contentSource, /return repeatMessage\(bilibiliInlineText\)/);
-  assert.match(contentSource, /t\(['"]toastOfficialEmojiNotUnique['"]/);
-  assert.match(contentSource, /LEGACY_BILIBILI_EXCLUSIVE_ASSET_KEY_PREFIX/);
-  assert.match(contentSource, /current && depth < 12/);
-  assert.match(contentSource, /async function openUniqueBilibiliPlatformEmoji\(input, asset\)/);
-  assert.match(contentSource, /function findBilibiliEmojiEditor\(\)/);
-  const editorSource = contentSource.match(
-    /function findBilibiliEmojiEditor\(\)[\s\S]*?\n  }\n\n  function activateBilibiliQuickInput/
-  )?.[0] || "";
-  assert.doesNotMatch(editorSource, /closestMatching\(element, config\.videoRoots\)/);
-  assert.match(contentSource, /const includeHidden = fullscreenActive\(\)/);
-  assert.match(contentSource, /findPlatformEmojiToggle\(input, includeHidden\)/);
-  assert.match(contentSource, /async function repeatBilibiliFavoritePayload\(payload\)/);
-  assert.match(contentSource, /t\(['"]toastOfficialEmojiNotFound['"]/);
-  assert.match(contentSource, /sendFavorite:\s*repeatBilibiliFavoritePayload/);
-  assert.match(contentSource, /setNativeValue\(input, message\)/);
-  assert.match(contentSource, /item\.click\(\)/);
-  assert.match(contentSource, /button\.click\(\)/);
-  assert.doesNotMatch(contentSource, /repeatBilibiliPayload/);
-  assert.doesNotMatch(contentSource, /requestBilibiliSend/);
-  assert.match(contentSource, /editor === input && fullscreenActive\(\) && playerCoversViewport/);
+    /markBilibiliPayloadAsNativePanel\(payload, resolvedSingleBilibiliItem\)/,
+  )
+  assert.match(contentSource, /async function repeatPlatformRichPayload\(payload\)/)
+  assert.match(contentSource, /classifyBilibiliRichPayload\(payload\)/)
+  assert.match(contentSource, /bilibiliClassification\.kind === ['"]inline-emoji-text['"]/)
+  assert.match(contentSource, /return repeatMessage\(bilibiliClassification\.text\)/)
+  assert.match(contentSource, /bilibiliClassification\?\.kind === ['"]room-emoji-mixed['"]/)
+  assert.match(contentSource, /t\(['"]toastOfficialEmojiNotUnique['"]/)
+  assert.match(contentSource, /LEGACY_BILIBILI_EXCLUSIVE_ASSET_KEY_PREFIX/)
+  assert.match(contentSource, /current && depth < 12/)
+  assert.match(contentSource, /async function openUniqueBilibiliPlatformEmoji\(input, asset\)/)
+  assert.match(contentSource, /function findBilibiliEmojiEditor\(\)/)
+  const editorSource =
+    contentSource.match(
+      /function findBilibiliEmojiEditor\(\)[\s\S]*?\n  }\n\n  function activateBilibiliQuickInput/,
+    )?.[0] || ''
+  assert.doesNotMatch(editorSource, /closestMatching\(element, config\.videoRoots\)/)
+  assert.match(contentSource, /const includeHidden = fullscreenActive\(\)/)
+  assert.match(contentSource, /findPlatformEmojiToggle\(input, includeHidden\)/)
+  assert.match(contentSource, /async function repeatBilibiliFavoritePayload\(payload\)/)
+  assert.match(contentSource, /t\(['"]toastOfficialEmojiNotFound['"]/)
+  assert.match(contentSource, /sendFavorite:\s*repeatBilibiliFavoritePayload/)
+  assert.match(contentSource, /setNativeValue\(input, message\)/)
+  assert.match(contentSource, /item\.click\(\)/)
+  assert.match(contentSource, /button\.click\(\)/)
+  assert.doesNotMatch(contentSource, /repeatBilibiliPayload/)
+  assert.doesNotMatch(contentSource, /requestBilibiliSend/)
+  assert.match(contentSource, /editor === input && fullscreenActive\(\) && playerCoversViewport/)
   const repositorySource = readFileSync(
-    resolve(root, "src", "features", "favorites", "repository.ts"),
-    "utf8"
-  );
-  assert.match(repositorySource, /favoriteAssetDisplayName/);
-  assert.match(repositorySource, /names\.length/);
-  assert.match(fixtureSource, /data-fixture-raw-exclusive=["']true["']/);
+    resolve(root, 'src', 'features', 'favorites', 'repository.ts'),
+    'utf8',
+  )
+  assert.match(repositorySource, /favoriteAssetDisplayName/)
+  assert.match(repositorySource, /names\.length/)
+  assert.match(fixtureSource, /data-fixture-raw-exclusive=["']true["']/)
   assert.doesNotMatch(
-    fixtureSource.match(/data-fixture-raw-exclusive=[\s\S]*?fixture-exclusive-emote[\s\S]*?>/)?.[0] || "",
-    /data-file-id|data-danmaku|data-type=/
-  );
-  assert.match(fixtureSource, /fixture-exclusive-emote[\s\S]*?alt=["']\[图片表情\]["']/);
-  assert.match(fixtureSource, /nameonlypanel/);
-  assert.match(fixtureSource, /data-fixture-resource-id=["']room-happy-42["']/);
-});
+    fixtureSource.match(
+      /data-fixture-raw-exclusive=[\s\S]*?fixture-exclusive-emote[\s\S]*?>/,
+    )?.[0] || '',
+    /data-file-id|data-danmaku|data-type=/,
+  )
+  assert.match(fixtureSource, /fixture-exclusive-emote[\s\S]*?alt=["']\[图片表情\]["']/)
+  assert.match(fixtureSource, /nameonlypanel/)
+  assert.match(fixtureSource, /data-fixture-resource-id=["']room-happy-42["']/)
+})
 
-test("common feedback toasts wrap long Bilibili errors instead of clipping them", () => {
+test('common feedback toasts wrap long Bilibili errors instead of clipping them', () => {
   const contentStyles = readFileSync(
-    resolve(root, "src", "assets", "styles", "content.css"),
-    "utf8"
-  );
-  const toastRule = contentStyles.match(/\.bcp-one-toast\s*\{([\s\S]*?)\n\}/)?.[1] || "";
-  assert.match(toastRule, /height:\s*auto/);
-  assert.match(toastRule, /overflow-wrap:\s*anywhere/);
-  assert.match(toastRule, /white-space:\s*normal/);
-  assert.doesNotMatch(toastRule, /overflow:\s*hidden/);
-});
+    resolve(root, 'src', 'assets', 'styles', 'content.css'),
+    'utf8',
+  )
+  const toastRule = contentStyles.match(/\.bcp-one-toast\s*\{([\s\S]*?)\n\}/)?.[1] || ''
+  assert.match(toastRule, /height:\s*auto/)
+  assert.match(toastRule, /overflow-wrap:\s*anywhere/)
+  assert.match(toastRule, /white-space:\s*normal/)
+  assert.doesNotMatch(toastRule, /overflow:\s*hidden/)
+})
 
-test("Douyin keeps native image-only Emoji renderable and confirms direct panel sends", () => {
-  const contentSource = readFileSync(resolve(root, "src", "entries", "douyin-content.ts"), "utf8");
-  const pageHookSource = readFileSync(resolve(root, "src", "entries", "douyin-page-hook.ts"), "utf8");
-  assert.match(contentSource, /function richPayloadFromRendererContent\(canvasText, rendererContent\)/);
-  assert.match(contentSource, /return mergeRendererPayloadWithChatRow\(rendererPayload, matched, canvasText\)/);
-  assert.match(contentSource, /waitForOwnMessageConfirmation\(ownIntentId, 3200\)/);
-  assert.match(contentSource, /"\[class\*='emoji-icon' i\]"/);
-  assert.match(contentSource, /\(!isVisible\(element\) && !insideEmojiSurface\)/);
-  assert.match(contentSource, /debugEvent\(\s*["']emoji-asset-not-found["']/);
-  assert.match(contentSource, /await restoreRichInputCaret\(input\)/);
-  assert.match(contentSource, /appendedMutationValue\(before, input\.value\)/);
-  assert.match(pageHookSource, /barrageInteractionText\(description\.text, description\.imageCount\)/);
-  assert.match(pageHookSource, /type: ["']own-message-consumed["']/);
-});
+test('Douyin keeps native image-only Emoji renderable and confirms direct panel sends', () => {
+  const contentSource = readFileSync(resolve(root, 'src', 'entries', 'douyin-content.ts'), 'utf8')
+  const pageHookSource = readFileSync(
+    resolve(root, 'src', 'entries', 'douyin-page-hook.ts'),
+    'utf8',
+  )
+  assert.match(
+    contentSource,
+    /function richPayloadFromRendererContent\(canvasText, rendererContent\)/,
+  )
+  assert.match(
+    contentSource,
+    /return mergeRendererPayloadWithChatRow\(rendererPayload, matched, canvasText\)/,
+  )
+  assert.match(contentSource, /waitForOwnMessageConfirmation\(ownIntentId, 3200\)/)
+  assert.match(contentSource, /"\[class\*='emoji-icon' i\]"/)
+  assert.match(contentSource, /\(!isVisible\(element\) && !insideEmojiSurface\)/)
+  assert.match(contentSource, /debugEvent\(\s*["']emoji-asset-not-found["']/)
+  assert.match(contentSource, /await restoreRichInputCaret\(input\)/)
+  assert.match(contentSource, /appendedMutationValue\(before, input\.value\)/)
+  assert.match(
+    pageHookSource,
+    /barrageInteractionText\(description\.text, description\.imageCount\)/,
+  )
+  assert.match(pageHookSource, /type: ["']own-message-consumed["']/)
+})
 
-test("Douyin frames manually sent native Emoji by resource identity", () => {
-  const contentSource = readFileSync(resolve(root, "src", "entries", "douyin-content.ts"), "utf8");
-  const pageHookSource = readFileSync(resolve(root, "src", "entries", "douyin-page-hook.ts"), "utf8");
-  assert.match(contentSource, /function rememberManualEmojiClick\(event\)/);
-  assert.match(contentSource, /document\.addEventListener\(["']click["'], rememberManualEmojiClick, true\)/);
-  assert.match(contentSource, /type: ["']own-message-intent["'],[\s\S]*?plainText: payload\.plainText,[\s\S]*?assets: payload\.assets/);
-  assert.match(pageHookSource, /allAssetsMatch\(item\.assets, observedAssets\)/);
-  assert.match(pageHookSource, /!item\.text \|\| item\.text === normalized/);
-  assert.match(pageHookSource, /own: consumeOwnMessage\(description\.text, content\)/);
-});
+test('Douyin frames manually sent native Emoji by resource identity', () => {
+  const contentSource = readFileSync(resolve(root, 'src', 'entries', 'douyin-content.ts'), 'utf8')
+  const pageHookSource = readFileSync(
+    resolve(root, 'src', 'entries', 'douyin-page-hook.ts'),
+    'utf8',
+  )
+  assert.match(contentSource, /function rememberManualEmojiClick\(event\)/)
+  assert.match(
+    contentSource,
+    /document\.addEventListener\(["']click["'], rememberManualEmojiClick, true\)/,
+  )
+  assert.match(
+    contentSource,
+    /type: ["']own-message-intent["'],[\s\S]*?plainText: payload\.plainText,[\s\S]*?assets: payload\.assets/,
+  )
+  assert.match(pageHookSource, /allAssetsMatch\(item\.assets, observedAssets\)/)
+  assert.match(pageHookSource, /!item\.text \|\| item\.text === normalized/)
+  assert.match(pageHookSource, /own: consumeOwnMessage\(description\.text, content\)/)
+})
 
-test("Douyin detects manual sends and reconciles a renderer race", () => {
-  const contentSource = readFileSync(resolve(root, "src", "entries", "douyin-content.ts"), "utf8");
-  const pageHookSource = readFileSync(resolve(root, "src", "entries", "douyin-page-hook.ts"), "utf8");
-  assert.match(contentSource, /debugEvent\(\s*["']manual-send-detected["']/);
-  assert.match(contentSource, /const clickedSend = path\.find/);
-  assert.match(contentSource, /matchesAny\(item, SEND_BUTTON_SELECTORS\)/);
-  assert.match(pageHookSource, /function reconcileRecentOwnMessage\(item, now\)/);
-  assert.match(pageHookSource, /track\.renderer\.barrage\.dataset\.own = "true"/);
-  assert.match(pageHookSource, /"own-barrage-reconciled"/);
-});
+test('Douyin detects manual sends and reconciles a renderer race', () => {
+  const contentSource = readFileSync(resolve(root, 'src', 'entries', 'douyin-content.ts'), 'utf8')
+  const pageHookSource = readFileSync(
+    resolve(root, 'src', 'entries', 'douyin-page-hook.ts'),
+    'utf8',
+  )
+  assert.match(contentSource, /debugEvent\(\s*["']manual-send-detected["']/)
+  assert.match(contentSource, /const clickedSend = path\.find/)
+  assert.match(contentSource, /matchesAny\(item, SEND_BUTTON_SELECTORS\)/)
+  assert.match(pageHookSource, /function reconcileRecentOwnMessage\(item, now\)/)
+  assert.match(pageHookSource, /track\.renderer\.barrage\.dataset\.own = "true"/)
+  assert.match(pageHookSource, /"own-barrage-reconciled"/)
+})
 
-test("Douyin never selects the whole page while clearing a failed rich +1", () => {
-  const contentSource = readFileSync(resolve(root, "src", "entries", "douyin-content.ts"), "utf8");
-  assert.doesNotMatch(contentSource, /execCommand\(["']selectAll["']/);
-  assert.match(contentSource, /range\.selectNodeContents\(input\)/);
-  assert.match(contentSource, /selection\.removeAllRanges\(\);?[\s\S]*?selection\.addRange\(range\)/);
-  assert.match(contentSource, /cancelOwnMessageAnnouncement\(ownIntentId\);?[\s\S]*?setInputValue\(input, ["']["']\)/);
-});
+test('Douyin never selects the whole page while clearing a failed rich +1', () => {
+  const contentSource = readFileSync(resolve(root, 'src', 'entries', 'douyin-content.ts'), 'utf8')
+  assert.doesNotMatch(contentSource, /execCommand\(["']selectAll["']/)
+  assert.match(contentSource, /range\.selectNodeContents\(input\)/)
+  assert.match(
+    contentSource,
+    /selection\.removeAllRanges\(\);?[\s\S]*?selection\.addRange\(range\)/,
+  )
+  assert.match(
+    contentSource,
+    /cancelOwnMessageAnnouncement\(ownIntentId\);?[\s\S]*?setInputValue\(input, ["']["']\)/,
+  )
+})
 
-test("favorites accepts complete rich payloads instead of rejecting image Emoji", () => {
-  const launcherSource = readFileSync(resolve(root, "src", "features", "favorites", "launcher.ts"), "utf8");
-  assert.doesNotMatch(launcherSource, /暂不支持收藏/);
-  assert.match(launcherSource, /writeFavoriteInBackground\(text, currentRoom, payload\)/);
-  assert.match(launcherSource, /options\.sendFavorite\(item\.payload\)/);
-});
+test('favorites accepts complete rich payloads instead of rejecting image Emoji', () => {
+  const launcherSource = readFileSync(
+    resolve(root, 'src', 'features', 'favorites', 'launcher.ts'),
+    'utf8',
+  )
+  assert.doesNotMatch(launcherSource, /暂不支持收藏/)
+  assert.match(launcherSource, /writeFavoriteInBackground\(text, currentRoom, payload\)/)
+  assert.match(launcherSource, /options\.sendFavorite\(item\.payload\)/)
+})

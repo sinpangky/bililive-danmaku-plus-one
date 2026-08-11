@@ -85,21 +85,21 @@ function onPickerInput(event: Event): void {
 }
 
 function reset(): void {
-  draft.value = "";
+  draft.value = props.defaultValue;
   invalid.value = false;
-  emit("update:modelValue", "");
+  emit("update:modelValue", props.defaultValue);
 }
 </script>
 
 <style lang="scss">
 .color-field {
-  border-bottom: 1px solid #dedfdf;
+  border-bottom: 1px solid var(--border);
   min-width: 0;
   padding: 12px 16px 14px;
 }
 
 .color-field:nth-child(odd) {
-  border-right: 1px solid #dedfdf;
+  border-right: 1px solid var(--border);
 }
 
 .color-field__label {
@@ -150,7 +150,7 @@ function reset(): void {
 }
 
 .color-text {
-  background: #fff;
+  background: #14171a;
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text);
@@ -163,7 +163,7 @@ function reset(): void {
 }
 
 .color-text::placeholder {
-  color: #999c9c;
+  color: var(--text-muted);
   opacity: 1;
   text-transform: none;
 }
@@ -175,7 +175,7 @@ function reset(): void {
 
 .color-reset,
 .platform-color-reset {
-  background: #fff;
+  background: #14171a;
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text-secondary);

@@ -59,6 +59,7 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
+  copy: [event: MouseEvent];
   favorite: [event: MouseEvent];
   placeholder: [event: MouseEvent, action: "reply"];
   plusOne: [event: MouseEvent];
@@ -81,13 +82,16 @@ const classes = computed(() => props.variant === "common" ? {
 
 const visibleActions = computed(() => [
   { key: "plusOne" as const, label: t("actionPlusOne"), dataAction: "plus-one" },
-  { key: "reply" as const, label: t("actionReply"), dataAction: "reply" },
-  { key: "favorite" as const, label: t("actionFavorite"), dataAction: "favorite" }
+  { key: "copy" as const, label: t("actionCopy"), dataAction: "copy" },
+  { key: "favorite" as const, label: t("actionFavorite"), dataAction: "favorite" },
+  { key: "reply" as const, label: t("actionReply"), dataAction: "reply" }
 ].filter((action) => props.actions[action.key]));
 
 function activate(action: ActionKey, event: MouseEvent): void {
   if (action === "plusOne") {
     emit("plusOne", event);
+  } else if (action === "copy") {
+    emit("copy", event);
   } else if (action === "favorite") {
     emit("favorite", event);
   } else {
@@ -98,6 +102,9 @@ function activate(action: ActionKey, event: MouseEvent): void {
 function actionTitle(action: ActionKey, label: string): string {
   if (action === "plusOne") {
     return t("actionRepeatTitle", props.message);
+  }
+  if (action === "copy") {
+    return t("actionCopyTitle", props.message);
   }
   if (action === "reply") {
     return props.sender

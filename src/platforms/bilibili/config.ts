@@ -1,4 +1,5 @@
 import type { LivePlatformConfig } from '../live/config'
+import { BILIBILI_PREFIX_TEXT_SELECTOR } from './dom-config'
 
 export const BILIBILI_PLATFORM_CONFIG: LivePlatformConfig = {
   name: '哔哩哔哩直播',
@@ -37,6 +38,7 @@ export const BILIBILI_PLATFORM_CONFIG: LivePlatformConfig = {
     "[class*='message-item']",
   ],
   messageText: [
+    BILIBILI_PREFIX_TEXT_SELECTOR,
     '.danmaku-content',
     '.danmaku-item-right',
     '.message-content',

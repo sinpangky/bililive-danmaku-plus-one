@@ -2,6 +2,37 @@
 
 本文件记录 bililive-danmaku-plus-one 的重要变更。
 
+## [0.0.2] - 2026-08-11
+
+### Added
+
+- 新增 `复制` 快捷操作，直播画面与侧边聊天栏均使用 `+1 | 复制 | 收藏 | 回复` 顺序，并可在设置页独立开关。
+- 新增 B 站侧边聊天栏弹幕胶囊开关，支持侧栏文字、Unicode Emoji、B 站小表情和单个房间表情。
+- 新增剪贴板兼容回退与复制结果提示。
+- 新增覆盖真实 B 站侧栏房间表情 DOM、荣耀等级标识、三类表情和操作条定位的单元、回归与 Chromium 场景测试。
+
+### Changed
+
+- 直播间默认配色改为灰黑与白色，移除旧的橙色默认值；设置页和收藏界面同步使用克制的深色主题。
+- 侧栏操作条移到消息行外侧并与当前消息垂直居中，保留从消息到按钮的连续悬停区域，避免遮挡正文和中断手动选取。
+- 内容脚本提前到 `document_end` 启动，并在 BFCache 恢复、播放器重新挂载和页面可见性变化时重新激活。
+- B 站富文本识别按发送能力区分单发房间表情、可与文字混排的 B 站小表情和 Unicode Emoji。
+- 将构建链中的 `brace-expansion`、`nanoid` 和 `postcss` 固定到已修复安全公告的兼容补丁版本。
+
+### Fixed
+
+- 修复进入 `live.bilibili.com` 后插件偶尔不能立即响应悬停、需要等待或刷新页面的问题。
+- 修复荣耀等级 40 级以上用户弹幕前的飘屏标识、荣耀等级和粉丝勋章被误当作弹幕内容或 B 站表情的问题。
+- 修复侧栏胶囊与当前消息高度偏移过大、移动到按钮时误选下一条消息的问题。
+- 修复侧栏胶囊遮挡弹幕正文，导致无法手动拖选复制的问题。
+- 修复侧栏单个房间表情因 B 站同时渲染图片和同名文本标签而被误判为“房间表情 + 文字”的问题，包括 `[SAD]` 与 `SAD` 这类仅差规范化方括号的真实结构。
+- 修复侧边聊天栏开启胶囊后仍不显示快捷操作，以及聊天栏滚动时胶囊位置不同步的问题。
+
+### Compatibility
+
+- 继续仅请求 `live.bilibili.com`、`storage` 和 `scripting` 权限，不新增站点或敏感权限。
+- 收藏数据库、备份格式、消息类型和存储键保持兼容；新增操作开关对旧设置默认启用复制，不清空已有收藏或自定义颜色。
+
 ## [0.0.1] - 2026-08-10
 
 ### Added
@@ -67,3 +98,5 @@
 - Permissions remain limited to the existing `storage`, `scripting`, and current host scope.
 
 [2.2.0]: https://github.com/SadUnicorn171/danmaku-echo/releases/tag/v2.2.0
+[0.0.2]: https://github.com/sinpangky/bililive-danmaku-plus-one/releases/tag/v0.0.2
+[0.0.1]: https://github.com/sinpangky/bililive-danmaku-plus-one/releases/tag/v0.0.1

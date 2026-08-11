@@ -7,6 +7,7 @@
     variant="common"
     :visible="state.actionVisible"
     @placeholder="(event, action) => emit('placeholder', event, action)"
+    @copy="(event) => emit('copy', event)"
     @favorite="(event) => emit('favorite', event)"
     @plus-one="(event) => emit('plusOne', event)"
     @pointerdown="(event) => emit('pointerdown', event)"
@@ -33,6 +34,7 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{
+  copy: [event: MouseEvent];
   favorite: [event: MouseEvent];
   placeholder: [event: MouseEvent, action: "reply"];
   plusOne: [event: MouseEvent];
@@ -55,11 +57,15 @@ const emit = defineEmits<{
 .bcp-one-actions {
   all: initial;
   align-items: center;
-  background: #17191d;
+  background: linear-gradient(
+    0deg,
+    var(--bcp-action-start, #17191d),
+    var(--bcp-action-end, #17191d)
+  );
   border: 0;
   border-radius: 8px;
   box-sizing: border-box;
-  color: #fff;
+  color: var(--bcp-action-text, #fff);
   display: flex;
   height: 30px;
   overflow: hidden;
@@ -82,7 +88,7 @@ const emit = defineEmits<{
   align-items: center;
   align-self: stretch;
   box-sizing: border-box;
-  color: #fff;
+  color: var(--bcp-action-text, #fff);
   cursor: pointer;
   display: flex;
   flex: 0 0 42px;
@@ -119,13 +125,13 @@ const emit = defineEmits<{
 }
 
 .bcp-one-action:focus-visible {
-  outline: 2px solid #fff;
+  outline: 2px solid var(--bcp-focus-ring, #fff);
   outline-offset: -2px;
 }
 
 .bcp-one-action-divider {
   align-self: center;
-  background: #fff;
+  background: var(--bcp-action-text, #fff);
   border-radius: 999px;
   box-sizing: border-box;
   display: block;
@@ -145,7 +151,7 @@ const emit = defineEmits<{
 [data-bcp-douyu-own-chat-content='true'],
 [data-bcp-douyu-own-overlay='true'] [class*='text-'] {
   border-radius: 4px !important;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--bcp-selection, #fd8101) 72%, transparent) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--bcp-selection, #17191d) 72%, transparent) !important;
   outline: 1px solid rgb(255 255 255 / 72%) !important;
   outline-offset: 4px !important;
 }
@@ -187,11 +193,11 @@ html[data-bcp-douyu-native-capsule-hidden='true'] [data-bcp-douyu-native-action-
 
 .bcp-one-toast {
   align-items: center;
-  background: var(--bcp-panel-background, #fd8101);
+  background: var(--bcp-panel-background, #17191d);
   border: 0;
   border-radius: 16px;
   box-sizing: border-box;
-  color: var(--bcp-action-text, #fff);
+  color: var(--bcp-panel-text, #fff);
   display: flex;
   font:
     600 16px/22px 'Inter',

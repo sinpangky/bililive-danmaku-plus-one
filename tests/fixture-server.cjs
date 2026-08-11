@@ -198,6 +198,7 @@ const bilibiliHtml = String.raw`<!doctype html>
               data-emoticon="anchor-wave" data-anchor-emoticon="anchor-wave"
               alt="[主播挥手]"
               src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='36'%3E%3Ccircle cx='18' cy='18' r='16' fill='%23ff8a65'/%3E%3C/svg%3E">
+            <span class="fixture-video-emote-token" style="position:absolute;opacity:0">[主播挥手]</span>
           </span>
         </div>
         <div class="bili-danmaku-x-dm fixture-bili-extra-emote-row"
@@ -238,6 +239,13 @@ const bilibiliHtml = String.raw`<!doctype html>
                data-emoji-name="[大哭]" data-emoticon-id="official-cry"
                src="/fixture/bili-cry.webp?source=chat-b"></span>
         </div>
+        <div class="bili-danmaku-x-dm fixture-bili-extra-emote-row fixture-prefixed-text-row"
+          style="display:none;top:360px">
+          <img class="bili-danmaku-x-dm-emoji honor-level-40"
+            data-emoji-name="[荣耀等级40]" alt="[荣耀等级40]"
+            src="/fixture/bili-honor-badge.webp">
+          <span class="bili-danmaku-x-prefixImage-text-container fixture-prefix-text">徽章后的文字</span>
+        </div>
         <div class="bili-danmaku-x-dm fixture-bili-extra-emote-row"
           data-fixture-raw-exclusive-favorite="true" style="display:none;top:380px">
           <span class="bili-danmaku-x-dm-content"><img
@@ -254,12 +262,14 @@ const bilibiliHtml = String.raw`<!doctype html>
     </section>
     <div id="chat-history-list" class="chat-history-list"
       style="height:120px;overflow-y:auto">
-      <div class="danmaku-item fixture-rich-row">
-        <span class="user-name">主播：</span>
-        <span class="danmaku-content">
-          <img class="room-emote fixture-streamer-emote" data-emoticon="anchor-wave"
-            alt="[主播挥手]"
+      <div class="danmaku-item chat-emoticon bulge-emoticon fixture-rich-row"
+        data-type="1" data-anchor-emoticon="anchor-wave" data-danmaku="主播挥手">
+        <div class="danmaku-item-left"><span class="user-name">主播：</span></div>
+        <span class="danmaku-item-right emoticon bulge">
+          <img class="open-menu fixture-streamer-emote"
+            alt="主播挥手"
             src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='36'%3E%3Ccircle cx='18' cy='18' r='16' fill='%23ff8a65'/%3E%3C/svg%3E">
+          <span class="open-menu fixture-streamer-emote-token">主播挥手</span>
         </span>
       </div>
     </div>

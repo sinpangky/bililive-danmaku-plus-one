@@ -12,6 +12,7 @@ export interface OverlayUiState {
 }
 
 interface OverlayCallbacks {
+  onCopy(event: MouseEvent): void;
   onFavorite(event: MouseEvent): void;
   onPlaceholder(event: MouseEvent, action: "reply"): void;
   onPlusOne(event: MouseEvent): void;
@@ -25,7 +26,7 @@ export function createContentOverlay(callbacks: OverlayCallbacks) {
   portal.className = "bcp-one-portal";
   portal.dataset.bcpOneOwned = "true";
   const state = reactive<OverlayUiState>({
-    actions: { plusOne: true, reply: true, favorite: true },
+    actions: { plusOne: true, copy: true, reply: true, favorite: true },
     actionVisible: false,
     message: "",
     sender: "",
@@ -34,6 +35,7 @@ export function createContentOverlay(callbacks: OverlayCallbacks) {
   });
   const app = createApp(ContentOverlay, {
     state,
+    onCopy: callbacks.onCopy,
     onPlaceholder: callbacks.onPlaceholder,
     onFavorite: callbacks.onFavorite,
     onPlusOne: callbacks.onPlusOne,

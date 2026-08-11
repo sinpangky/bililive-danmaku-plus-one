@@ -148,18 +148,18 @@ const emit = defineEmits<{
 }
 
 .nav-item:hover {
-  background: rgb(228 226 226 / 32%);
+  background: rgb(255 255 255 / 6%);
   color: var(--text);
 }
 
 .nav-item:focus-visible {
-  outline: 2px solid rgb(39 174 96 / 38%);
+  outline: 2px solid rgb(255 255 255 / 48%);
   outline-offset: -2px;
 }
 
 .nav-item.is-active {
-  background: rgb(228 226 226 / 50%);
-  color: #646464;
+  background: rgb(255 255 255 / 11%);
+  color: var(--text);
 }
 
 .nav-item svg {

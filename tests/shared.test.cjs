@@ -77,17 +77,19 @@ test("merges partial settings with safe defaults", () => {
   assert.deepEqual(JSON.parse(JSON.stringify(settings.nativeDanmakuCapsule)), {
     douyu: false
   });
-  assert.deepEqual(JSON.parse(JSON.stringify(settings.colors.huya)), Object.fromEntries(
-    shared.COLOR_SETTING_KEYS.map((key) => [key, ""])
-  ));
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(settings.colors.huya)),
+    JSON.parse(JSON.stringify(shared.DEFAULT_LIVE_COLORS))
+  );
 });
 
 test("merges independent action visibility settings", () => {
   const settings = shared.mergeSettings({
-    actions: { plusOne: false, reply: true, favorite: false }
+    actions: { plusOne: false, copy: false, reply: true, favorite: false }
   });
   assert.deepEqual(JSON.parse(JSON.stringify(settings.actions)), {
     plusOne: false,
+    copy: false,
     reply: true,
     favorite: false
   });
@@ -142,12 +144,22 @@ test("keeps valid platform colors independent and ignores invalid values", () =>
     }
   });
   assert.equal(settings.colors.bilibili.actionStart, "#12ABEF");
-  assert.equal(settings.colors.bilibili.error, "");
+  assert.equal(settings.colors.bilibili.error, shared.DEFAULT_LIVE_COLORS.error);
   assert.equal(settings.colors.douyin.actionStart, "#334455");
-  assert.equal(settings.colors.huya.actionStart, "");
+  assert.equal(settings.colors.huya.actionStart, shared.DEFAULT_LIVE_COLORS.actionStart);
 });
 
-test("applies only validated platform color variables", () => {
+test("migrates legacy empty color values to the gray-black live defaults", () => {
+  const settings = shared.mergeSettings({
+    colors: { bilibili: { actionStart: "", panelBackground: "" } }
+  });
+  assert.equal(settings.colors.bilibili.actionStart, "#17191D");
+  assert.equal(settings.colors.bilibili.actionText, "#FFFFFF");
+  assert.equal(settings.colors.bilibili.panelBackground, "#17191D");
+  assert.equal(settings.colors.bilibili.panelText, "#FFFFFF");
+});
+
+test("applies validated colors and falls back to the default palette", () => {
   const values = new Map();
   const root = {
     style: {
@@ -161,9 +173,10 @@ test("applies only validated platform color variables", () => {
   };
   shared.applyPlatformColors(root, { actionStart: "#abcdef", error: "invalid" });
   assert.equal(values.get("--bcp-action-start"), "#ABCDEF");
-  assert.equal(values.has("--bcp-error"), false);
+  assert.equal(values.get("--bcp-error"), shared.DEFAULT_LIVE_COLORS.error);
   shared.applyPlatformColors(root, {});
-  assert.equal(values.size, 0);
+  assert.equal(values.size, shared.COLOR_SETTING_KEYS.length);
+  assert.equal(values.get("--bcp-panel-background"), "#17191D");
 });
 
 test("Douyin bootstrap requests the full runtime after an SPA live-route entry", () => {

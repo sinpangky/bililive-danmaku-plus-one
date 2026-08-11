@@ -41,7 +41,7 @@ export function createDouyinOverlay(callbacks: DouyinOverlayCallbacks) {
   portal.className = "bcp-douyin-portal";
   portal.dataset.bcpDouyinOwned = "true";
   const state = reactive<DouyinOverlayState>({
-    actions: { plusOne: true, reply: true, favorite: true },
+    actions: { plusOne: true, copy: false, reply: true, favorite: true },
     cardActive: false,
     cardMounted: false,
     cardVisible: false,
@@ -145,8 +145,8 @@ export function createDouyinOverlay(callbacks: DouyinOverlayCallbacks) {
       state.sending = false;
     },
     setActions(actions: ActionSettings): void {
-      state.actions = { ...actions };
-      if (!Object.values(actions).some(Boolean)) state.cardVisible = false;
+      state.actions = { ...actions, copy: false };
+      if (!Object.values(state.actions).some(Boolean)) state.cardVisible = false;
     },
     setSelectionPhase(selectionPhase: string): void {
       state.metadata.selectionPhase = selectionPhase;

@@ -1808,8 +1808,76 @@ async function inspect() {
       const threeActionUi = Boolean(actionBar
         && JSON.stringify(Array.from(actionBar.querySelectorAll(".bcp-one-action"))
           .map((item) => String(item.dataset.action || "")))
-          === JSON.stringify(["plus-one", "reply", "favorite"])
-        && actionBar.querySelectorAll(".bcp-one-action-divider").length === 2);
+          === JSON.stringify(["plus-one", "copy", "favorite", "reply"])
+        && actionBar.querySelectorAll(".bcp-one-action-divider").length === 3);
+      const copyActionAvailable = Boolean(
+        actionBar?.querySelector(".bcp-one-action[data-action='copy']")
+          ?.getAttribute("title")?.includes("侧边聊天滚动测试")
+      );
+      let sideChatActionAligned = true;
+      let sideChatPointerBridgeStable = true;
+      let sideChatActionMetrics = null;
+      if (platform === "bilibili" && actionBar) {
+        const rowRect = targetRow.getBoundingClientRect();
+        const contentRect = targetContent.getBoundingClientRect();
+        const actionRect = actionBar.getBoundingClientRect();
+        sideChatActionAligned = Math.abs(
+          (rowRect.top + rowRect.height / 2) - (actionRect.top + actionRect.height / 2)
+        ) <= 2 && (actionRect.right <= rowRect.left - 5 || actionRect.left >= rowRect.right + 5);
+        sideChatActionMetrics = {
+          action: {
+            bottom: actionRect.bottom,
+            height: actionRect.height,
+            left: actionRect.left,
+            right: actionRect.right,
+            top: actionRect.top
+          },
+          row: {
+            bottom: rowRect.bottom,
+            height: rowRect.height,
+            left: rowRect.left,
+            right: rowRect.right,
+            top: rowRect.top
+          }
+        };
+        const start = {
+          x: contentRect.left + Math.min(contentRect.width / 2, 24),
+          y: contentRect.top + contentRect.height / 2
+        };
+        const end = {
+          x: actionRect.left + actionRect.width / 2,
+          y: actionRect.top + actionRect.height / 2
+        };
+        let previousTarget = targetContent;
+        for (let step = 1; step <= 12; step += 1) {
+          const ratio = step / 12;
+          const clientX = start.x + (end.x - start.x) * ratio;
+          const clientY = start.y + (end.y - start.y) * ratio;
+          const stepTarget = document.elementFromPoint(clientX, clientY) || targetContent;
+          stepTarget.dispatchEvent(new PointerEvent("pointerover", {
+            bubbles: true,
+            clientX,
+            clientY,
+            composed: true,
+            pointerType: "mouse",
+            relatedTarget: previousTarget
+          }));
+          stepTarget.dispatchEvent(new PointerEvent("pointermove", {
+            bubbles: true,
+            clientX,
+            clientY,
+            composed: true,
+            pointerType: "mouse"
+          }));
+          previousTarget = stepTarget;
+        }
+        await nextPaint();
+        sideChatPointerBridgeStable = Boolean(
+          targetRow.classList.contains("bcp-one-target")
+          && !actionBar.hidden
+          && String(button?.getAttribute("aria-label") || "").includes("侧边聊天滚动测试")
+        );
+      }
       const scrollPauseMarkerAbsent = root.dataset.bcpOneScrollPaused !== "true";
       const scrollStart = root.scrollTop;
       await delay(220);
@@ -2108,6 +2176,32 @@ async function inspect() {
       const ownMessageFramed = platform !== "douyu"
         || ownContent?.getAttribute("data-bcp-douyu-own-chat-content") === "true";
 
+      let sideRoomEmojiSent = true;
+      let sideRoomEmojiNotRejected = true;
+      if (platform === "bilibili") {
+        delete document.body.dataset.bilibiliEmojiSent;
+        const roomEmoji = document.querySelector(".fixture-streamer-emote");
+        roomEmoji?.dispatchEvent(new PointerEvent("pointerover", {
+          bubbles: true,
+          composed: true,
+          pointerType: "mouse"
+        }));
+        await delay(120);
+        const roomEmojiPlusOne = document.querySelector(
+          ".bcp-one-actions:not([hidden]) .bcp-one-button"
+        );
+        roomEmojiPlusOne?.click();
+        for (let attempt = 0; attempt < 35
+            && document.body.dataset.bilibiliEmojiSent !== "anchor-wave"; attempt += 1) {
+          await delay(80);
+        }
+        const roomEmojiToast = String(
+          document.querySelector(".bcp-one-toast")?.textContent || ""
+        ).trim();
+        sideRoomEmojiSent = document.body.dataset.bilibiliEmojiSent === "anchor-wave";
+        sideRoomEmojiNotRejected = !roomEmojiToast.includes("房间表情只能单独发送");
+      }
+
       targetContent.dispatchEvent(new PointerEvent("pointerout", {
         bubbles: true,
         composed: true,
@@ -2125,10 +2219,16 @@ async function inspect() {
       return {
         platform,
         messagePlusOneAvailable,
-        bilibiliVideoOnlyScope: platform !== "bilibili" || Boolean(
-          !messagePlusOneAvailable && !favoriteButton && !replyButton
+        bilibiliSideChatAvailable: platform !== "bilibili" || Boolean(
+          messagePlusOneAvailable && favoriteButton && replyButton
         ),
+        sideChatActionAligned,
+        sideChatActionMetrics,
+        sideChatPointerBridgeStable,
         threeActionUi,
+        copyActionAvailable,
+        sideRoomEmojiSent,
+        sideRoomEmojiNotRejected,
         scrollPauseMarkerAbsent,
         scrollStart,
         scrollEnd,
@@ -2170,15 +2270,26 @@ async function inspect() {
       };
     })()`);
     const sideChatAssertions = (normalizedInjectPlatform === "bilibili" ? [
-      "bilibiliVideoOnlyScope",
+      "bilibiliSideChatAvailable",
+      "messagePlusOneAvailable",
+      "sideChatActionAligned",
+      "sideChatPointerBridgeStable",
       "threeActionUi",
+      "copyActionAvailable",
+      "sideRoomEmojiSent",
+      "sideRoomEmojiNotRejected",
       "scrollPauseMarkerAbsent",
       "scrollingRemainsEnabled",
       "manualScrollPreserved",
+      "favoriteSavedAndListed",
       "favoriteUiSingleton",
       "currentRoomFocused",
+      "favoriteQuickSendSucceeded",
       "altQPanelToggleAvailable",
       "favoritesFullscreenHostCorrect",
+      "replyButtonAvailable",
+      "replyPrefilled",
+      "replyInputFocused",
       "replyDidNotSend",
       "replySurfaceCorrect",
       "overlayReplyButtonAvailable",
@@ -2186,6 +2297,7 @@ async function inspect() {
       "overlayReplyInputFocused",
       "overlayReplyDidNotSend",
       "ownMessageFramed",
+      "missingSenderSafe",
       "advertisementRejected",
       "usernameActionRejected",
       "userPanelRejected"
@@ -2753,8 +2865,8 @@ async function inspect() {
       };
       const wowEmoji = await exerciseBilibiliEmoji(
         ".fixture-wow-emote",
-        "official-wow",
-        true
+        "[哇]",
+        false
       );
       document.body.dataset.bilibiliRichStage = "standard-emoji-sent";
       if (emojiOnlyMode) {
@@ -2763,6 +2875,9 @@ async function inspect() {
           emojiOnlyMode,
           standardEmojiNameExtracted: wowEmoji.label.includes("[哇]"),
           standardEmojiSent: wowEmoji.sent,
+          standardEmojiUsedTextEditor:
+            wowEmoji.toggleClicksBefore === wowEmoji.toggleClicksAfter
+            && wowEmoji.itemClicksBefore === wowEmoji.itemClicksAfter,
           standardEmojiImmediateToast: wowEmoji.immediateToast,
           standardEmojiToast: wowEmoji.toast,
           standardEmojiToggleClicks: [wowEmoji.toggleClicksBefore, wowEmoji.toggleClicksAfter],
@@ -2771,8 +2886,8 @@ async function inspect() {
       }
       const cryEmoji = await exerciseBilibiliEmoji(
         ".fixture-cry-emote",
-        "official-cry",
-        true,
+        "[大哭]",
+        false,
         760,
         false
       );
@@ -2783,6 +2898,14 @@ async function inspect() {
         false
       );
       document.body.dataset.bilibiliRichStage = "mixed-emoji-sent";
+      const prefixedText = await exerciseBilibiliEmoji(
+        ".fixture-prefix-text",
+        "徽章后的文字",
+        false,
+        760,
+        false
+      );
+      document.body.dataset.bilibiliRichStage = "prefixed-text-sent";
       const exclusiveEmoji = await exerciseBilibiliEmoji(
         ".fixture-exclusive-emote",
         "room-happy-42",
@@ -3101,9 +3224,13 @@ async function inspect() {
         ],
         standardEmojiFavoriteAvailable: wowEmoji.favoriteAvailable,
         standardEmojiSent: wowEmoji.sent,
+        standardEmojiUsedTextEditor:
+          wowEmoji.toggleClicksBefore === wowEmoji.toggleClicksAfter
+          && wowEmoji.itemClicksBefore === wowEmoji.itemClicksAfter,
         standardEmojiFavoriteNamed: favoriteNames.some((name) => name.includes("[哇]")),
         singleCryEmojiSent: cryEmoji.sent,
         mixedCryEmojiSentInOrder: mixedCryEmoji.sent,
+        prefixedBadgeIgnored: prefixedText.sent,
         exclusiveEmojiFavoriteAvailable: exclusiveEmoji.favoriteAvailable,
         exclusiveEmojiLabel: exclusiveEmoji.label,
         exclusiveEmojiPlusConnected: exclusiveEmoji.plusConnected,
@@ -3161,7 +3288,7 @@ async function inspect() {
       clearTimeout(bilibiliWatchdog);
     }
     const bilibiliAssertionKeys = targetParameters.get("emojionly") === "1"
-      ? ["standardEmojiNameExtracted", "standardEmojiSent"]
+      ? ["standardEmojiNameExtracted", "standardEmojiSent", "standardEmojiUsedTextEditor"]
       : targetParameters.get("hoverperf") === "1"
       ? [
           "longHoverLatencyBounded",
@@ -3202,9 +3329,11 @@ async function inspect() {
           "standardEmojiNameExtracted",
           "standardEmojiFavoriteAvailable",
           "standardEmojiSent",
+          "standardEmojiUsedTextEditor",
           "standardEmojiFavoriteNamed",
           "singleCryEmojiSent",
           "mixedCryEmojiSentInOrder",
+          "prefixedBadgeIgnored",
           "exclusiveEmojiFavoriteAvailable",
           "exclusiveEmojiSent",
           "exclusiveEmojiInputCleared",

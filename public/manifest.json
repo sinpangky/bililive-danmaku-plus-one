@@ -1,22 +1,17 @@
 {
   "manifest_version": 3,
   "name": "bililive-danmaku-plus-one",
-  "description": "B站直播弹幕 +1、回复、全屏发送与本地收藏工具。",
+  "description": "B站直播弹幕 +1、复制、回复、侧栏操作、全屏发送与本地收藏工具。",
   "default_locale": "zh_CN",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "icons": {
     "16": "assets/icons/icon-16.png",
     "32": "assets/icons/icon-32.png",
     "48": "assets/icons/icon-48.png",
     "128": "assets/icons/icon-128.png"
   },
-  "permissions": [
-    "storage",
-    "scripting"
-  ],
-  "host_permissions": [
-    "*://live.bilibili.com/*"
-  ],
+  "permissions": ["storage", "scripting"],
+  "host_permissions": ["*://live.bilibili.com/*"],
   "background": {
     "service_worker": "background/service-worker.js"
   },
@@ -34,17 +29,10 @@
   },
   "content_scripts": [
     {
-      "matches": [
-        "*://live.bilibili.com/*"
-      ],
-      "js": [
-        "src/shared.js",
-        "src/content.js"
-      ],
-      "css": [
-        "src/content.css"
-      ],
-      "run_at": "document_idle",
+      "matches": ["*://live.bilibili.com/*"],
+      "js": ["src/shared.js", "src/content.js"],
+      "css": ["src/content.css"],
+      "run_at": "document_end",
       "all_frames": true
     }
   ]

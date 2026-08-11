@@ -50,7 +50,7 @@ function onChange(event: Event): void {
 }
 
 .setting-row:hover {
-  background: rgb(255 255 255 / 55%);
+  background: rgb(255 255 255 / 4%);
 }
 
 .setting-copy {
@@ -77,7 +77,7 @@ function onChange(event: Event): void {
 
 input[role="switch"] {
   appearance: none;
-  background: #e8e8e8;
+  background: #30353b;
   border: 1px solid var(--border);
   border-radius: 12px;
   cursor: pointer;
@@ -91,7 +91,7 @@ input[role="switch"] {
 
 input[role="switch"]::after {
   background: #fff;
-  border: 1px solid #d4d5d5;
+  border: 1px solid #737b84;
   border-radius: 50%;
   box-shadow: 0 1px 2px rgb(0 0 0 / 14%);
   content: "";
@@ -109,13 +109,13 @@ input[role="switch"]:checked {
 }
 
 input[role="switch"]:checked::after {
-  border-color: #fff;
+  background: #17191d;
+  border-color: #17191d;
   transform: translateX(16px);
 }
 
 input[role="switch"]:focus-visible {
-  outline: 3px solid rgb(39 174 96 / 28%);
+  outline: 3px solid rgb(255 255 255 / 30%);
   outline-offset: 3px;
 }
 </style>
-

@@ -1,15 +1,29 @@
 {
   "extensionName": { "message": "bililive-danmaku-plus-one" },
-  "extensionDescription": { "message": "B站直播弹幕 +1、回复、全屏发送与本地收藏工具。" },
+  "extensionDescription": { "message": "B站直播弹幕 +1、复制、回复、侧栏操作、全屏发送与本地收藏工具。" },
   "extensionActionTitle": { "message": "bililive-danmaku-plus-one 设置" },
   "functionPanelTitle": { "message": "功能面板" },
   "actionToolbar": { "message": "弹幕快捷操作" },
   "actionPlusOne": { "message": "+1" },
+  "actionCopy": { "message": "复制" },
   "actionReply": { "message": "回复" },
   "actionFavorite": { "message": "收藏" },
-  "actionRepeatTitle": { "message": "复读：$MESSAGE$", "placeholders": { "message": { "content": "$1" } } },
-  "actionReplyUserTitle": { "message": "回复 @$USER$", "placeholders": { "user": { "content": "$1" } } },
-  "actionReplyMessageTitle": { "message": "回复弹幕：$MESSAGE$", "placeholders": { "message": { "content": "$1" } } },
+  "actionRepeatTitle": {
+    "message": "复读：$MESSAGE$",
+    "placeholders": { "message": { "content": "$1" } }
+  },
+  "actionCopyTitle": {
+    "message": "复制弹幕：$MESSAGE$",
+    "placeholders": { "message": { "content": "$1" } }
+  },
+  "actionReplyUserTitle": {
+    "message": "回复 @$USER$",
+    "placeholders": { "user": { "content": "$1" } }
+  },
+  "actionReplyMessageTitle": {
+    "message": "回复弹幕：$MESSAGE$",
+    "placeholders": { "message": { "content": "$1" } }
+  },
   "settingsNavigation": { "message": "设置导航" },
   "settingsGeneral": { "message": "常规设置" },
   "settingsPlatforms": { "message": "平台详情" },
@@ -27,13 +41,16 @@
   "settingsDiagnosticsUnavailable": { "message": "未找到受支持的直播页面，请先打开直播间后重试" },
   "settingsInteractionFeatures": { "message": "交互功能" },
   "settingsQuickActions": { "message": "弹幕快捷操作" },
-  "settingsQuickActionsDescription": { "message": "自动识别弹幕，并显示 +1、回复与收藏快捷操作。" },
+  "settingsQuickActionsDescription": { "message": "自动识别弹幕，并显示 +1、复制、收藏与回复快捷操作。" },
   "settingsShowPlusOne": { "message": "显示 +1" },
+  "settingsShowCopy": { "message": "显示复制" },
   "settingsShowReply": { "message": "显示回复" },
   "settingsShowFavorite": { "message": "显示收藏" },
   "settingsAltClick": { "message": "Alt + 单击通用回退" },
   "settingsPlatformStatus": { "message": "平台启用状态" },
-  "settingsPlatformDescription": { "message": "启用后可在该平台直播间使用弹幕快捷操作与收藏功能。" },
+  "settingsPlatformDescription": {
+    "message": "启用后可在该平台直播间使用弹幕快捷操作与收藏功能。"
+  },
   "settingsSideCapsuleTitle": { "message": "侧边聊天栏弹幕胶囊" },
   "settingsDouyuNativeTitle": { "message": "斗鱼播放器原生胶囊" },
   "settingsDouyuNativeToggle": { "message": "显示斗鱼原生弹幕胶囊" },
@@ -41,6 +58,8 @@
   "settingsSaveFailed": { "message": "保存失败，请重试" },
   "settingsAutoSave": { "message": "设置会自动保存" },
   "toastActionTooFast": { "message": "操作太快，请稍后再试" },
+  "toastCopied": { "message": "已复制弹幕内容" },
+  "toastCopyFailed": { "message": "复制失败，请手动选择文字" },
   "toastSenderUnknown": { "message": "未能识别这条弹幕的发送者" },
   "toastPlusOneSent": { "message": "已执行 +1" },
   "toastRichPlusOneSent": { "message": "已执行含表情 +1" },
@@ -48,6 +67,7 @@
   "toastImageEmojiSent": { "message": "已发送图片 Emoji +1" },
   "ariaEnableExtension": { "message": "启用 bililive-danmaku-plus-one" },
   "ariaShowPlusOne": { "message": "显示加一选项" },
+  "ariaShowCopy": { "message": "显示复制选项" },
   "ariaShowReply": { "message": "显示回复选项" },
   "ariaShowFavorite": { "message": "显示收藏选项" },
   "platformBilibili": { "message": "哔哩哔哩" },
@@ -55,25 +75,56 @@
   "platformDouyu": { "message": "斗鱼" },
   "platformHuya": { "message": "虎牙" },
   "settingsCopyFeedbackTitle": { "message": "点击复制反馈邮箱" },
-  "settingsCopyFeedbackAria": { "message": "复制反馈邮箱 $EMAIL$", "placeholders": { "email": { "content": "$1" } } },
+  "settingsCopyFeedbackAria": {
+    "message": "复制反馈邮箱 $EMAIL$",
+    "placeholders": { "email": { "content": "$1" } }
+  },
   "settingsShowPlusOneDescription": { "message": "在弹幕快捷操作条中显示 +1 选项。" },
+  "settingsShowCopyDescription": { "message": "点击后复制弹幕正文或图片表情名称。" },
   "settingsShowReplyDescription": { "message": "点击后自动 @ 弹幕发送者，并聚焦输入框等待输入。" },
-  "settingsShowFavoriteDescription": { "message": "收藏文字、Unicode Emoji 与平台图片表情；短按 Alt+Q 打开或关闭功能面板。" },
-  "settingsAltClickDescription": { "message": "直播站点结构变化时，按住 Alt 单击弹幕仍可尝试快速复读。" },
-  "settingsEnablePlatformAria": { "message": "启用 $PLATFORM$ 平台", "placeholders": { "platform": { "content": "$1" } } },
-  "settingsSideCapsulePlatformTitle": { "message": "$PLATFORM$ 显示弹幕胶囊", "placeholders": { "platform": { "content": "$1" } } },
-  "settingsSideCapsulePlatformDescription": { "message": "开启后，悬停 $PLATFORM$ 侧边聊天消息时显示 +1、回复和收藏按钮。", "placeholders": { "platform": { "content": "$1" } } },
-  "settingsSideCapsulePlatformAria": { "message": "在 $PLATFORM$ 侧边聊天栏显示弹幕胶囊", "placeholders": { "platform": { "content": "$1" } } },
-  "settingsDouyuNativeDescription": { "message": "开启后恢复斗鱼播放器自带的 +1、回复和收藏胶囊，可能与插件快捷操作同时显示。" },
-  "settingsColorsDescription": { "message": "每个平台独立生效；留空或恢复默认时，继续使用插件内置颜色。" },
-  "settingsCustomColorCount": { "message": "$COUNT$ 项自定义", "placeholders": { "count": { "content": "$1" } } },
+  "settingsShowFavoriteDescription": {
+    "message": "收藏文字、Unicode Emoji 与平台图片表情；短按 Alt+Q 打开或关闭功能面板。"
+  },
+  "settingsAltClickDescription": {
+    "message": "直播站点结构变化时，按住 Alt 单击弹幕仍可尝试快速复读。"
+  },
+  "settingsEnablePlatformAria": {
+    "message": "启用 $PLATFORM$ 平台",
+    "placeholders": { "platform": { "content": "$1" } }
+  },
+  "settingsSideCapsulePlatformTitle": {
+    "message": "$PLATFORM$ 显示弹幕胶囊",
+    "placeholders": { "platform": { "content": "$1" } }
+  },
+  "settingsSideCapsulePlatformDescription": {
+    "message": "开启后，悬停 $PLATFORM$ 侧边聊天消息时显示 +1、复制、收藏和回复按钮。",
+    "placeholders": { "platform": { "content": "$1" } }
+  },
+  "settingsSideCapsulePlatformAria": {
+    "message": "在 $PLATFORM$ 侧边聊天栏显示弹幕胶囊",
+    "placeholders": { "platform": { "content": "$1" } }
+  },
+  "settingsDouyuNativeDescription": {
+    "message": "开启后恢复斗鱼播放器自带的 +1、回复和收藏胶囊，可能与插件快捷操作同时显示。"
+  },
+  "settingsColorsDescription": {
+    "message": "每个平台独立生效；留空或恢复默认时，继续使用插件内置颜色。"
+  },
+  "settingsCustomColorCount": {
+    "message": "$COUNT$ 项自定义",
+    "placeholders": { "count": { "content": "$1" } }
+  },
   "settingsInvalidColor": { "message": "颜色值请使用 #RRGGBB 格式" },
-  "settingsFavoritesDescription": { "message": "把常用弹幕留在手边，在全屏直播中也能快速找到和发送。" },
+  "settingsFavoritesDescription": {
+    "message": "把常用弹幕留在手边，在全屏直播中也能快速找到和发送。"
+  },
   "settingsLocalStorage": { "message": "本地存储" },
   "settingsLocal": { "message": "本地" },
   "settingsFavoritesStatementLine1": { "message": "收藏一次，" },
   "settingsFavoritesStatementLine2": { "message": "到哪都能发。" },
-  "settingsFavoritesGuideDescription": { "message": "进入直播间时先显示本房收藏；“其他直播间”和“全部”先选直播间，再进入独立的弹幕选择页。" },
+  "settingsFavoritesGuideDescription": {
+    "message": "进入直播间时先显示本房收藏；“其他直播间”和“全部”先选直播间，再进入独立的弹幕选择页。"
+  },
   "settingsFavoritesSupportedAria": { "message": "当前支持的收藏内容" },
   "settingsFavoritesPlainText": { "message": "普通文字" },
   "settingsFavoritesRichText": { "message": "平台图片表情与混排内容" },
@@ -83,7 +134,9 @@
   "settingsFavoritesStepSaveDescription": { "message": "悬停支持收藏的弹幕，点击“收藏”。" },
   "settingsFavoritesStepList": { "message": "短按打开列表" },
   "settingsFavoritesStepListDescription": { "message": "，再按 1–9 发送。" },
-  "settingsFavoritesPrivacyNote": { "message": "所有可识别弹幕均可收藏，内容只保存在浏览器本地。发送平台图片表情时，当前平台和账号需仍可使用对应资源。" },
+  "settingsFavoritesPrivacyNote": {
+    "message": "所有可识别弹幕均可收藏，内容只保存在浏览器本地。发送平台图片表情时，当前平台和账号需仍可使用对应资源。"
+  },
   "settingsEnabled": { "message": "已启用" },
   "settingsDisabled": { "message": "未启用" },
   "colorActionStart": { "message": "+1 渐变起始" },
@@ -96,17 +149,32 @@
   "colorSuccess": { "message": "成功状态" },
   "colorWarning": { "message": "警告状态" },
   "colorError": { "message": "失败状态" },
-  "colorDefaultValue": { "message": "默认 $VALUE$", "placeholders": { "value": { "content": "$1" } } },
-  "colorPickerAria": { "message": "$LABEL$ 选色", "placeholders": { "label": { "content": "$1" } } },
-  "colorResetAria": { "message": "恢复 $LABEL$ 默认颜色", "placeholders": { "label": { "content": "$1" } } },
+  "colorDefaultValue": {
+    "message": "默认 $VALUE$",
+    "placeholders": { "value": { "content": "$1" } }
+  },
+  "colorPickerAria": {
+    "message": "$LABEL$ 选色",
+    "placeholders": { "label": { "content": "$1" } }
+  },
+  "colorResetAria": {
+    "message": "恢复 $LABEL$ 默认颜色",
+    "placeholders": { "label": { "content": "$1" } }
+  },
   "colorDefault": { "message": "默认" },
   "colorUsingDefaults": { "message": "使用默认颜色" },
-  "colorResetPlatform": { "message": "恢复 $PLATFORM$ 全部默认颜色", "placeholders": { "platform": { "content": "$1" } } },
+  "colorResetPlatform": {
+    "message": "恢复 $PLATFORM$ 全部默认颜色",
+    "placeholders": { "platform": { "content": "$1" } }
+  },
   "favoritesCurrentRoom": { "message": "当前直播间" },
   "favoritesCurrent": { "message": "本房收藏" },
   "favoritesOtherRooms": { "message": "其他直播间" },
   "favoritesAll": { "message": "全部" },
-  "favoritesRoomItemCount": { "message": "$COUNT$ 条本房收藏", "placeholders": { "count": { "content": "$1" } } },
+  "favoritesRoomItemCount": {
+    "message": "$COUNT$ 条本房收藏",
+    "placeholders": { "count": { "content": "$1" } }
+  },
   "favoritesSortSendCountLabel": { "message": "排序：发送次数" },
   "favoritesBackupTitle": { "message": "收藏数据备份" },
   "favoritesBackupDescription": { "message": "导出 JSON 留存；导入前会自动保存当前收藏副本。" },
@@ -116,16 +184,28 @@
   "favoritesDirectoryUnsupported": { "message": "当前浏览器不支持目录同步" },
   "favoritesDirectoryPermissionDenied": { "message": "未获得所选目录的写入权限" },
   "favoritesDirectorySyncFailed": { "message": "收藏目录同步失败" },
-  "favoritesDirectorySelected": { "message": "已同步到 $DIRECTORY$/favorites", "placeholders": { "directory": { "content": "$1" } } },
+  "favoritesDirectorySelected": {
+    "message": "已同步到 $DIRECTORY$/favorites",
+    "placeholders": { "directory": { "content": "$1" } }
+  },
   "favoritesBackupFileAria": { "message": "选择收藏备份 JSON 文件" },
   "favoritesStorageUnavailable": { "message": "当前环境无法访问收藏存储" },
-  "favoritesBackupExported": { "message": "已导出 $COUNT$ 条收藏", "placeholders": { "count": { "content": "$1" } } },
+  "favoritesBackupExported": {
+    "message": "已导出 $COUNT$ 条收藏",
+    "placeholders": { "count": { "content": "$1" } }
+  },
   "favoritesBackupExportFailed": { "message": "导出收藏失败" },
   "favoritesBackupTooLarge": { "message": "备份文件过大，已取消导入" },
   "favoritesBackupInvalidJson": { "message": "备份文件不是有效的 JSON" },
   "favoritesBackupWrongFormat": { "message": "不是 bililive-danmaku-plus-one 收藏备份文件" },
-  "favoritesBackupConfirm": { "message": "确定用这份备份中的 $COUNT$ 条收藏覆盖当前收藏吗？\n当前数据会先保留为本地回滚副本。", "placeholders": { "count": { "content": "$1" } } },
-  "favoritesBackupImported": { "message": "已安全导入 $COUNT$ 条收藏", "placeholders": { "count": { "content": "$1" } } },
+  "favoritesBackupConfirm": {
+    "message": "确定用这份备份中的 $COUNT$ 条收藏覆盖当前收藏吗？\n当前数据会先保留为本地回滚副本。",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "favoritesBackupImported": {
+    "message": "已安全导入 $COUNT$ 条收藏",
+    "placeholders": { "count": { "content": "$1" } }
+  },
   "favoritesBackupImportFailed": { "message": "导入收藏失败" },
   "favoritesClosePanel": { "message": "关闭收藏面板" },
   "favoritesCloseEsc": { "message": "关闭（Esc）" },
@@ -144,43 +224,106 @@
   "favoritesSortTimeDesc": { "message": "时间倒序" },
   "favoritesSortTimeAsc": { "message": "时间正序" },
   "favoritesLoading": { "message": "正在读取本地收藏" },
-  "favoritesEnterRoomAria": { "message": "进入 $ROOM$ 的收藏弹幕", "placeholders": { "room": { "content": "$1" } } },
-  "favoritesGroupMeta": { "message": "$PLATFORM$ · $COUNT$ 条收藏 · 已发送 $SENDS$ 次", "placeholders": { "platform": { "content": "$1" }, "count": { "content": "$2" }, "sends": { "content": "$3" } } },
+  "favoritesEnterRoomAria": {
+    "message": "进入 $ROOM$ 的收藏弹幕",
+    "placeholders": { "room": { "content": "$1" } }
+  },
+  "favoritesGroupMeta": {
+    "message": "$PLATFORM$ · $COUNT$ 条收藏 · 已发送 $SENDS$ 次",
+    "placeholders": {
+      "platform": { "content": "$1" },
+      "count": { "content": "$2" },
+      "sends": { "content": "$3" }
+    }
+  },
   "favoritesShortcutOpen": { "message": "短按打开" },
   "favoritesShortcutSend": { "message": "快速发送" },
   "favoritesBackToRoom": { "message": "返回直播间" },
   "favoritesClose": { "message": "关闭" },
-  "favoritesMatches": { "message": "找到 $COUNT$ 条匹配收藏", "placeholders": { "count": { "content": "$1" } } },
-  "favoritesRoomMatches": { "message": "找到 $COUNT$ 个相关直播间", "placeholders": { "count": { "content": "$1" } } },
+  "favoritesMatches": {
+    "message": "找到 $COUNT$ 条匹配收藏",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "favoritesRoomMatches": {
+    "message": "找到 $COUNT$ 个相关直播间",
+    "placeholders": { "count": { "content": "$1" } }
+  },
   "favoritesCurrentSummary": { "message": "按所选顺序展示当前直播间内容" },
-  "favoritesSelectedRoomSummary": { "message": "$COUNT$ 条收藏，按所选顺序展示", "placeholders": { "count": { "content": "$1" } } },
-  "favoritesOtherSummary": { "message": "共 $COUNT$ 个直播间，先选择直播间", "placeholders": { "count": { "content": "$1" } } },
-  "favoritesAllSummary": { "message": "共 $COUNT$ 个直播间，选择后查看弹幕", "placeholders": { "count": { "content": "$1" } } },
+  "favoritesSelectedRoomSummary": {
+    "message": "$COUNT$ 条收藏，按所选顺序展示",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "favoritesOtherSummary": {
+    "message": "共 $COUNT$ 个直播间，先选择直播间",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "favoritesAllSummary": {
+    "message": "共 $COUNT$ 个直播间，选择后查看弹幕",
+    "placeholders": { "count": { "content": "$1" } }
+  },
   "favoritesNoMatches": { "message": "没有找到匹配内容" },
-  "favoritesNoMatchesRoomDetail": { "message": "试试更短的关键词，或清空搜索查看这个直播间的全部收藏。" },
+  "favoritesNoMatchesRoomDetail": {
+    "message": "试试更短的关键词，或清空搜索查看这个直播间的全部收藏。"
+  },
   "favoritesNoMatchesDetail": { "message": "试试更短的关键词，或清空搜索查看全部直播间。" },
   "favoritesCurrentEmpty": { "message": "本房还没有收藏" },
-  "favoritesCurrentEmptyDetail": { "message": "悬停一条支持收藏的弹幕并点击“收藏”，它会优先出现在这里。" },
-  "favoritesViewOther": { "message": "查看其他直播间的 $COUNT$ 条收藏", "placeholders": { "count": { "content": "$1" } } },
+  "favoritesCurrentEmptyDetail": {
+    "message": "悬停一条支持收藏的弹幕并点击“收藏”，它会优先出现在这里。"
+  },
+  "favoritesViewOther": {
+    "message": "查看其他直播间的 $COUNT$ 条收藏",
+    "placeholders": { "count": { "content": "$1" } }
+  },
   "favoritesOtherEmpty": { "message": "没有其他直播间收藏" },
-  "favoritesOtherEmptyDetail": { "message": "你在其他直播间收藏的普通文字与 Unicode Emoji 会显示在这里。" },
+  "favoritesOtherEmptyDetail": {
+    "message": "你在其他直播间收藏的普通文字与 Unicode Emoji 会显示在这里。"
+  },
   "favoritesBackCurrent": { "message": "返回本房收藏" },
   "favoritesAllEmpty": { "message": "收藏库还是空的" },
-  "favoritesAllEmptyDetail": { "message": "从直播画面或聊天栏收藏一条弹幕后，就能在任意直播间快速发送。" },
-  "favoritesShortcutAria": { "message": "快捷键 $KEY$", "placeholders": { "key": { "content": "$1" } } },
+  "favoritesAllEmptyDetail": {
+    "message": "从直播画面或聊天栏收藏一条弹幕后，就能在任意直播间快速发送。"
+  },
+  "favoritesShortcutAria": {
+    "message": "快捷键 $KEY$",
+    "placeholders": { "key": { "content": "$1" } }
+  },
   "favoritesScopeCurrent": { "message": "本房" },
   "favoritesScopeOther": { "message": "其他" },
-  "favoritesCollectedAt": { "message": "收藏于 $DATE$", "placeholders": { "date": { "content": "$1" } } },
-  "favoritesSentCount": { "message": "已发送 $COUNT$ 次", "placeholders": { "count": { "content": "$1" } } },
-  "favoritesAddRoomAria": { "message": "将“$MESSAGE$”加入当前直播间收藏", "placeholders": { "message": { "content": "$1" } } },
+  "favoritesCollectedAt": {
+    "message": "收藏于 $DATE$",
+    "placeholders": { "date": { "content": "$1" } }
+  },
+  "favoritesSentCount": {
+    "message": "已发送 $COUNT$ 次",
+    "placeholders": { "count": { "content": "$1" } }
+  },
+  "favoritesAddRoomAria": {
+    "message": "将“$MESSAGE$”加入当前直播间收藏",
+    "placeholders": { "message": { "content": "$1" } }
+  },
   "favoritesAddRoom": { "message": "加入本房" },
   "favoritesAddToUnicycle": { "message": "添加到独轮车" },
-  "favoritesAddToUnicycleAria": { "message": "将“$MESSAGE$”添加到独轮车", "placeholders": { "message": { "content": "$1" } } },
-  "favoritesSendAria": { "message": "发送收藏弹幕：$MESSAGE$", "placeholders": { "message": { "content": "$1" } } },
-  "favoritesSendTitle": { "message": "发送：$MESSAGE$", "placeholders": { "message": { "content": "$1" } } },
+  "favoritesAddToUnicycleAria": {
+    "message": "将“$MESSAGE$”添加到独轮车",
+    "placeholders": { "message": { "content": "$1" } }
+  },
+  "favoritesSendAria": {
+    "message": "发送收藏弹幕：$MESSAGE$",
+    "placeholders": { "message": { "content": "$1" } }
+  },
+  "favoritesSendTitle": {
+    "message": "发送：$MESSAGE$",
+    "placeholders": { "message": { "content": "$1" } }
+  },
   "favoritesSend": { "message": "发送" },
-  "favoritesConfirmRemoveAria": { "message": "确认删除“$MESSAGE$”", "placeholders": { "message": { "content": "$1" } } },
-  "favoritesRemoveAria": { "message": "删除收藏“$MESSAGE$”", "placeholders": { "message": { "content": "$1" } } },
+  "favoritesConfirmRemoveAria": {
+    "message": "确认删除“$MESSAGE$”",
+    "placeholders": { "message": { "content": "$1" } }
+  },
+  "favoritesRemoveAria": {
+    "message": "删除收藏“$MESSAGE$”",
+    "placeholders": { "message": { "content": "$1" } }
+  },
   "favoritesConfirmRemoveTitle": { "message": "再次点击确认删除" },
   "favoritesRemoveTitle": { "message": "删除收藏" },
   "favoritesConfirm": { "message": "确认" },
@@ -189,14 +332,20 @@
   "favoritesActionFailed": { "message": "收藏失败" },
   "favoritesServiceTimeout": { "message": "收藏服务响应超时，请重试" },
   "favoritesServiceUnavailable": { "message": "收藏服务暂不可用" },
-  "favoritesSendCountSaveFailed": { "message": "弹幕已发送，但发送次数保存失败：$REASON$", "placeholders": { "reason": { "content": "$1" } } },
+  "favoritesSendCountSaveFailed": {
+    "message": "弹幕已发送，但发送次数保存失败：$REASON$",
+    "placeholders": { "reason": { "content": "$1" } }
+  },
   "favoritesAddedToRoom": { "message": "已加入本房收藏" },
   "favoritesRemoved": { "message": "已删除收藏" },
   "favoritesSaving": { "message": "正在收藏…" },
   "favoritesAlreadySaved": { "message": "这条弹幕已经收藏" },
   "favoritesAddedToUnicycle": { "message": "已添加到独轮车" },
   "favoritesRecovered": { "message": "检测到收藏数据异常，已从本地备份自动恢复" },
-  "favoritesDragAria": { "message": "拖动“$MESSAGE$”调整顺序", "placeholders": { "message": { "content": "$1" } } },
+  "favoritesDragAria": {
+    "message": "拖动“$MESSAGE$”调整顺序",
+    "placeholders": { "message": { "content": "$1" } }
+  },
   "favoritesDragTitle": { "message": "按住拖动调整顺序" },
   "favoritesManualAdd": { "message": "手动添加收藏" },
   "favoritesManualAdded": { "message": "已添加到本房收藏" },
@@ -205,26 +354,41 @@
   "favoritesOrderSaved": { "message": "自定义顺序已保存" },
   "favoritesSortCustom": { "message": "自定义顺序" },
   "unicycleAddToFavorites": { "message": "当前内容加入收藏" },
-  "unicycleAddedToFavorites": { "message": "已新增 $COUNT$ 条本房收藏", "placeholders": { "count": { "content": "$1" } } },
+  "unicycleAddedToFavorites": {
+    "message": "已新增 $COUNT$ 条本房收藏",
+    "placeholders": { "count": { "content": "$1" } }
+  },
   "unicycleCharacters": { "message": "字" },
-  "unicycleCompleted": { "message": "独轮车已完成，共发送 $COUNT$ 条", "placeholders": { "count": { "content": "$1" } } },
+  "unicycleCompleted": {
+    "message": "独轮车已完成，共发送 $COUNT$ 条",
+    "placeholders": { "count": { "content": "$1" } }
+  },
   "unicycleContent": { "message": "独轮车内容" },
   "unicycleContentPlaceholder": { "message": "每行一条弹幕" },
-  "unicycleEffectiveMax": { "message": "实际每段最多 $COUNT$ 字", "placeholders": { "count": { "content": "$1" } } },
+  "unicycleEffectiveMax": {
+    "message": "实际每段最多 $COUNT$ 字",
+    "placeholders": { "count": { "content": "$1" } }
+  },
   "unicycleEmpty": { "message": "请先添加独轮车内容" },
   "unicycleFixedInterval": { "message": "固定间隔" },
   "unicycleIdle": { "message": "未运行" },
   "unicycleIntervalMode": { "message": "间隔模式" },
   "unicycleMaximumInterval": { "message": "最大随机间隔" },
   "unicycleMaxLength": { "message": "单条最大长度" },
-  "unicycleMessageCount": { "message": "共 $COUNT$ 条待发送内容", "placeholders": { "count": { "content": "$1" } } },
+  "unicycleMessageCount": {
+    "message": "共 $COUNT$ 条待发送内容",
+    "placeholders": { "count": { "content": "$1" } }
+  },
   "unicycleMinimumInterval": { "message": "最小随机间隔" },
   "unicycleRandomInterval": { "message": "随机间隔" },
   "unicycleRunMode": { "message": "结束条件" },
   "unicycleRunning": { "message": "发送中" },
   "unicycleSeconds": { "message": "秒" },
   "unicycleSendFailed": { "message": "发送失败，独轮车已停止" },
-  "unicycleSentProgress": { "message": "已发送 $COUNT$ 条", "placeholders": { "count": { "content": "$1" } } },
+  "unicycleSentProgress": {
+    "message": "已发送 $COUNT$ 条",
+    "placeholders": { "count": { "content": "$1" } }
+  },
   "unicycleStart": { "message": "开始发送" },
   "unicycleStarted": { "message": "独轮车已开始" },
   "unicycleStop": { "message": "停止发送" },
@@ -233,12 +397,31 @@
   "unicycleTitle": { "message": "独轮车" },
   "unicycleTotalCount": { "message": "总次数" },
   "unicycleTotalDuration": { "message": "总时长" },
-  "toastEditorNotFound": { "message": "未找到 $PLATFORM$ 弹幕输入框，请确认已登录并展开聊天区", "placeholders": { "platform": { "content": "$1" } } },
-  "toastOfficialEmojiNotUnique": { "message": "未找到唯一的官方表情“$EMOJI$”，已取消 +1，未发送表情名称", "placeholders": { "emoji": { "content": "$1" } } },
-  "toastImageResourceNotFound": { "message": "未找到 $PLATFORM$ 图片 Emoji 资源或弹幕输入框", "placeholders": { "platform": { "content": "$1" } } },
-  "toastEmojiPanelNoMatch": { "message": "未在 $PLATFORM$ 表情面板中找到对应 Emoji，已取消 +1", "placeholders": { "platform": { "content": "$1" } } },
-  "toastImageUnconfirmed": { "message": "$PLATFORM$ 图片 Emoji 发送未确认，请重试", "placeholders": { "platform": { "content": "$1" } } },
-  "toastOfficialEmojiNotFound": { "message": "未找到官方表情“$EMOJI$”，已取消发送", "placeholders": { "emoji": { "content": "$1" } } },
+  "toastEditorNotFound": {
+    "message": "未找到 $PLATFORM$ 弹幕输入框，请确认已登录并展开聊天区",
+    "placeholders": { "platform": { "content": "$1" } }
+  },
+  "toastOfficialEmojiNotUnique": {
+    "message": "未找到唯一的官方表情“$EMOJI$”，已取消 +1，未发送表情名称",
+    "placeholders": { "emoji": { "content": "$1" } }
+  },
+  "toastRoomEmojiMustBeSentAlone": { "message": "房间表情只能单独发送，已取消本次 +1" },
+  "toastImageResourceNotFound": {
+    "message": "未找到 $PLATFORM$ 图片 Emoji 资源或弹幕输入框",
+    "placeholders": { "platform": { "content": "$1" } }
+  },
+  "toastEmojiPanelNoMatch": {
+    "message": "未在 $PLATFORM$ 表情面板中找到对应 Emoji，已取消 +1",
+    "placeholders": { "platform": { "content": "$1" } }
+  },
+  "toastImageUnconfirmed": {
+    "message": "$PLATFORM$ 图片 Emoji 发送未确认，请重试",
+    "placeholders": { "platform": { "content": "$1" } }
+  },
+  "toastOfficialEmojiNotFound": {
+    "message": "未找到官方表情“$EMOJI$”，已取消发送",
+    "placeholders": { "emoji": { "content": "$1" } }
+  },
   "toastAutomaticSendFailed": { "message": "自动发送失败，弹幕仍在输入框，请重试" },
   "toastDouyinEmojiInsertFailed": { "message": "未找到或无法插入对应抖音表情，已取消 +1" },
   "toastDiagnosticsConsole": { "message": "诊断信息已输出到控制台" }

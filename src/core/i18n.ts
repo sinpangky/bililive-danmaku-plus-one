@@ -1,4 +1,6 @@
 const ZH_CN_FALLBACK: Record<string, string> = {
+  actionCopy: '复制',
+  actionCopyTitle: '复制弹幕：$1',
   actionFavorite: '收藏',
   actionPlusOne: '+1',
   actionReply: '回复',
@@ -23,7 +25,7 @@ const ZH_CN_FALLBACK: Record<string, string> = {
   colorUsingDefaults: '使用默认颜色',
   colorWarning: '警告状态',
   extensionActionTitle: 'bililive-danmaku-plus-one 设置',
-  extensionDescription: 'B站直播弹幕 +1、回复、全屏发送与本地收藏工具。',
+  extensionDescription: 'B站直播弹幕 +1、复制、回复、侧栏操作、全屏发送与本地收藏工具。',
   extensionName: 'bililive-danmaku-plus-one',
   functionPanelTitle: '功能面板',
   favoritesAll: '全部',
@@ -42,7 +44,8 @@ const ZH_CN_FALLBACK: Record<string, string> = {
   favoritesBackToRoom: '返回直播间',
   favoritesBackToRooms: '返回直播间列表',
   favoritesBackToRoomsEsc: '返回直播间列表（Esc）',
-  favoritesBackupConfirm: '确定用这份备份中的 $1 条收藏覆盖当前收藏吗？\n当前数据会先保留为本地回滚副本。',
+  favoritesBackupConfirm:
+    '确定用这份备份中的 $1 条收藏覆盖当前收藏吗？\n当前数据会先保留为本地回滚副本。',
   favoritesBackupDescription: '导出 JSON 留存；导入前会自动保存当前收藏副本。',
   favoritesBackupExport: '导出备份',
   favoritesBackupExportFailed: '导出收藏失败',
@@ -162,6 +165,7 @@ const ZH_CN_FALLBACK: Record<string, string> = {
   platformDouyu: '斗鱼',
   platformHuya: '虎牙',
   ariaEnableExtension: '启用 bililive-danmaku-plus-one',
+  ariaShowCopy: '显示复制选项',
   ariaShowFavorite: '显示收藏选项',
   ariaShowPlusOne: '显示加一选项',
   ariaShowReply: '显示回复选项',
@@ -179,7 +183,8 @@ const ZH_CN_FALLBACK: Record<string, string> = {
   settingsDisabled: '未启用',
   settingsDiagnosticsCopied: '当前页面诊断已复制（不含弹幕正文和账号信息）',
   settingsDiagnosticsUnavailable: '未找到受支持的直播页面，请先打开直播间后重试',
-  settingsDouyuNativeDescription: '开启后恢复斗鱼播放器自带的 +1、回复和收藏胶囊，可能与插件快捷操作同时显示。',
+  settingsDouyuNativeDescription:
+    '开启后恢复斗鱼播放器自带的 +1、回复和收藏胶囊，可能与插件快捷操作同时显示。',
   settingsDouyuNativeTitle: '斗鱼播放器原生胶囊',
   settingsDouyuNativeToggle: '显示斗鱼原生弹幕胶囊',
   settingsEnablePlatformAria: '启用 $1 平台',
@@ -187,10 +192,12 @@ const ZH_CN_FALLBACK: Record<string, string> = {
   settingsFavorites: '弹幕收藏',
   settingsFavoritesDescription: '把常用弹幕留在手边，在全屏直播中也能快速找到和发送。',
   settingsFavoritesFlowAria: '收藏使用流程',
-  settingsFavoritesGuideDescription: '进入直播间时先显示本房收藏；“其他直播间”和“全部”先选直播间，再进入独立的弹幕选择页。',
+  settingsFavoritesGuideDescription:
+    '进入直播间时先显示本房收藏；“其他直播间”和“全部”先选直播间，再进入独立的弹幕选择页。',
   settingsFavoritesPlainText: '普通文字',
   settingsFavoritesPreviewAria: '收藏面板示意图',
-  settingsFavoritesPrivacyNote: '所有可识别弹幕均可收藏，内容只保存在浏览器本地。发送平台图片表情时，当前平台和账号需仍可使用对应资源。',
+  settingsFavoritesPrivacyNote:
+    '所有可识别弹幕均可收藏，内容只保存在浏览器本地。发送平台图片表情时，当前平台和账号需仍可使用对应资源。',
   settingsFavoritesRichText: '平台图片表情与混排内容',
   settingsFavoritesStatementLine1: '收藏一次，',
   settingsFavoritesStatementLine2: '到哪都能发。',
@@ -213,11 +220,14 @@ const ZH_CN_FALLBACK: Record<string, string> = {
   settingsPlatforms: '平台详情',
   settingsPlatformStatus: '平台启用状态',
   settingsQuickActions: '弹幕快捷操作',
-  settingsQuickActionsDescription: '自动识别弹幕，并显示 +1、回复与收藏快捷操作。',
+  settingsQuickActionsDescription: '自动识别弹幕，并显示 +1、复制、收藏与回复快捷操作。',
   settingsSaved: '设置已保存',
   settingsSaveFailed: '保存失败，请重试',
+  settingsShowCopy: '显示复制',
+  settingsShowCopyDescription: '点击后复制弹幕正文或图片表情名称。',
   settingsShowFavorite: '显示收藏',
-  settingsShowFavoriteDescription: '收藏文字、Unicode Emoji 与平台图片表情；短按 Alt+Q 打开或关闭功能面板。',
+  settingsShowFavoriteDescription:
+    '收藏文字、Unicode Emoji 与平台图片表情；短按 Alt+Q 打开或关闭功能面板。',
   settingsShowPlusOne: '显示 +1',
   settingsShowPlusOneDescription: '在弹幕快捷操作条中显示 +1 选项。',
   settingsShowReply: '显示回复',
@@ -225,10 +235,13 @@ const ZH_CN_FALLBACK: Record<string, string> = {
   settingsSideCapsule: '聊天栏胶囊',
   settingsSideCapsuleTitle: '侧边聊天栏弹幕胶囊',
   settingsSideCapsulePlatformAria: '在 $1 侧边聊天栏显示弹幕胶囊',
-  settingsSideCapsulePlatformDescription: '开启后，悬停 $1 侧边聊天消息时显示 +1、回复和收藏按钮。',
+  settingsSideCapsulePlatformDescription:
+    '开启后，悬停 $1 侧边聊天消息时显示 +1、复制、收藏和回复按钮。',
   settingsSideCapsulePlatformTitle: '$1 显示弹幕胶囊',
   toastActionTooFast: '操作太快，请稍后再试',
   toastAutomaticSendFailed: '自动发送失败，弹幕仍在输入框，请重试',
+  toastCopied: '已复制弹幕内容',
+  toastCopyFailed: '复制失败，请手动选择文字',
   toastDiagnosticsConsole: '诊断信息已输出到控制台',
   toastDouyinEmojiInsertFailed: '未找到或无法插入对应抖音表情，已取消 +1',
   toastEditorNotFound: '未找到 $1 弹幕输入框，请确认已登录并展开聊天区',
@@ -239,6 +252,7 @@ const ZH_CN_FALLBACK: Record<string, string> = {
   toastImageUnconfirmed: '$1 图片 Emoji 发送未确认，请重试',
   toastOfficialEmojiNotFound: '未找到官方表情“$1”，已取消发送',
   toastOfficialEmojiNotUnique: '未找到唯一的官方表情“$1”，已取消 +1，未发送表情名称',
+  toastRoomEmojiMustBeSentAlone: '房间表情只能单独发送，已取消本次 +1',
   toastPlusOneSent: '已执行 +1',
   toastRichPlusOneSent: '已执行含表情 +1',
   toastSenderUnknown: '未能识别这条弹幕的发送者',
@@ -246,9 +260,10 @@ const ZH_CN_FALLBACK: Record<string, string> = {
 
 export function t(key: string, substitutions?: string | string[]): string {
   const values = Array.isArray(substitutions) ? substitutions : substitutions ? [substitutions] : []
-  return (ZH_CN_FALLBACK[key] || key).replace(/\$(\d+)/g, (_match, index: string) => (
-    values[Number(index) - 1] || ''
-  ))
+  return (ZH_CN_FALLBACK[key] || key).replace(
+    /\$(\d+)/g,
+    (_match, index: string) => values[Number(index) - 1] || '',
+  )
 }
 
 export function uiLocale(): string {

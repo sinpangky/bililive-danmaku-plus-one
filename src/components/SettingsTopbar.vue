@@ -124,7 +124,7 @@ const emit = defineEmits<{
 .resource-links a:focus-visible,
 .resource-links button:focus-visible {
   border-radius: 3px;
-  outline: 2px solid rgb(39 174 96 / 38%);
+  outline: 2px solid rgb(255 255 255 / 48%);
   outline-offset: 2px;
 }
 

@@ -36,11 +36,11 @@
                 @change="save"
               />
               <SettingSwitch
-                id="action-reply"
-                v-model="settings.actions.reply"
-                :title="t('settingsShowReply')"
-                :description="t('settingsShowReplyDescription')"
-                :aria-label="t('ariaShowReply')"
+                id="action-copy"
+                v-model="settings.actions.copy"
+                :title="t('settingsShowCopy')"
+                :description="t('settingsShowCopyDescription')"
+                :aria-label="t('ariaShowCopy')"
                 @change="save"
               />
               <SettingSwitch
@@ -49,6 +49,14 @@
                 :title="t('settingsShowFavorite')"
                 :description="t('settingsShowFavoriteDescription')"
                 :aria-label="t('ariaShowFavorite')"
+                @change="save"
+              />
+              <SettingSwitch
+                id="action-reply"
+                v-model="settings.actions.reply"
+                :title="t('settingsShowReply')"
+                :description="t('settingsShowReplyDescription')"
+                :aria-label="t('ariaShowReply')"
                 @change="save"
               />
               <SettingSwitch
@@ -212,6 +220,7 @@ import SettingsTopbar from "./components/SettingsTopbar.vue";
 import { useSectionNavigation } from "./composables/useSectionNavigation";
 import { useSettings } from "./composables/useSettings";
 import { t } from "./core/i18n";
+import { DEFAULT_LIVE_COLORS } from "./core/shared";
 import { SETTINGS_SECTION_IDS } from "./core/settings-sections";
 
 const platforms: ReadonlyArray<{ id: PlatformId; label: string }> = [
@@ -222,16 +231,16 @@ const colorFields: ReadonlyArray<{
   key: ColorSettingKey;
   label: string;
 }> = [
-  { key: "actionStart", label: t("colorActionStart"), defaultValue: "#FD8101" },
-  { key: "actionEnd", label: t("colorActionEnd"), defaultValue: "#FD8101" },
-  { key: "actionText", label: t("colorActionText"), defaultValue: "#FFFFFF" },
-  { key: "focusRing", label: t("colorFocusRing"), defaultValue: "#FD8101" },
-  { key: "selection", label: t("colorSelection"), defaultValue: "#FD8101" },
-  { key: "panelBackground", label: t("colorPanelBackground"), defaultValue: "#FD8101" },
-  { key: "panelText", label: t("colorPanelText"), defaultValue: "#FFFFFF" },
-  { key: "success", label: t("colorSuccess"), defaultValue: "#27AE60" },
-  { key: "warning", label: t("colorWarning"), defaultValue: "#E6A000" },
-  { key: "error", label: t("colorError"), defaultValue: "#FF4747" }
+  { key: "actionStart", label: t("colorActionStart"), defaultValue: DEFAULT_LIVE_COLORS.actionStart },
+  { key: "actionEnd", label: t("colorActionEnd"), defaultValue: DEFAULT_LIVE_COLORS.actionEnd },
+  { key: "actionText", label: t("colorActionText"), defaultValue: DEFAULT_LIVE_COLORS.actionText },
+  { key: "focusRing", label: t("colorFocusRing"), defaultValue: DEFAULT_LIVE_COLORS.focusRing },
+  { key: "selection", label: t("colorSelection"), defaultValue: DEFAULT_LIVE_COLORS.selection },
+  { key: "panelBackground", label: t("colorPanelBackground"), defaultValue: DEFAULT_LIVE_COLORS.panelBackground },
+  { key: "panelText", label: t("colorPanelText"), defaultValue: DEFAULT_LIVE_COLORS.panelText },
+  { key: "success", label: t("colorSuccess"), defaultValue: DEFAULT_LIVE_COLORS.success },
+  { key: "warning", label: t("colorWarning"), defaultValue: DEFAULT_LIVE_COLORS.warning },
+  { key: "error", label: t("colorError"), defaultValue: DEFAULT_LIVE_COLORS.error }
 ];
 
 const {
@@ -246,7 +255,9 @@ const {
 const { activeSection, contentCanvas, scrollToSection } = useSectionNavigation(SETTINGS_SECTION_IDS);
 
 const customColorCount = computed(() => platforms.reduce((total, platform) => (
-  total + Object.values(settings.colors[platform.id]).filter(Boolean).length
+  total + colorFields.filter((field) => (
+    settings.colors[platform.id][field.key] !== field.defaultValue
+  )).length
 ), 0));
 const activeSectionTitle = computed(() => ({
   "favorites-guide": t("settingsFavorites"),
@@ -263,7 +274,7 @@ function setColor(platform: PlatformId, key: ColorSettingKey, value: string): vo
 
 function resetPlatformColors(platform: PlatformId): void {
   colorFields.forEach((field) => {
-    settings.colors[platform][field.key] = "";
+    settings.colors[platform][field.key] = field.defaultValue;
   });
   save();
 }
@@ -306,18 +317,19 @@ async function copyCurrentPageDiagnostics(): Promise<void> {
 
 <style lang="scss">
 :root {
-  color-scheme: light;
+  color-scheme: dark;
   font-family: "Microsoft YaHei UI", "PingFang SC", "Segoe UI", sans-serif;
-  --canvas: #f3f3f3;
-  --surface: #f9f9f9;
-  --surface-muted: #eeeeee;
-  --border: #c4c7c7;
-  --text: #1a1c1c;
-  --text-secondary: #444748;
-  --text-muted: #747878;
-  --success: #27ae60;
+  --canvas: #121417;
+  --surface: #1b1e22;
+  --surface-muted: #282c31;
+  --surface-raised: #22262b;
+  --border: #3a4047;
+  --text: #ffffff;
+  --text-secondary: #d3d7dc;
+  --text-muted: #989fa7;
+  --success: #ffffff;
   --danger: #ff4747;
-  --shadow: 0 1px 1px rgb(0 0 0 / 5%);
+  --shadow: 0 1px 2px rgb(0 0 0 / 32%);
 }
 
 * {
@@ -379,7 +391,7 @@ a {
   overflow: auto;
   padding: 32px max(32px, calc((100% - 768px) / 2));
   position: relative;
-  scrollbar-color: #c8caca transparent;
+  scrollbar-color: #5d646c transparent;
   scrollbar-width: thin;
   z-index: 1;
 }
@@ -401,10 +413,10 @@ a {
 }
 
 .settings-section h2 {
-  color: #000;
+  color: var(--text);
   font-size: 14px;
   font-weight: 500;
-  letter-spacing: .05em;
+  letter-spacing: 0;
   line-height: 20px;
   margin: 0;
 }
@@ -436,20 +448,20 @@ a {
 }
 
 .section-heading > span {
-  background: rgb(253 129 1 / 10%);
-  border: 1px solid rgb(253 129 1 / 26%);
+  background: rgb(255 255 255 / 7%);
+  border: 1px solid rgb(255 255 255 / 24%);
   border-radius: 999px;
-  color: #b65c00;
+  color: var(--text);
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: .07em;
+  letter-spacing: 0;
   line-height: 16px;
   padding: 3px 8px;
   white-space: nowrap;
 }
 
 .favorites-page-card {
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 4px;
   box-shadow: var(--shadow);
@@ -458,7 +470,7 @@ a {
 }
 
 .favorites-page-card::before {
-  background: #fd8101;
+  background: #fff;
   content: "";
   height: 3px;
   left: 0;
@@ -484,9 +496,9 @@ a {
 
 .favorites-guide-plus {
   align-items: center;
-  background: #fd8101;
+  background: #fff;
   border-radius: 16px;
-  color: #fff;
+  color: #17191d;
   display: flex;
   font: 700 17px/1 Bahnschrift, "Segoe UI", sans-serif;
   height: 36px;
@@ -496,10 +508,10 @@ a {
 }
 
 .favorites-guide-statement h3 {
-  color: #171717;
+  color: var(--text);
   font-size: 27px;
   font-weight: 600;
-  letter-spacing: -.035em;
+  letter-spacing: 0;
   line-height: 37px;
   margin: 0;
 }
@@ -530,7 +542,7 @@ a {
 }
 
 .favorites-guide-statement li::before {
-  background: #fd8101;
+  background: #fff;
   border-radius: 999px;
   content: "";
   height: 4px;
@@ -542,8 +554,8 @@ a {
 
 .favorites-guide-preview {
   align-self: stretch;
-  background: #fffaf5;
-  border-left: 1px solid rgb(253 129 1 / 22%);
+  background: var(--surface-raised);
+  border-left: 1px solid var(--border);
   min-width: 0;
   padding: 35px 30px 26px;
 }
@@ -562,24 +574,24 @@ a {
 }
 
 .favorites-preview-head > span {
-  color: #202020;
+  color: var(--text);
   font-size: 11px;
   font-weight: 600;
 }
 
 .favorites-preview-head > small {
-  color: #777;
+  color: var(--text-muted);
   font-size: 8px;
 }
 
 .favorites-preview-tabs {
-  border-bottom: 1px solid #d4d5d3;
+  border-bottom: 1px solid var(--border);
   gap: 20px;
   margin-bottom: 0;
 }
 
 .favorites-preview-tabs > span {
-  color: #888;
+  color: var(--text-muted);
   font-size: 8px;
   line-height: 30px;
   padding: 0;
@@ -588,11 +600,11 @@ a {
 }
 
 .favorites-preview-tabs > span.is-active {
-  color: #202020;
+  color: var(--text);
 }
 
 .favorites-preview-tabs > span.is-active::after {
-  background: #fd8101;
+  background: #fff;
   bottom: -1px;
   content: "";
   height: 2px;
@@ -608,30 +620,30 @@ a {
 }
 
 .favorites-preview-sort {
-  border-bottom: 1px solid #dedfdd;
+  border-bottom: 1px solid var(--border);
   justify-content: space-between;
   min-height: 30px;
 }
 
 .favorites-preview-sort > span {
-  color: #555;
+  color: var(--text-secondary);
   font-size: 8px;
   font-weight: 600;
 }
 
 .favorites-preview-sort > small {
-  color: #777;
+  color: var(--text-muted);
   font-size: 7px;
 }
 
 .favorites-preview-group {
-  border-bottom: 1px solid #dedfdd;
+  border-bottom: 1px solid var(--border);
   gap: 8px;
   min-height: 47px;
 }
 
 .favorites-preview-group > b {
-  border-color: transparent transparent transparent #fd8101;
+  border-color: transparent transparent transparent #fff;
   border-style: solid;
   border-width: 4px 0 4px 6px;
   height: 0;
@@ -647,22 +659,22 @@ a {
 }
 
 .favorites-preview-group strong {
-  color: #222;
+  color: var(--text);
   font-size: 9px;
   font-weight: 600;
 }
 
 .favorites-preview-group small {
-  color: #888;
+  color: var(--text-muted);
   font-size: 7px;
   margin-top: 1px;
 }
 
 .favorites-preview-group > em {
   align-items: center;
-  border: 1px solid #d4d5d3;
+  border: 1px solid var(--border);
   border-radius: 10px;
-  color: #777;
+  color: var(--text-muted);
   display: flex;
   font-size: 7px;
   font-style: normal;
@@ -678,7 +690,7 @@ a {
   list-style: none;
   margin: 0;
   padding: 0;
-  border-top: 1px solid #dfe0de;
+  border-top: 1px solid var(--border);
 }
 
 .favorites-guide-flow li {
@@ -690,14 +702,14 @@ a {
 }
 
 .favorites-guide-flow li + li {
-  border-left: 1px solid #dfe0de;
+  border-left: 1px solid var(--border);
 }
 
 .favorites-flow-index {
   align-items: center;
-  border: 2px solid #fd8101;
+  border: 2px solid #fff;
   border-radius: 50%;
-  color: #b65c00;
+  color: var(--text);
   display: flex;
   flex: 0 0 28px;
   font: 600 11px/1 Bahnschrift, "Segoe UI", sans-serif;
@@ -713,7 +725,7 @@ a {
 }
 
 .favorites-guide-flow li strong {
-  color: #222;
+  color: var(--text);
   font-size: 11px;
   font-weight: 600;
   line-height: 17px;
@@ -727,11 +739,11 @@ a {
 }
 
 .favorites-guide-flow kbd {
-  background: #f0f2f2;
-  border: 1px solid #d2d7d7;
+  background: var(--surface-muted);
+  border: 1px solid #59616a;
   border-radius: 4px;
-  box-shadow: inset 0 -1px #c8cdcd;
-  color: #303535;
+  box-shadow: inset 0 -1px #111316;
+  color: var(--text);
   font-family: inherit;
   font-size: 9px;
   padding: 1px 4px;
@@ -739,15 +751,15 @@ a {
 
 .favorites-guide-note {
   align-items: center;
-  background: #faf7f3;
-  border-top: 1px solid #e4ded6;
+  background: #171a1e;
+  border-top: 1px solid var(--border);
   display: flex;
   gap: 10px;
   padding: 12px 20px;
 }
 
 .favorites-guide-note strong {
-  color: #b65c00;
+  color: var(--text);
   font-size: 10px;
   font-weight: 600;
   line-height: 20px;
@@ -760,11 +772,11 @@ a {
 }
 
 .save-status {
-  background: rgb(249 249 249 / 96%);
+  background: rgb(27 30 34 / 96%);
   border: 1px solid var(--border);
   border-radius: 4px;
   bottom: 18px;
-  box-shadow: 0 4px 16px rgb(0 0 0 / 8%);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 34%);
   color: var(--text-muted);
   font-size: 12px;
   line-height: 18px;
@@ -785,8 +797,8 @@ a {
 }
 
 .save-status.is-saved {
-  border-color: rgb(39 174 96 / 35%);
-  color: #197d43;
+  border-color: rgb(255 255 255 / 42%);
+  color: var(--text);
 }
 
 .save-status.is-error {
@@ -826,7 +838,7 @@ a {
 
   .favorites-guide-preview {
     border-left: 0;
-    border-top: 1px solid #dedfdd;
+    border-top: 1px solid var(--border);
   }
 
   .favorites-guide-flow {
@@ -839,7 +851,7 @@ a {
 
   .favorites-guide-flow li + li {
     border-left: 0;
-    border-top: 1px solid #dfe0de;
+    border-top: 1px solid var(--border);
   }
 
   .favorites-data-tools {

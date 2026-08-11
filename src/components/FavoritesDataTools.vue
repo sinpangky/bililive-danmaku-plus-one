@@ -157,7 +157,7 @@ async function importBackup(event: Event): Promise<void> {
 <style lang="scss">
 .favorites-data-tools {
   align-items: center;
-  border-top: 1px solid #e4ded6;
+  border-top: 1px solid var(--border);
   display: flex;
   gap: 20px;
   justify-content: space-between;
@@ -171,7 +171,7 @@ async function importBackup(event: Event): Promise<void> {
 }
 
 .favorites-data-copy strong {
-  color: #222;
+  color: var(--text);
   font-size: 11px;
   font-weight: 600;
   line-height: 18px;
@@ -191,10 +191,10 @@ async function importBackup(event: Event): Promise<void> {
 
 .favorites-data-actions button {
   align-items: center;
-  background: #fff;
-  border: 1px solid rgb(253 129 1 / 32%);
+  background: #14171a;
+  border: 1px solid rgb(255 255 255 / 28%);
   border-radius: 16px;
-  color: #8f4a05;
+  color: var(--text);
   display: inline-flex;
   font-size: 10px;
   font-weight: 600;
@@ -205,8 +205,8 @@ async function importBackup(event: Event): Promise<void> {
 
 .favorites-data-actions button:hover,
 .favorites-data-actions button:focus-visible {
-  background: #fff7ef;
-  border-color: #fd8101;
+  background: var(--surface-muted);
+  border-color: #fff;
 }
 
 .favorites-data-actions button:disabled {
