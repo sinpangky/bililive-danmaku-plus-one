@@ -191,6 +191,10 @@ function parsedAssertionFailures(parsed) {
     : []);
 }
 
+function scenarioAttemptFailed(result) {
+  return result.code !== 0 || result.timedOut || !result.parsed;
+}
+
 async function runScenario(browser, fixturePort, scenario, attempt) {
   const cdpPort = await availablePort();
   const profile = mkdtempSync(path.join(os.tmpdir(), `danmaku-echo-${browser.name}-`));
@@ -270,8 +274,9 @@ async function main() {
         !requestedScenario || entry.name === requestedScenario
       )) {
         let result = await runScenario(browser, fixturePort, scenario, 1);
-        const startupFailure = result.timedOut || result.code === 2 || !result.parsed;
-        if (startupFailure) {
+        const firstAttemptFailed = scenarioAttemptFailed(result);
+        if (firstAttemptFailed) {
+          process.stdout.write(`RETRY ${browser.name} ${scenario.name}\n`);
           result = await runScenario(browser, fixturePort, scenario, 2);
         }
         const passed = result.code === 0 && !result.timedOut && Boolean(result.parsed);
@@ -305,7 +310,11 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  process.stderr.write(`${String(error instanceof Error ? error.stack : error)}\n`);
-  process.exitCode = 1;
-});
+module.exports = { scenarioAttemptFailed };
+
+if (require.main === module) {
+  main().catch((error) => {
+    process.stderr.write(`${String(error instanceof Error ? error.stack : error)}\n`);
+    process.exitCode = 1;
+  });
+}
