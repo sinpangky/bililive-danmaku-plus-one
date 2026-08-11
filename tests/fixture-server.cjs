@@ -195,7 +195,7 @@ const bilibiliHtml = String.raw`<!doctype html>
           style="display:none;top:180px">
           <span class="bili-danmaku-x-dm-content">
             <img class="bili-danmaku-x-dm-img fixture-video-emote"
-              data-emoticon="anchor-wave" data-anchor-emoticon="anchor-wave"
+              data-emoticon="anchor-wave" data-fixture-unmarked-room-emoticon="true"
               alt="[主播挥手]"
               src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='36'%3E%3Ccircle cx='18' cy='18' r='16' fill='%23ff8a65'/%3E%3C/svg%3E">
             <span class="fixture-video-emote-token" style="position:absolute;opacity:0">[主播挥手]</span>
@@ -286,8 +286,8 @@ const bilibiliHtml = String.raw`<!doctype html>
         </div>
         <div class="fixture-common-pack">
           <button class="emoticon-item fixture-emoji-item"
-            data-emoticon="anchor-wave" data-anchor-emoticon="anchor-wave" type="button">
-            <img data-emoticon="anchor-wave" data-anchor-emoticon="anchor-wave"
+            data-emoticon="anchor-wave" data-fixture-unmarked-room-emoticon="true" type="button">
+            <img data-emoticon="anchor-wave"
               alt="[主播挥手]"
               src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='36'%3E%3Ccircle cx='18' cy='18' r='16' fill='%23ff8a65'/%3E%3C/svg%3E">
           </button>
