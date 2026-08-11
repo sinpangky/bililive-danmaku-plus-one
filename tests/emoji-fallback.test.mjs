@@ -127,7 +127,10 @@ test('all three live adapters use the shared lossless Emoji fallback', () => {
   const sharedLiveSource = readFileSync(resolve(root, 'src', 'entries', 'content.ts'), 'utf8')
   const douyinSource = readFileSync(resolve(root, 'src', 'entries', 'douyin-content.ts'), 'utf8')
   assert.match(sharedLiveSource, /const unicodeFallback = unicodeEmojiFallbackText\(payload\);?/)
-  assert.match(sharedLiveSource, /repeatPlatformRichPayload\(richPayload\);?/)
+  assert.match(
+    sharedLiveSource,
+    /repeatPlatformRichPayload\(richPayload,\s*\{[\s\S]*?preferUniqueBilibiliPanelItem:/,
+  )
   assert.match(douyinSource, /const unicodeFallback = unicodeEmojiFallbackText\(payload\);?/)
   assert.match(douyinSource, /reason: ["']unicode-emoji-fallback["']/)
 })
@@ -147,7 +150,7 @@ test('Bilibili uses its native editor and Emoji panel', () => {
     contentSource,
     /markBilibiliPayloadAsNativePanel\(payload, resolvedSingleBilibiliItem\)/,
   )
-  assert.match(contentSource, /async function repeatPlatformRichPayload\(payload\)/)
+  assert.match(contentSource, /async function repeatPlatformRichPayload\(payload, options\)/)
   assert.match(contentSource, /classifyBilibiliRichPayload\(payload\)/)
   assert.match(contentSource, /bilibiliClassification\.kind === ['"]inline-emoji-text['"]/)
   assert.match(contentSource, /return repeatMessage\(bilibiliClassification\.text\)/)
@@ -167,6 +170,9 @@ test('Bilibili uses its native editor and Emoji panel', () => {
   assert.match(contentSource, /async function repeatBilibiliFavoritePayload\(payload\)/)
   assert.match(contentSource, /t\(['"]toastOfficialEmojiNotFound['"]/)
   assert.match(contentSource, /sendFavorite:\s*repeatBilibiliFavoritePayload/)
+  assert.match(contentSource, /preferUniqueBilibiliPanelItem/)
+  assert.match(contentSource, /function isBilibiliOverlayPanelOnlyPayload\(candidate, payload\)/)
+  assert.match(contentSource, /\[data-emoticon\]:not\(\[data-emoticon-id\]\)/)
   assert.match(contentSource, /setNativeValue\(input, message\)/)
   assert.match(contentSource, /item\.click\(\)/)
   assert.match(contentSource, /button\.click\(\)/)
@@ -180,6 +186,16 @@ test('Bilibili uses its native editor and Emoji panel', () => {
   assert.match(repositorySource, /favoriteAssetDisplayName/)
   assert.match(repositorySource, /names\.length/)
   assert.match(fixtureSource, /data-fixture-raw-exclusive=["']true["']/)
+  const unmarkedRoomFixtures = fixtureSource.match(
+    /<[^>]+data-fixture-unmarked-room-emoticon=["']true["'][^>]*>/g,
+  )
+  assert.equal(unmarkedRoomFixtures?.length, 2)
+  unmarkedRoomFixtures.forEach((fixture) => {
+    assert.doesNotMatch(
+      fixture,
+      /data-type=|data-file-id|data-emoticon-unique|data-room-|data-anchor-/,
+    )
+  })
   assert.doesNotMatch(
     fixtureSource.match(
       /data-fixture-raw-exclusive=[\s\S]*?fixture-exclusive-emote[\s\S]*?>/,

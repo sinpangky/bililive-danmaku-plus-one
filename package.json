@@ -26,7 +26,7 @@
     "test:unit": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:browser": "node tests/run-browser-e2e.cjs",
-    "test:regression": "node --test tests/reply.test.mjs tests/bilibili-dom-config.test.mjs tests/content-media-safety.test.cjs tests/emoji-fallback.test.mjs tests/favorites.test.mjs tests/package-entry.test.cjs",
+    "test:regression": "node --test tests/reply.test.mjs tests/bilibili-dom-config.test.mjs tests/browser-e2e-runner.test.cjs tests/content-media-safety.test.cjs tests/emoji-fallback.test.mjs tests/favorites.test.mjs tests/package-entry.test.cjs",
     "test": "run-s build-only test:unit test:regression",
     "lint": "run-s \"lint:*\"",
     "lint:oxlint": "oxlint . --fix",

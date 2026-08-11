@@ -1182,6 +1182,32 @@ import { t } from '../core/i18n'
     return { text, plainText, assets, parts: richPartsFromElement(element) }
   }
 
+  function isBilibiliOverlayPanelOnlyPayload(candidate, payload) {
+    if (
+      platformId !== 'bilibili' ||
+      !(candidate instanceof Element) ||
+      !isSingleBilibiliEmojiPayload(payload)
+    ) {
+      return false
+    }
+    const panelOnlySelector = [
+      '[data-emoticon]:not([data-emoticon-id])',
+      '[data-emoticon-unique]',
+      '[data-room-emoticon]',
+      '[data-room-emoji]',
+      '[data-anchor-emoticon]',
+      '[data-anchor-emoji]',
+      "[class*='room-emoticon' i]",
+      "[class*='anchor-emoticon' i]",
+      "[class*='bulge-emoticon' i]",
+    ].join(',')
+    try {
+      return candidate.matches(panelOnlySelector) || Boolean(candidate.querySelector(panelOnlySelector))
+    } catch {
+      return false
+    }
+  }
+
   function richPartsFromElement(element) {
     const parts = []
     const appendText = (value) => {
@@ -3083,11 +3109,15 @@ import { t } from '../core/i18n'
     return submission
   }
 
-  async function repeatPlatformRichPayload(payload) {
+  async function repeatPlatformRichPayload(payload, options) {
     const unicodeFallback = unicodeEmojiFallbackText(payload)
     if (unicodeFallback) {
       return repeatMessage(unicodeFallback)
     }
+    const preferUniqueBilibiliPanelItem =
+      platformId === 'bilibili' &&
+      Boolean(options && options.preferUniqueBilibiliPanelItem) &&
+      isSingleBilibiliEmojiPayload(payload)
     const shouldResolveBilibiliSingleImage = isSingleBilibiliEmojiPayload(payload)
     if (
       platformId === 'bilibili' &&
@@ -3101,13 +3131,19 @@ import { t } from '../core/i18n'
       // panel before deciding whether a lossless native-image send is possible.
       await enrichRichPayloadAssetNames(payload, { resolveBilibiliNative: true })
     }
+    const asset = payload && Array.isArray(payload.assets) ? payload.assets[0] : null
+    const preferredBilibiliPanelItem =
+      preferUniqueBilibiliPanelItem && asset
+        ? findUniqueBilibiliPlatformEmoji(asset, fullscreenActive()) ||
+          (await openUniqueBilibiliPlatformEmoji(findBilibiliEmojiEditor() || findInput(), asset))
+        : null
     const bilibiliSingleImagePayload = bilibiliFavoriteImagePayload(payload)
     const bilibiliClassification =
       platformId === 'bilibili' ? classifyBilibiliRichPayload(payload) : null
     if (
       bilibiliClassification &&
       (bilibiliClassification.kind === 'unicode-emoji-text' ||
-        bilibiliClassification.kind === 'inline-emoji-text')
+        (bilibiliClassification.kind === 'inline-emoji-text' && !preferredBilibiliPanelItem))
     ) {
       return repeatMessage(bilibiliClassification.text)
     }
@@ -3115,11 +3151,11 @@ import { t } from '../core/i18n'
       showToast(t('toastRoomEmojiMustBeSentAlone'), 'error')
       return false
     }
-    const asset = payload && Array.isArray(payload.assets) ? payload.assets[0] : null
     const nativeBilibiliAsset =
-      platformId === 'bilibili' &&
-      bilibiliClassification?.kind === 'room-emoji-single' &&
-      isBilibiliNativePanelAsset(asset)
+      Boolean(preferredBilibiliPanelItem) ||
+      (platformId === 'bilibili' &&
+        bilibiliClassification?.kind === 'room-emoji-single' &&
+        isBilibiliNativePanelAsset(asset))
     if (bilibiliSingleImagePayload && !nativeBilibiliAsset) {
       showToast(t('toastOfficialEmojiNotUnique', bilibiliSingleImagePayload.text), 'error')
       return false
@@ -3135,9 +3171,11 @@ import { t } from '../core/i18n'
       showToast(t('toastImageResourceNotFound', platformName), 'error')
       return false
     }
-    const item = nativeBilibiliAsset
-      ? await openUniqueBilibiliPlatformEmoji(input, asset)
-      : await openPlatformEmojiForAsset(input, asset)
+    const item =
+      preferredBilibiliPanelItem ||
+      (nativeBilibiliAsset
+        ? await openUniqueBilibiliPlatformEmoji(input, asset)
+        : await openPlatformEmojiForAsset(input, asset))
     if (!item || typeof item.click !== 'function') {
       showToast(t('toastEmojiPanelNoMatch', platformName), 'error')
       return false
@@ -3372,7 +3410,11 @@ import { t } from '../core/i18n'
     diagnostics.record({ type: 'action.plus-one', stage: state.candidateKind || 'unknown' })
     const sendOperation =
       richPayload && richPayload.assets.length
-        ? repeatPlatformRichPayload(richPayload)
+        ? repeatPlatformRichPayload(richPayload, {
+            preferUniqueBilibiliPanelItem:
+              state.candidateKind === 'overlay' &&
+              isBilibiliOverlayPanelOnlyPayload(state.candidate, richPayload),
+          })
         : message
           ? repeatMessage(message)
           : null
