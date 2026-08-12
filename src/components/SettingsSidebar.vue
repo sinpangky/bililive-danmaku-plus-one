@@ -54,6 +54,15 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.25"/><path d="m12 7.8 1.3 2.64 2.92.42-2.11 2.06.5 2.9L12 14.45l-2.61 1.37.5-2.9-2.11-2.06 2.92-.42z"/></svg>
         <span>{{ t('settingsFavorites') }}</span>
       </a>
+      <a
+        :class="['nav-item', { 'is-active': activeSection === 'send-logs' }]"
+        href="#send-logs"
+        :aria-current="activeSection === 'send-logs' ? 'location' : undefined"
+        @click.prevent="emit('navigate', 'send-logs')"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.75h12v14.5H6zM9 8h6M9 12h6M9 16h4"/></svg>
+        <span>发送日志</span>
+      </a>
       <a class="nav-item" href="https://github.com/SadUnicorn171/danmaku-echo" target="_blank" rel="noreferrer">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.25"/><path d="M12 10.75v5"/><circle cx="12" cy="7.75" r=".6" class="filled"/></svg>
         <span>{{ t('settingsAbout') }}</span>

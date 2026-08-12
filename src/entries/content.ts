@@ -16,20 +16,35 @@ import {
   BILIBILI_QUICK_INPUTS,
   isBilibiliAdvertisementLabel,
   isBilibiliAdvertisementMarker,
-  isBilibiliDecorativePrefixImage,
 } from '../platforms/bilibili/dom-config'
 import {
   classifyBilibiliRichPayload,
+  hasBilibiliInlineTextContent,
   isBilibiliNativePanelAsset,
   isSingleBilibiliEmojiPayload,
 } from '../platforms/bilibili/rich-payload'
 import { BILIBILI_SEND_MESSAGE } from '../platforms/bilibili/page-send'
+import { BILIBILI_EMOTICON_MESSAGE } from '../platforms/bilibili/page-emoticons'
+import { selectUniqueBilibiliCatalogEntry } from '../platforms/bilibili/emoji-catalog'
+import {
+  authoritativeBilibiliText,
+  bilibiliPayloadTextFromParts,
+  isBilibiliMedalAccessibilityLabel,
+  normalizeBilibiliPayloadParts,
+  textPayloadFromAuthoritativeBilibiliText,
+} from '../platforms/bilibili/payload-normalizer'
 import { normalizedAssetKeys as normalizedRichAssetKeys } from '../platforms/douyin/rich-data'
 import { createFavoritesRuntime } from '../features/favorites/launcher'
 import { createContentOverlay } from '../components/live/content-overlay'
 import { createDiagnosticsCollector } from '../core/diagnostics'
 import { writeClipboardText } from '../core/clipboard'
+import { SEND_LOG_MESSAGE } from '../features/send-log/types'
 import {
+  BILIBILI_EMOTICON_ITEM_SELECTOR,
+  BILIBILI_EMOTICON_PACK_SELECTOR,
+  BILIBILI_EMOTICON_PANEL_SELECTOR,
+  BILIBILI_EMOTICON_TAB_SELECTOR,
+  BILIBILI_INLINE_EMOJI_PACK_SELECTOR,
   BILIBILI_NATIVE_PANEL_IDENTITY_ATTRIBUTES,
   EDITABLE_CONTROL_SELECTOR,
   EMOJI_DISPLAY_ATTRIBUTES,
@@ -117,6 +132,11 @@ import { t } from '../core/i18n'
     hiddenBilibiliQuickBars: new Map(),
     bilibiliDismissToken: 0,
     emojiPanelOpenedByPlugin: false,
+    bilibiliEmojiCatalog: null,
+    bilibiliEmojiCatalogBuild: null,
+    bilibiliApiEmojiCatalog: null,
+    bilibiliApiEmojiCatalogBuild: null,
+    activeSendLog: null,
   }
   const diagnostics = createDiagnosticsCollector({
     platform: platformId,
@@ -685,7 +705,33 @@ import { t } from '../core/i18n'
     const row = element.matches(BILIBILI_OVERLAY_ROW_SELECTOR)
       ? element
       : element.closest(BILIBILI_OVERLAY_ROW_SELECTOR)
-    return row || element
+    if (row) return row
+
+    // Some Bilibili renderers reuse `danmaku-item-right` on every inline
+    // Emoji wrapper. The broad fallback selector then lands on the first
+    // Emoji instead of the complete moving danmaku. Promote it to the
+    // outermost message-sized overlay inside the player.
+    const videoRoot = closestMatching(element, config.videoRoots)
+    if (!videoRoot) return element
+    let promoted = element
+    let current = element.parentElement
+    for (let depth = 0; current && current !== videoRoot && depth < 10; depth += 1) {
+      const className = typeof current.className === 'string' ? current.className : ''
+      const marker = elementMarker(current)
+      const rect = current.getBoundingClientRect()
+      const messageSized = rect.height >= 8 && rect.height <= Math.min(120, innerHeight * 0.22)
+      const inlineFragment = /(?:^|\s)danmaku-item-right(?:\s|$)/i.test(className)
+      if (
+        messageSized &&
+        !inlineFragment &&
+        (matchesAny(current, config.overlayMessages) ||
+          /(?:danmaku|danmu|barrage|bullet)/i.test(marker))
+      ) {
+        promoted = current
+      }
+      current = current.parentElement
+    }
+    return promoted
   }
 
   function isOverlayMessageElement(element) {
@@ -969,6 +1015,7 @@ import { t } from '../core/i18n'
       const marker = elementMarker(metadataElement)
       for (const attribute of EMOJI_METADATA_ATTRIBUTES) {
         const raw = shared.normalizeWhitespace(metadataElement.getAttribute(attribute))
+        if (platformId === 'bilibili' && isBilibiliMedalAccessibilityLabel(raw)) continue
         if (
           raw &&
           !EMOJI_DISPLAY_ATTRIBUTES.has(attribute) &&
@@ -1010,6 +1057,7 @@ import { t } from '../core/i18n'
       EMOJI_METADATA_ATTRIBUTES.forEach((attribute) => {
         const value = metadataElement.getAttribute(attribute)
         if (!value) return
+        if (platformId === 'bilibili' && isBilibiliMedalAccessibilityLabel(value)) return
         if (
           EMOJI_DISPLAY_ATTRIBUTES.has(attribute) ||
           /^\[[^\]\n]{1,40}\]$/.test(shared.normalizeWhitespace(value)) ||
@@ -1082,46 +1130,6 @@ import { t } from '../core/i18n'
     }
   }
 
-  function messageEmojiImages(candidate, messageElement) {
-    const roots = candidate === messageElement ? [messageElement] : [messageElement, candidate]
-    const images = []
-    const seen = new Set()
-    roots.forEach((root) => {
-      if (root instanceof HTMLImageElement && !seen.has(root)) {
-        seen.add(root)
-        images.push(root)
-      }
-      root.querySelectorAll('img').forEach((image) => {
-        if (!seen.has(image)) {
-          seen.add(image)
-          images.push(image)
-        }
-      })
-    })
-    return images.filter((image) => {
-      if (platformId === 'bilibili' && isBilibiliDecorativePrefixImage(image, candidate)) {
-        return false
-      }
-      if (closestMatching(image, config.userNames)) return false
-      let marker = ''
-      let current = image
-      for (let depth = 0; current && depth < 4 && current !== candidate; depth += 1) {
-        marker += ` ${elementMarker(current)}`
-        current = current.parentElement
-      }
-      const source = [image.currentSrc, image.getAttribute('src'), image.getAttribute('data-src')]
-        .filter(Boolean)
-        .join(' ')
-      const token = emojiTokenFromImage(image)
-      const positive =
-        Boolean(token) ||
-        /(?:emoji|emote|emoticon|sticker|emotion|face|表情)/i.test(`${marker} ${source}`)
-      const decorative =
-        /(?:avatar|badge|medal|level|grade|rank|fansclub|fan-club|guard|noble)/i.test(marker)
-      return !decorative && (messageElement.contains(image) || positive)
-    })
-  }
-
   function messageElementFromCandidate(candidate) {
     if (!(candidate instanceof Element)) {
       return null
@@ -1137,6 +1145,30 @@ import { t } from '../core/i18n'
       }
     }
     return candidate
+  }
+
+  function authoritativeBilibiliMessage(candidate) {
+    if (platformId !== 'bilibili' || !(candidate instanceof Element)) return ''
+    const candidates = []
+    const seen = new Set()
+    const append = (element) => {
+      if (!(element instanceof Element) || seen.has(element)) return
+      seen.add(element)
+      candidates.push(element)
+    }
+    append(candidate)
+    candidate.querySelectorAll('[data-danmaku]').forEach(append)
+    let current = candidate.parentElement
+    for (let depth = 0; current && depth < 8; depth += 1) {
+      append(current)
+      if (matchesAny(current, config.chatRoots) || matchesAny(current, config.videoRoots)) break
+      current = current.parentElement
+    }
+    for (const element of candidates) {
+      const text = authoritativeBilibiliText(element.getAttribute('data-danmaku'))
+      if (shared.isPlausibleMessage(text, config.maxLength)) return text
+    }
+    return ''
   }
 
   function richPayloadFromCandidate(candidate) {
@@ -1162,16 +1194,35 @@ import { t } from '../core/i18n'
     if (!element) {
       return { text: '', plainText: '', assets: [], parts: [] }
     }
-    const assets = messageEmojiImages(candidate, element)
-      .map(assetDescriptorFromElement)
-      .filter(Boolean)
+    const parts =
+      platformId === 'bilibili'
+        ? normalizeBilibiliPayloadParts(richPartsFromElement(element))
+        : richPartsFromElement(element)
+    const assets = parts
+      .filter((part) => part && part.type === 'emoji' && part.asset)
+      .map((part) => part.asset)
       .slice(0, 8)
-    const plainText = serializedTextFromElement(element, {
-      imageTokens: false,
-      rejectRoot: false,
-      removals: ['img', 'button', 'svg', "[aria-hidden='true']", '[data-bcp-one-owned]'],
-    })
-    let text = richTextFromElement(element)
+    const authoritativeText = authoritativeBilibiliMessage(candidate)
+    const structuralPayload = {
+      assets,
+      parts,
+      plainText: '',
+      text: bilibiliPayloadTextFromParts(parts),
+    }
+    if (authoritativeText && !isBilibiliExplicitPanelOnlyPayload(candidate, structuralPayload)) {
+      return textPayloadFromAuthoritativeBilibiliText(authoritativeText)
+    }
+    const plainText = shared.parseMessageText(
+      parts
+        .filter((part) => part.type === 'text')
+        .map((part) => part.text)
+        .join(''),
+      config.maxLength,
+    )
+    let text =
+      platformId === 'bilibili'
+        ? shared.parseMessageText(bilibiliPayloadTextFromParts(parts), config.maxLength)
+        : richTextFromElement(element)
     if (!shared.isPlausibleMessage(text, config.maxLength) && assets.length) {
       text =
         assets
@@ -1179,20 +1230,20 @@ import { t } from '../core/i18n'
           .filter(Boolean)
           .join(' ') || '图片表情'
     }
-    return { text, plainText, assets, parts: richPartsFromElement(element) }
+    return { text, plainText, assets, parts }
   }
 
-  function isBilibiliOverlayPanelOnlyPayload(candidate, payload) {
+  function isBilibiliExplicitPanelOnlyPayload(candidate, payload) {
     if (
       platformId !== 'bilibili' ||
-      !(candidate instanceof Element) ||
-      !isSingleBilibiliEmojiPayload(payload)
+      !(candidate instanceof Element)
     ) {
       return false
     }
     const panelOnlySelector = [
-      '[data-emoticon]:not([data-emoticon-id])',
       '[data-emoticon-unique]',
+      '[data-type="1"]',
+      '[data-file-id]',
       '[data-room-emoticon]',
       '[data-room-emoji]',
       '[data-anchor-emoticon]',
@@ -1202,10 +1253,117 @@ import { t } from '../core/i18n'
       "[class*='bulge-emoticon' i]",
     ].join(',')
     try {
-      return candidate.matches(panelOnlySelector) || Boolean(candidate.querySelector(panelOnlySelector))
+      const assets = Array.isArray(payload.assets) ? payload.assets : []
+      if (
+        assets.length === 1 &&
+        (candidate.matches(panelOnlySelector) || candidate.querySelector(panelOnlySelector))
+      ) {
+        return true
+      }
+      if (!isSingleBilibiliEmojiPayload(payload)) return false
+      const meaningfulParts = Array.isArray(payload.parts)
+        ? payload.parts.filter((part) => {
+            if (part?.type === 'emoji') return true
+            const text = shared.normalizeWhitespace(part?.text)
+            return (
+              Boolean(text) &&
+              !assets.some((asset) => shared.normalizeWhitespace(asset?.token) === text)
+            )
+          })
+        : []
+      return (
+        assets.length === 1 &&
+        meaningfulParts.length === 1 &&
+        meaningfulParts[0]?.type === 'emoji' &&
+        Boolean(candidate.querySelector('[data-emoticon]:not([data-emoticon-id])'))
+      )
     } catch {
       return false
     }
+  }
+
+  function sendLogPayloadSnapshot(payload) {
+    const assets = Array.isArray(payload?.assets) ? payload.assets : []
+    const parts = Array.isArray(payload?.parts) ? payload.parts : []
+    return {
+      assets: assets.slice(0, 8).map((asset) => ({
+        ...(Number.isFinite(asset?._bcpMatchScore)
+          ? { matchScore: Number(asset._bcpMatchScore) }
+          : {}),
+        nativePanel: isBilibiliNativePanelAsset(asset),
+        ...(asset?._bcpResolution ? { resolution: String(asset._bcpResolution).slice(0, 80) } : {}),
+        source: String(asset?.src || '').slice(0, 500),
+        token: String(asset?.token || '').slice(0, 120),
+      })),
+      parts: parts
+        .slice(0, 40)
+        .map((part) =>
+          part?.type === 'emoji'
+            ? { type: 'emoji', token: String(part.asset?.token || '').slice(0, 120) }
+            : { type: 'text', text: String(part?.text || '').slice(0, 500) },
+        ),
+    }
+  }
+
+  function beginSendLog(source, sourceContent, payload) {
+    const snapshot = sendLogPayloadSnapshot(payload)
+    const classification = payload?.assets?.length
+      ? classifyBilibiliRichPayload(payload).kind
+      : 'plain-text'
+    const entry = {
+      assets: snapshot.assets,
+      classification,
+      confirmation: 'none',
+      durationMs: 0,
+      error: '',
+      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
+      method: 'not-attempted',
+      normalizedContent: String(payload?.text || sourceContent || ''),
+      parts: snapshot.parts,
+      platform: 'bilibili',
+      resultContent: '',
+      source,
+      sourceContent: String(sourceContent || ''),
+      success: false,
+      timestamp: Date.now(),
+      version: 1,
+    }
+    state.activeSendLog = entry
+    return entry
+  }
+
+  function updateSendLog(values) {
+    if (state.activeSendLog) Object.assign(state.activeSendLog, values)
+  }
+
+  function refreshActiveSendLogPayload(payload) {
+    if (!state.activeSendLog) return
+    const snapshot = sendLogPayloadSnapshot(payload)
+    updateSendLog({
+      assets: snapshot.assets,
+      classification: payload?.assets?.length
+        ? classifyBilibiliRichPayload(payload).kind
+        : 'plain-text',
+      normalizedContent: String(payload?.text || ''),
+      parts: snapshot.parts,
+    })
+  }
+
+  function persistSendLog(entry, success, error = '') {
+    if (!entry) return
+    entry.success = Boolean(success)
+    entry.error = String(error || entry.error || '')
+    entry.durationMs = Math.max(0, Date.now() - entry.timestamp)
+    try {
+      chrome.runtime.sendMessage({
+        type: SEND_LOG_MESSAGE,
+        operation: 'append',
+        entry,
+      })
+    } catch {
+      // Sending must not fail because diagnostic persistence is unavailable.
+    }
+    if (state.activeSendLog === entry) state.activeSendLog = null
   }
 
   function richPartsFromElement(element) {
@@ -1251,6 +1409,10 @@ import { t } from '../core/i18n'
 
   function assetMatchScore(element, asset) {
     const descriptor = assetDescriptorFromElement(element)
+    return assetDescriptorMatchScore(descriptor, asset)
+  }
+
+  function assetDescriptorMatchScore(descriptor, asset) {
     if (!descriptor || !asset || !Array.isArray(asset.keys)) {
       return 0
     }
@@ -1286,6 +1448,34 @@ import { t } from '../core/i18n'
       new Set([...(Array.isArray(target.keys) ? target.keys : []), ...(source.keys || [])]),
     ).slice(0, 48)
     return target
+  }
+
+  function resolveBilibiliAssetFromRecentChat(asset) {
+    if (platformId !== 'bilibili' || !asset) return null
+    const matches = new Map()
+    messageRows()
+      .slice(-180)
+      .forEach((row) => {
+        row.querySelectorAll('img').forEach((image) => {
+          const descriptor = assetDescriptorFromElement(image)
+          const token = normalizedEmojiToken(descriptor?.token, 'emoji')
+          const score = assetDescriptorMatchScore(descriptor, asset)
+          if (!descriptor || score < 4 || emojiTokenQuality(token) < 3) return
+          const identity = `${
+            descriptor.keys?.find((key) => /^(?:fragment|stem|file|path):/.test(String(key))) ||
+            descriptor.src
+          }|${token}`
+          const previous = matches.get(identity)
+          if (!previous || score > previous.score) matches.set(identity, { descriptor, score })
+        })
+      })
+    const ranked = Array.from(matches.values()).sort((first, second) => second.score - first.score)
+    if (!ranked.length) return null
+    const best = ranked.filter((match) => match.score === ranked[0].score)
+    const tokens = new Set(
+      best.map((match) => normalizedEmojiToken(match.descriptor.token, 'emoji')),
+    )
+    return tokens.size === 1 ? best[0].descriptor : null
   }
 
   function enrichRichPayloadAsset(payload, assetIndex, item) {
@@ -1335,6 +1525,18 @@ import { t } from '../core/i18n'
 
   function isBilibiliNativePanelElement(element) {
     if (platformId !== 'bilibili' || !(element instanceof Element)) return false
+    const realPanelItem =
+      element.closest(BILIBILI_EMOTICON_ITEM_SELECTOR) ||
+      element.querySelector(BILIBILI_EMOTICON_ITEM_SELECTOR)
+    const realPack = realPanelItem?.closest(BILIBILI_EMOTICON_PACK_SELECTOR)
+    if (
+      realPanelItem &&
+      realPack &&
+      realPack.closest(BILIBILI_EMOTICON_PANEL_SELECTOR) &&
+      !realPack.matches(BILIBILI_INLINE_EMOJI_PACK_SELECTOR)
+    ) {
+      return true
+    }
     const nativeSelector = [
       "[data-type='1']",
       ...BILIBILI_NATIVE_PANEL_IDENTITY_ATTRIBUTES.map((attribute) => `[${attribute}]`),
@@ -1372,6 +1574,43 @@ import { t } from '../core/i18n'
       const shouldResolveNative =
         platformId === 'bilibili' && resolveBilibiliNative && !isBilibiliNativePanelAsset(asset)
       if (emojiTokenQuality(asset && asset.token) >= 3 && !shouldResolveNative) continue
+      const chatDescriptor = resolveBilibiliAssetFromRecentChat(asset)
+      if (chatDescriptor) {
+        asset._bcpResolution = 'recent-side-chat'
+        asset._bcpMatchScore = assetDescriptorMatchScore(chatDescriptor, asset)
+        mergeEmojiAssetMetadata(asset, chatDescriptor)
+        const emojiParts = Array.isArray(payload.parts)
+          ? payload.parts.filter((part) => part && part.type === 'emoji' && part.asset)
+          : []
+        if (emojiParts[index]) {
+          emojiParts[index].asset._bcpResolution = asset._bcpResolution
+          emojiParts[index].asset._bcpMatchScore = asset._bcpMatchScore
+          mergeEmojiAssetMetadata(emojiParts[index].asset, chatDescriptor)
+        }
+        if (!isBilibiliNativePanelAsset(chatDescriptor)) continue
+      }
+      const apiEntry = await resolveBilibiliApiEmoji(asset)
+      if (apiEntry) {
+        asset._bcpResolution = 'bilibili-emoticon-api'
+        asset._bcpMatchScore = assetDescriptorMatchScore(apiEntry.descriptor, asset)
+        mergeEmojiAssetMetadata(asset, apiEntry.descriptor)
+        // Bilibili sometimes exposes the Honor-level badge tooltip as the
+        // image alt text of a side-chat large Emoji. The API catalog is the
+        // authoritative identity once its URL uniquely matches.
+        if (apiEntry.descriptor.token) asset.token = apiEntry.descriptor.token
+        const emojiParts = Array.isArray(payload.parts)
+          ? payload.parts.filter((part) => part && part.type === 'emoji' && part.asset)
+          : []
+        if (emojiParts[index]) {
+          emojiParts[index].asset._bcpResolution = asset._bcpResolution
+          emojiParts[index].asset._bcpMatchScore = asset._bcpMatchScore
+          mergeEmojiAssetMetadata(emojiParts[index].asset, apiEntry.descriptor)
+          if (apiEntry.descriptor.token) {
+            emojiParts[index].asset.token = apiEntry.descriptor.token
+          }
+        }
+        continue
+      }
       let item =
         platformId === 'bilibili'
           ? findUniqueBilibiliPlatformEmoji(asset, fullscreenActive())
@@ -1383,14 +1622,28 @@ import { t } from '../core/i18n'
             : await openPlatformEmojiForAsset(input, asset)
       }
       if (item) {
+        const panelDescriptor = assetDescriptorFromElement(item)
+        asset._bcpResolution = 'emoji-panel-catalog'
+        asset._bcpMatchScore = assetDescriptorMatchScore(panelDescriptor, asset)
         const isNativeBilibiliItem = isBilibiliNativePanelElement(item)
         enrichRichPayloadAsset(payload, index, item)
+        if (platformId === 'bilibili' && isNativeBilibiliItem) {
+          markBilibiliPayloadAssetAsNativePanel(payload, index, item)
+        }
         if (platformId === 'bilibili' && payload.assets.length === 1 && isNativeBilibiliItem) {
           resolvedSingleBilibiliItem = item
         }
       }
     }
+    if (platformId === 'bilibili' && Array.isArray(payload.parts)) {
+      payload.parts = normalizeBilibiliPayloadParts(payload.parts)
+      payload.assets = payload.parts
+        .filter((part) => part?.type === 'emoji' && part.asset)
+        .map((part) => part.asset)
+        .slice(0, 8)
+    }
     refreshRichPayloadText(payload)
+    refreshActiveSendLogPayload(payload)
     if (
       resolveBilibiliNative &&
       resolvedSingleBilibiliItem &&
@@ -1739,7 +1992,7 @@ import { t } from '../core/i18n'
         ? classifyBilibiliRichPayload(state.richPayload)
         : null
     const copyText =
-      bilibiliClassification?.kind === 'room-emoji-single'
+      bilibiliClassification?.kind === 'panel-emoji-single'
         ? bilibiliClassification.text
         : state.message
     const copied = await writeClipboardText(copyText)
@@ -2697,6 +2950,7 @@ import { t } from '../core/i18n'
         (!includeHidden && !isVisible(element)) ||
         closestMatching(element, config.messages) ||
         closestMatching(element, config.overlayMessages) ||
+        closestMatching(element, PLATFORM_EMOJI_CATEGORY_SELECTORS) ||
         isOwned(element)
       ) {
         return
@@ -2760,6 +3014,19 @@ import { t } from '../core/i18n'
     return parentItem || element.closest(PLATFORM_EMOJI_ITEM_SELECTORS.join(',')) || element
   }
 
+  function isUnavailablePlatformEmojiItem(element) {
+    if (!(element instanceof Element)) return true
+    const item = platformEmojiInteractiveItem(element)
+    try {
+      return Boolean(
+        item.matches('[disabled],.lock,.locked,[aria-disabled="true"]') ||
+        item.querySelector('[disabled],.lock,.locked,[aria-disabled="true"]'),
+      )
+    } catch {
+      return false
+    }
+  }
+
   function findUniqueBilibiliPlatformEmoji(asset, includeHidden = false) {
     if (platformId !== 'bilibili') return null
     const matches = new Map()
@@ -2778,6 +3045,7 @@ import { t } from '../core/i18n'
       }
       if (score < 3) return
       const item = platformEmojiInteractiveItem(element)
+      if (isUnavailablePlatformEmojiItem(item)) return
       const descriptor = assetDescriptorFromElement(element)
       const resourceIdentity = descriptor?.keys?.find((key) => {
         const normalized = String(key || '').toLowerCase()
@@ -2827,7 +3095,7 @@ import { t } from '../core/i18n'
         results.push(element)
       })
     })
-    return results.slice(0, 16)
+    return results.slice(0, platformId === 'bilibili' ? 64 : 16)
   }
 
   function findPlatformEmojiToggle(input, includeHidden = false) {
@@ -2888,17 +3156,222 @@ import { t } from '../core/i18n'
     return match
   }
 
+  async function scanBilibiliEmojiPacks(input, asset, includeHidden = false) {
+    if (platformId !== 'bilibili') return null
+    const catalog = await loadBilibiliEmojiCatalog(input, includeHidden)
+    const selected = selectUniqueBilibiliCatalogEntry(catalog.entries, asset)
+    if (!selected) return null
+    const panels = queryAllDeep([BILIBILI_EMOTICON_PANEL_SELECTOR])
+    const panel = panels[selected.panelIndex]
+    const tabs = panel ? Array.from(panel.querySelectorAll(BILIBILI_EMOTICON_TAB_SELECTOR)) : []
+    const tab = tabs[selected.tabIndex]
+    if (tab && typeof tab.click === 'function') {
+      tab.click()
+      await new Promise((resolve) => setTimeout(resolve, 180))
+    }
+    return waitForUniqueBilibiliPlatformEmoji(asset, 700, includeHidden)
+  }
+
+  async function loadBilibiliEmojiCatalog(input, includeHidden) {
+    const roomKey = bilibiliEmojiCatalogRoomKey()
+    if (
+      state.bilibiliEmojiCatalog?.roomKey === roomKey &&
+      state.bilibiliEmojiCatalog.entries.length > 0
+    ) {
+      return state.bilibiliEmojiCatalog
+    }
+    if (state.bilibiliEmojiCatalogBuild) return state.bilibiliEmojiCatalogBuild
+    const build = buildBilibiliEmojiCatalog(input, includeHidden)
+    state.bilibiliEmojiCatalogBuild = build
+    try {
+      const catalog = await build
+      // An early content-script run can happen before Bilibili mounts the
+      // editor/panel. Do not cache an empty result; the warmup retry can then
+      // pick up the panel once the room has finished mounting.
+      if (catalog.entries.length > 0) state.bilibiliEmojiCatalog = catalog
+      return catalog
+    } finally {
+      if (state.bilibiliEmojiCatalogBuild === build) state.bilibiliEmojiCatalogBuild = null
+    }
+  }
+
+  async function buildBilibiliEmojiCatalog(input, includeHidden) {
+    const roomKey = bilibiliEmojiCatalogRoomKey()
+    let panels = queryAllDeep([BILIBILI_EMOTICON_PANEL_SELECTOR])
+    const toggle = findPlatformEmojiToggle(input, true)
+    if (toggle && typeof toggle.click === 'function' && !panels.some((panel) => isVisible(panel))) {
+      toggle.click()
+      state.emojiPanelOpenedByPlugin = true
+      await new Promise((resolve) => setTimeout(resolve, 180))
+      panels = queryAllDeep([BILIBILI_EMOTICON_PANEL_SELECTOR])
+    }
+
+    const entries = []
+    for (let panelIndex = 0; panelIndex < panels.length; panelIndex += 1) {
+      const panel = panels[panelIndex]
+      if (!(panel instanceof Element)) continue
+      const tabs = Array.from(panel.querySelectorAll(BILIBILI_EMOTICON_TAB_SELECTOR))
+      const candidates = tabs.length ? tabs : [null]
+      for (let tabIndex = 0; tabIndex < candidates.length; tabIndex += 1) {
+        const tab = candidates[tabIndex]
+        if (tab && typeof tab.click === 'function') {
+          tab.click()
+          await new Promise((resolve) => setTimeout(resolve, 180))
+        }
+        const seenItems = new Set()
+        platformEmojiItemCandidates(includeHidden).forEach((element) => {
+          if (!panel.contains(element)) return
+          const item = platformEmojiInteractiveItem(element)
+          if (seenItems.has(item)) return
+          seenItems.add(item)
+          const descriptor = assetDescriptorFromElement(item)
+          if (!descriptor) return
+          const identity =
+            descriptor.keys?.find((key) =>
+              /^(?:native-panel|legacy-bilibili-exclusive|fragment|stem|file|path):/.test(key),
+            ) ||
+            descriptor.src ||
+            descriptor.token ||
+            `panel:${panelIndex}:tab:${tabIndex}:item:${seenItems.size}`
+          entries.push({
+            available: !isUnavailablePlatformEmojiItem(item),
+            descriptor,
+            identity,
+            panelIndex,
+            tabIndex,
+            value: null,
+          })
+        })
+      }
+    }
+    return {
+      builtAt: Date.now(),
+      entries,
+      fingerprint: bilibiliEmojiPanelFingerprint(),
+      roomKey,
+    }
+  }
+
+  function bilibiliEmojiCatalogRoomKey() {
+    const roomId = /^\/(\d+)/.exec(location.pathname)?.[1]
+    return `${location.hostname}/${roomId || location.pathname.replace(/\/+$/, '') || '/'}`
+  }
+
+  function requestBilibiliEmoticonApi(request, timeout = 8000) {
+    return new Promise((resolve) => {
+      let settled = false
+      const finish = (value) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve(value)
+      }
+      const timer = setTimeout(
+        () => finish({ ok: false, error: 'extension-response-timeout' }),
+        timeout,
+      )
+      try {
+        chrome.runtime.sendMessage({ type: BILIBILI_EMOTICON_MESSAGE, ...request }, (response) => {
+          if (chrome.runtime.lastError) {
+            finish({ ok: false, error: chrome.runtime.lastError.message })
+            return
+          }
+          finish(response || { ok: false, error: 'empty-extension-response' })
+        })
+      } catch (error) {
+        finish({ ok: false, error: error instanceof Error ? error.message : String(error) })
+      }
+    })
+  }
+
+  async function loadBilibiliApiEmojiCatalog() {
+    if (platformId !== 'bilibili') return null
+    const roomKey = bilibiliEmojiCatalogRoomKey()
+    if (state.bilibiliApiEmojiCatalog?.roomKey === roomKey) {
+      return state.bilibiliApiEmojiCatalog
+    }
+    if (state.bilibiliApiEmojiCatalogBuild) return state.bilibiliApiEmojiCatalogBuild
+    const build = (async () => {
+      const response = await requestBilibiliEmoticonApi({ operation: 'catalog' })
+      if (!response?.ok || !Array.isArray(response.emoticons)) {
+        console.warn(
+          '[bililive-danmaku-plus-one] Bilibili Emoji catalog API unavailable',
+          String(response?.error || 'invalid-catalog-response'),
+        )
+        return null
+      }
+      const entries = response.emoticons.map((emoticon) => {
+        const keys = new Set([
+          `${NATIVE_PANEL_ASSET_KEY_PREFIX}${String(emoticon.emoticonUnique).toLowerCase()}`,
+        ])
+        ;[emoticon.url, emoticon.emoticonUnique, emoticon.emoji].forEach((value) => {
+          normalizedRichAssetKeys(value, location.href).forEach((key) => keys.add(key))
+        })
+        return {
+          available: true,
+          descriptor: {
+            keys: Array.from(keys).slice(0, 48),
+            src: emoticon.url,
+            token: normalizedEmojiToken(emoticon.emoji, 'emoji'),
+          },
+          identity: emoticon.emoticonUnique,
+          value: emoticon,
+        }
+      })
+      const catalog = { entries, roomKey }
+      state.bilibiliApiEmojiCatalog = catalog
+      return catalog
+    })()
+    state.bilibiliApiEmojiCatalogBuild = build
+    try {
+      return await build
+    } finally {
+      if (state.bilibiliApiEmojiCatalogBuild === build) {
+        state.bilibiliApiEmojiCatalogBuild = null
+      }
+    }
+  }
+
+  async function resolveBilibiliApiEmoji(asset) {
+    if (platformId !== 'bilibili' || !asset) return null
+    const catalog = await loadBilibiliApiEmojiCatalog()
+    return catalog ? selectUniqueBilibiliCatalogEntry(catalog.entries, asset) : null
+  }
+
+  function warmBilibiliApiEmojiCatalog() {
+    if (platformId !== 'bilibili' || document.hidden || window.top !== window) return
+    window.setTimeout(() => {
+      void loadBilibiliApiEmojiCatalog().catch(() => null)
+    }, 300)
+  }
+
+  function bilibiliEmojiPanelFingerprint() {
+    return queryAllDeep([BILIBILI_EMOTICON_PANEL_SELECTOR])
+      .map((panel) =>
+        Array.from(panel.querySelectorAll(BILIBILI_EMOTICON_TAB_SELECTOR))
+          .map((tab) => shared.normalizeWhitespace(tab.textContent))
+          .join('|'),
+      )
+      .join('||')
+  }
+
   async function openUniqueBilibiliPlatformEmoji(input, asset) {
     const includeHidden = fullscreenActive()
     let item =
       findUniqueBilibiliPlatformEmoji(asset) ||
       (includeHidden ? findUniqueBilibiliPlatformEmoji(asset, true) : null)
-    if (item) return item
+    if (item && assetMatchScore(item, asset) >= 4) return item
+    if (item) {
+      const scanned = await scanBilibiliEmojiPacks(input, asset, includeHidden)
+      if (scanned) return scanned
+    }
     const toggle = findPlatformEmojiToggle(input, includeHidden)
     if (toggle && typeof toggle.click === 'function') {
       toggle.click()
       state.emojiPanelOpenedByPlugin = true
       item = await waitForUniqueBilibiliPlatformEmoji(asset, 900, includeHidden)
+      if (item) return item
+      item = await scanBilibiliEmojiPacks(input, asset, includeHidden)
       if (item) return item
     }
     for (const category of platformEmojiCategoryCandidates(includeHidden)) {
@@ -2907,7 +3380,8 @@ import { t } from '../core/i18n'
       item = await waitForUniqueBilibiliPlatformEmoji(asset, 320, includeHidden)
       if (item) return item
     }
-    return findUniqueBilibiliPlatformEmoji(asset, true)
+    item = await scanBilibiliEmojiPacks(input, asset, includeHidden)
+    return item || findUniqueBilibiliPlatformEmoji(asset, true)
   }
 
   async function findPlatformEmojiAcrossCategories(asset) {
@@ -3114,26 +3588,34 @@ import { t } from '../core/i18n'
     if (unicodeFallback) {
       return repeatMessage(unicodeFallback)
     }
+    const initialBilibiliClassification =
+      platformId === 'bilibili' ? classifyBilibiliRichPayload(payload) : null
+    if (
+      initialBilibiliClassification?.kind === 'inline-emoji-text' &&
+      hasBilibiliInlineTextContent(payload)
+    ) {
+      return repeatMessage(initialBilibiliClassification.text)
+    }
     const preferUniqueBilibiliPanelItem =
       platformId === 'bilibili' &&
       Boolean(options && options.preferUniqueBilibiliPanelItem) &&
       isSingleBilibiliEmojiPayload(payload)
-    const shouldResolveBilibiliSingleImage = isSingleBilibiliEmojiPayload(payload)
     if (
       platformId === 'bilibili' &&
       payload &&
       Array.isArray(payload.assets) &&
-      payload.assets.length &&
-      (fullscreenActive() || shouldResolveBilibiliSingleImage)
+      payload.assets.length
     ) {
-      // Player-rendered image danmaku frequently exposes only its image URL.
-      // Resolve it against Bilibili's own (hidden while fullscreen) Emoji
-      // panel before deciding whether a lossless native-image send is possible.
+      // Player-rendered inline Emoji frequently expose only image URLs. Resolve
+      // every asset before classifying the payload so mixed text keeps all
+      // bracket tokens in order and can never degrade to one panel click.
       await enrichRichPayloadAssetNames(payload, { resolveBilibiliNative: true })
     }
     const asset = payload && Array.isArray(payload.assets) ? payload.assets[0] : null
+    const apiBilibiliEntry =
+      platformId === 'bilibili' && asset ? await resolveBilibiliApiEmoji(asset) : null
     const preferredBilibiliPanelItem =
-      preferUniqueBilibiliPanelItem && asset
+      !apiBilibiliEntry && preferUniqueBilibiliPanelItem && asset
         ? findUniqueBilibiliPlatformEmoji(asset, fullscreenActive()) ||
           (await openUniqueBilibiliPlatformEmoji(findBilibiliEmojiEditor() || findInput(), asset))
         : null
@@ -3143,31 +3625,63 @@ import { t } from '../core/i18n'
     if (
       bilibiliClassification &&
       (bilibiliClassification.kind === 'unicode-emoji-text' ||
-        (bilibiliClassification.kind === 'inline-emoji-text' && !preferredBilibiliPanelItem))
+        (bilibiliClassification.kind === 'inline-emoji-text' &&
+          (hasBilibiliInlineTextContent(payload) || !preferredBilibiliPanelItem)))
     ) {
       return repeatMessage(bilibiliClassification.text)
     }
-    if (bilibiliClassification?.kind === 'room-emoji-mixed') {
+    if (bilibiliClassification?.kind === 'panel-emoji-mixed') {
+      updateSendLog({ error: 'panel-emoji-mixed', method: 'not-attempted' })
       showToast(t('toastRoomEmojiMustBeSentAlone'), 'error')
       return false
     }
+    if (
+      platformId === 'bilibili' &&
+      bilibiliClassification?.kind === 'unknown-image' &&
+      !isSingleBilibiliEmojiPayload(payload)
+    ) {
+      updateSendLog({ error: 'mixed-emoji-assets-unresolved', method: 'not-attempted' })
+      showToast(t('toastMixedEmojiUnresolved'), 'error')
+      return false
+    }
     const nativeBilibiliAsset =
-      Boolean(preferredBilibiliPanelItem) ||
+      Boolean(apiBilibiliEntry || preferredBilibiliPanelItem) ||
       (platformId === 'bilibili' &&
-        bilibiliClassification?.kind === 'room-emoji-single' &&
+        bilibiliClassification?.kind === 'panel-emoji-single' &&
         isBilibiliNativePanelAsset(asset))
     if (bilibiliSingleImagePayload && !nativeBilibiliAsset) {
+      updateSendLog({ error: 'official-emoji-not-unique', method: 'not-attempted' })
       showToast(t('toastOfficialEmojiNotUnique', bilibiliSingleImagePayload.text), 'error')
       return false
     }
     const now = Date.now()
     if (now - state.lastActionAt < 700) {
+      updateSendLog({ error: 'action-too-fast', method: 'not-attempted' })
       showToast(t('toastActionTooFast'), 'warning')
       return false
     }
     state.lastActionAt = now
+    if (apiBilibiliEntry) {
+      updateSendLog({
+        method: 'page-context-api',
+        resultContent: String(apiBilibiliEntry.descriptor.token || payload.text || ''),
+      })
+      const response = await requestBilibiliEmoticonApi(
+        { emoticon: apiBilibiliEntry.value, operation: 'send' },
+        7000,
+      )
+      if (response?.ok) {
+        updateSendLog({ confirmation: 'page-api-confirmed', error: '' })
+        showToast(t('toastImageEmojiSent'), 'success')
+        return true
+      }
+      // Bilibili can temporarily reject the API route during a rollout. Keep
+      // the verified native-panel path as a compatibility fallback.
+      updateSendLog({ error: 'native-emoji-api-failed' })
+    }
     const input = nativeBilibiliAsset ? findBilibiliEmojiEditor() || findInput() : findInput()
     if (!asset || !input) {
+      updateSendLog({ error: 'image-resource-or-editor-not-found', method: 'not-attempted' })
       showToast(t('toastImageResourceNotFound', platformName), 'error')
       return false
     }
@@ -3177,6 +3691,7 @@ import { t } from '../core/i18n'
         ? await openUniqueBilibiliPlatformEmoji(input, asset)
         : await openPlatformEmojiForAsset(input, asset))
     if (!item || typeof item.click !== 'function') {
+      updateSendLog({ error: 'emoji-panel-no-match', method: 'not-attempted' })
       showToast(t('toastEmojiPanelNoMatch', platformName), 'error')
       return false
     }
@@ -3184,6 +3699,10 @@ import { t } from '../core/i18n'
     const previousCount = countMatchingChatAssets(asset)
     const beforeInput = richInputFingerprint(input)
     const itemWasVisible = isVisible(item)
+    updateSendLog({
+      method: 'native-emoji-panel',
+      resultContent: String(asset.token || payload.text || ''),
+    })
     item.click()
     const resultTimeout = platformId === 'bilibili' ? 2400 : 900
     let result = await waitForPlatformEmojiResult(
@@ -3215,10 +3734,12 @@ import { t } from '../core/i18n'
       }
     }
     if (result !== 'sent') {
+      updateSendLog({ error: 'native-panel-send-unconfirmed' })
       showToast(t('toastImageUnconfirmed', platformName), 'error')
       return false
     }
     releaseInputFocus(input)
+    updateSendLog({ confirmation: 'native-panel-confirmed', error: '' })
     showToast(t('toastImageEmojiSent'), 'success')
     return true
   }
@@ -3261,8 +3782,12 @@ import { t } from '../core/i18n'
   }
 
   function markBilibiliPayloadAsNativePanel(payload, item) {
-    enrichRichPayloadAsset(payload, 0, item)
-    const asset = payload && Array.isArray(payload.assets) ? payload.assets[0] : null
+    markBilibiliPayloadAssetAsNativePanel(payload, 0, item)
+  }
+
+  function markBilibiliPayloadAssetAsNativePanel(payload, assetIndex, item) {
+    enrichRichPayloadAsset(payload, assetIndex, item)
+    const asset = payload && Array.isArray(payload.assets) ? payload.assets[assetIndex] : null
     if (!asset || isBilibiliNativePanelAsset(asset)) return
     const identity = shared
       .normalizeWhitespace(asset.token || asset.src || 'resolved')
@@ -3273,7 +3798,7 @@ import { t } from '../core/i18n'
       new Set([marker, ...(Array.isArray(asset.keys) ? asset.keys : [])]),
     ).slice(0, 48)
     const emojiPart = Array.isArray(payload.parts)
-      ? payload.parts.find((part) => part && part.type === 'emoji' && part.asset)
+      ? payload.parts.filter((part) => part && part.type === 'emoji' && part.asset)[assetIndex]
       : null
     if (emojiPart && emojiPart.asset !== asset) {
       emojiPart.asset.keys = Array.from(
@@ -3283,33 +3808,51 @@ import { t } from '../core/i18n'
   }
 
   async function repeatBilibiliFavoritePayload(payload) {
-    const imagePayload = bilibiliFavoriteImagePayload(payload)
-    if (!imagePayload) {
-      return payload.assets.length
-        ? repeatPlatformRichPayload(payload)
-        : repeatMessage(payload.text)
-    }
-    if (imagePayload.assets.some(isBilibiliNativePanelAsset)) {
-      return repeatPlatformRichPayload(imagePayload)
-    }
+    const logEntry = beginSendLog('favorite', payload?.text || '', payload)
+    let success = false
+    let failure = ''
+    try {
+      const imagePayload = bilibiliFavoriteImagePayload(payload)
+      if (!imagePayload) {
+        success = await (payload.assets.length
+          ? repeatPlatformRichPayload(payload)
+          : repeatMessage(payload.text))
+        return success
+      }
+      if (imagePayload.assets.some(isBilibiliNativePanelAsset)) {
+        success = await repeatPlatformRichPayload(imagePayload)
+        return success
+      }
 
-    const input = findBilibiliEmojiEditor() || findInput()
-    if (!input) {
-      showToast(t('toastEditorNotFound', platformName), 'error')
-      return false
+      const input = findBilibiliEmojiEditor() || findInput()
+      if (!input) {
+        failure = 'editor-not-found'
+        updateSendLog({ error: failure })
+        showToast(t('toastEditorNotFound', platformName), 'error')
+        return false
+      }
+      const item = await openUniqueBilibiliPlatformEmoji(input, imagePayload.assets[0])
+      if (!item) {
+        failure = 'official-emoji-not-found'
+        updateSendLog({ error: failure })
+        showToast(t('toastOfficialEmojiNotFound', imagePayload.text), 'error')
+        return false
+      }
+      markBilibiliPayloadAsNativePanel(imagePayload, item)
+      success = await repeatPlatformRichPayload(imagePayload)
+      return success
+    } catch (error) {
+      failure = error instanceof Error ? error.message : String(error)
+      throw error
+    } finally {
+      persistSendLog(logEntry, success, failure)
     }
-    const item = await openUniqueBilibiliPlatformEmoji(input, imagePayload.assets[0])
-    if (!item) {
-      showToast(t('toastOfficialEmojiNotFound', imagePayload.text), 'error')
-      return false
-    }
-    markBilibiliPayloadAsNativePanel(imagePayload, item)
-    return repeatPlatformRichPayload(imagePayload)
   }
 
   async function repeatMessage(message) {
     const now = Date.now()
     if (state.sendInProgress || now - state.lastActionAt < 700) {
+      updateSendLog({ error: 'action-too-fast', method: 'not-attempted', resultContent: message })
       showToast(t('toastActionTooFast'), 'warning')
       return false
     }
@@ -3322,12 +3865,23 @@ import { t } from '../core/i18n'
       // key events in several player variants. Send plain text through the
       // site's authenticated page context first while fullscreen is active.
       if (fullscreenActive() && (await sendBilibiliViaPageContext(message))) {
+        updateSendLog({
+          confirmation: 'page-api-confirmed',
+          error: '',
+          method: 'page-context-api',
+          resultContent: message,
+        })
         showToast(t('toastPlusOneSent'), 'success')
         return true
       }
 
       const input = findInput()
       if (!input) {
+        updateSendLog({
+          error: 'editor-not-found',
+          method: 'not-attempted',
+          resultContent: message,
+        })
         showToast(t('toastEditorNotFound', platformName), 'error')
         return false
       }
@@ -3337,8 +3891,10 @@ import { t } from '../core/i18n'
       let button = findSendButton(input)
 
       if (button) {
+        updateSendLog({ method: 'editor-button', resultContent: message })
         button.click()
       } else {
+        updateSendLog({ method: 'editor-enter', resultContent: message })
         pressEnter(input)
       }
 
@@ -3347,6 +3903,7 @@ import { t } from '../core/i18n'
       // stale button accepted click(); a successful send consumes the editor.
       let consumed = await waitForInputConsumption(input, message, 320)
       if (!consumed) {
+        updateSendLog({ error: 'editor-content-not-consumed' })
         pressEnter(input)
         consumed = await waitForInputConsumption(input, message, 260)
       }
@@ -3367,6 +3924,7 @@ import { t } from '../core/i18n'
       }
 
       releaseInputFocus(input)
+      updateSendLog({ confirmation: 'editor-consumed', error: '' })
       showToast(t('toastPlusOneSent'), 'success')
       return true
     } finally {
@@ -3407,13 +3965,15 @@ import { t } from '../core/i18n'
     }
     const message = state.message
     const richPayload = state.richPayload
+    const source = state.candidateKind || 'unknown'
+    const logEntry = beginSendLog(source, message, richPayload)
     diagnostics.record({ type: 'action.plus-one', stage: state.candidateKind || 'unknown' })
     const sendOperation =
       richPayload && richPayload.assets.length
         ? repeatPlatformRichPayload(richPayload, {
             preferUniqueBilibiliPanelItem:
               state.candidateKind === 'overlay' &&
-              isBilibiliOverlayPanelOnlyPayload(state.candidate, richPayload),
+              isBilibiliExplicitPanelOnlyPayload(state.candidate, richPayload),
           })
         : message
           ? repeatMessage(message)
@@ -3422,7 +3982,15 @@ import { t } from '../core/i18n'
     // and resume the original animation immediately so the next danmaku can
     // be selected without waiting for hover timers or moving off the toolbar.
     clearSelection()
-    void sendOperation
+    if (!sendOperation) {
+      persistSendLog(logEntry, false, 'empty-message')
+      return
+    }
+    void Promise.resolve(sendOperation).then(
+      (success) => persistSendLog(logEntry, Boolean(success)),
+      (error) =>
+        persistSendLog(logEntry, false, error instanceof Error ? error.message : String(error)),
+    )
   }
 
   function onPointerOver(event) {
@@ -3640,8 +4208,14 @@ import { t } from '../core/i18n'
     event.preventDefault()
     event.stopPropagation()
     const message = state.message
+    const richPayload = state.richPayload
+    const logEntry = beginSendLog('alt-click', message, richPayload)
     clearSelection()
-    void repeatMessage(message)
+    void repeatMessage(message).then(
+      (success) => persistSendLog(logEntry, success),
+      (error) =>
+        persistSendLog(logEntry, false, error instanceof Error ? error.message : String(error)),
+    )
   }
 
   function onViewportChange() {
@@ -3823,11 +4397,13 @@ import { t } from '../core/i18n'
     }
     state.senderObserver.observe(document.documentElement, observerOptions)
     scheduleSenderCacheScan(0)
+    warmBilibiliApiEmojiCatalog()
   }
 
   storageGet().then(applySettings)
   ensureButton()
   startSenderObserver()
+  warmBilibiliApiEmojiCatalog()
   state.favoritesRuntime = createFavoritesRuntime({
     enabled: () => isEnabled() && state.settings.actions.favorite,
     maxMessageLength: config.maxLength,

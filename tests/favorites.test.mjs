@@ -632,7 +632,7 @@ test("routes long-lived capsule writes through the wakeable background service",
   assert.match(repository, /收藏写入校验失败，请重试/);
   assert.match(worker, /isFavoriteWriteRequest\(message\)/);
   assert.match(worker, /favoriteWriteQueue/);
-  assert.match(worker, /favoritesRepository\.favorite\([\s\S]*?request\.text \|\| ""/);
+  assert.match(worker, /favoritesRepository\.favorite\([\s\S]*?request\.text \|\| ["']/);
   assert.match(worker, /favoritesRepository\.addToRoom/);
   assert.match(worker, /favoritesRepository\.recordSent/);
   assert.match(worker, /favoritesRepository\.remove/);

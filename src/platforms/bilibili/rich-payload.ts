@@ -37,8 +37,8 @@ function normalizedEmojiLabel(value: unknown): string {
 
 export type BilibiliRichPayloadClassification =
   | { kind: 'inline-emoji-text'; text: string }
-  | { kind: 'room-emoji-single'; text: string }
-  | { kind: 'room-emoji-mixed'; text: string }
+  | { kind: 'panel-emoji-single'; text: string }
+  | { kind: 'panel-emoji-mixed'; text: string }
   | { kind: 'unicode-emoji-text'; text: string }
   | { kind: 'unknown-image'; text: string }
 
@@ -78,10 +78,27 @@ export function isSingleBilibiliEmojiPayload(
   return meaningfulParts.length === 1 && meaningfulParts[0].type === 'emoji'
 }
 
+export function hasBilibiliInlineTextContent(
+  payload: BilibiliPayloadLike | null | undefined,
+): boolean {
+  if (!payload || !Array.isArray(payload.parts)) return false
+  const assetLabels = new Set(
+    (Array.isArray(payload.assets) ? payload.assets : [])
+      .map((asset) => normalizedEmojiLabel((asset as BilibiliAssetLike | undefined)?.token))
+      .filter(Boolean),
+  )
+  return (payload.parts as BilibiliPartLike[]).some((part) => {
+    if (!part || part.type !== 'text') return false
+    const text = normalizedPayloadText(part.text)
+    return Boolean(text) && !assetLabels.has(normalizedEmojiLabel(text))
+  })
+}
+
 /**
  * Bilibili exposes three lossless send modes. Unicode and common bracket
- * Emoji can be reconstructed as editor text, while room/native Emoji must be
- * selected from the native panel and may only be sent as a single asset.
+ * Emoji can be reconstructed as editor text, while panel-only Emoji from room,
+ * fan-club, and equipped decoration packs must be selected from the native
+ * panel and may only be sent as a single asset.
  */
 export function classifyBilibiliRichPayload(
   payload: BilibiliPayloadLike | null | undefined,
@@ -91,11 +108,11 @@ export function classifyBilibiliRichPayload(
 
   const nativeAssets = assets.filter(isBilibiliNativePanelAsset)
   if (nativeAssets.length) {
-    const singleRoomEmoji =
+    const singlePanelEmoji =
       nativeAssets.length === assets.length && isSingleBilibiliEmojiPayload(payload)
     return {
-      kind: singleRoomEmoji ? 'room-emoji-single' : 'room-emoji-mixed',
-      text: singleRoomEmoji
+      kind: singlePanelEmoji ? 'panel-emoji-single' : 'panel-emoji-mixed',
+      text: singlePanelEmoji
         ? normalizedPayloadText((nativeAssets[0] as BilibiliAssetLike | undefined)?.token) || text
         : text,
     }

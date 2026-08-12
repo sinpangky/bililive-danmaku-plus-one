@@ -83,6 +83,7 @@ export const PLATFORM_EMOJI_ITEM_SELECTORS = [
 
 export const PLATFORM_EMOJI_CATEGORY_SELECTORS = [
   "[role='tab']",
+  '.tab-pane-item',
   "[class*='tab-item' i]",
   "[class*='tabItem']",
   "[class*='category-item' i]",
@@ -92,6 +93,12 @@ export const PLATFORM_EMOJI_CATEGORY_SELECTORS = [
   "[class*='group-item' i]",
   "[class*='groupItem']",
 ]
+
+export const BILIBILI_EMOTICON_PANEL_SELECTOR = '.emoticons-pane'
+export const BILIBILI_EMOTICON_PACK_SELECTOR = '.emotion-wrap'
+export const BILIBILI_INLINE_EMOJI_PACK_SELECTOR = '.emotion-wrap.emoji-wrap'
+export const BILIBILI_EMOTICON_ITEM_SELECTOR = '.emoticon-item'
+export const BILIBILI_EMOTICON_TAB_SELECTOR = '.tab-pane-item'
 
 export const EMOJI_METADATA_ATTRIBUTES = [
   'data-text',

@@ -151,10 +151,16 @@ test('Bilibili uses its native editor and Emoji panel', () => {
     /markBilibiliPayloadAsNativePanel\(payload, resolvedSingleBilibiliItem\)/,
   )
   assert.match(contentSource, /async function repeatPlatformRichPayload\(payload, options\)/)
+  assert.match(
+    contentSource,
+    /Array\.isArray\(payload\.assets\)\s*&&\s*payload\.assets\.length\s*\)\s*\{[\s\S]*?enrichRichPayloadAssetNames\(payload, \{ resolveBilibiliNative: true \}\)/,
+  )
+  assert.match(contentSource, /bilibiliClassification\?\.kind === ['"]unknown-image['"][\s\S]*?!isSingleBilibiliEmojiPayload\(payload\)/)
+  assert.match(contentSource, /t\(['"]toastMixedEmojiUnresolved['"]\)/)
   assert.match(contentSource, /classifyBilibiliRichPayload\(payload\)/)
   assert.match(contentSource, /bilibiliClassification\.kind === ['"]inline-emoji-text['"]/)
   assert.match(contentSource, /return repeatMessage\(bilibiliClassification\.text\)/)
-  assert.match(contentSource, /bilibiliClassification\?\.kind === ['"]room-emoji-mixed['"]/)
+  assert.match(contentSource, /bilibiliClassification\?\.kind === ['"]panel-emoji-mixed['"]/)
   assert.match(contentSource, /t\(['"]toastOfficialEmojiNotUnique['"]/)
   assert.match(contentSource, /LEGACY_BILIBILI_EXCLUSIVE_ASSET_KEY_PREFIX/)
   assert.match(contentSource, /current && depth < 12/)
@@ -171,8 +177,9 @@ test('Bilibili uses its native editor and Emoji panel', () => {
   assert.match(contentSource, /t\(['"]toastOfficialEmojiNotFound['"]/)
   assert.match(contentSource, /sendFavorite:\s*repeatBilibiliFavoritePayload/)
   assert.match(contentSource, /preferUniqueBilibiliPanelItem/)
-  assert.match(contentSource, /function isBilibiliOverlayPanelOnlyPayload\(candidate, payload\)/)
-  assert.match(contentSource, /\[data-emoticon\]:not\(\[data-emoticon-id\]\)/)
+  assert.match(contentSource, /function isBilibiliExplicitPanelOnlyPayload\(candidate, payload\)/)
+  assert.match(contentSource, /\[data-room-emoticon\]/)
+  assert.match(contentSource, /meaningfulParts\.length === 1/)
   assert.match(contentSource, /setNativeValue\(input, message\)/)
   assert.match(contentSource, /item\.click\(\)/)
   assert.match(contentSource, /button\.click\(\)/)

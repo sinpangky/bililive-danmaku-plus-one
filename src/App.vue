@@ -194,6 +194,16 @@
               <FavoritesDataTools @status="setStatus" />
             </div>
           </section>
+          <section id="send-logs" class="settings-section" aria-labelledby="send-logs-title">
+            <div class="section-heading">
+              <div>
+                <h2 id="send-logs-title">发送日志</h2>
+                <p>查看每次 +1 的来源、内容解析、发送方式与确认结果。</p>
+              </div>
+              <span>仅本地</span>
+            </div>
+            <SendLogViewer @status="setStatus" />
+          </section>
         </div>
       </main>
     </section>
@@ -215,6 +225,7 @@ import type { ColorSettingKey, PlatformId } from "./core/types";
 import ColorPlatform from "./components/ColorPlatform.vue";
 import FavoritesDataTools from "./components/FavoritesDataTools.vue";
 import SettingSwitch from "./components/SettingSwitch.vue";
+import SendLogViewer from "./components/SendLogViewer.vue";
 import SettingsSidebar from "./components/SettingsSidebar.vue";
 import SettingsTopbar from "./components/SettingsTopbar.vue";
 import { useSectionNavigation } from "./composables/useSectionNavigation";
@@ -264,7 +275,8 @@ const activeSectionTitle = computed(() => ({
   "general-settings": t("settingsGeneral"),
   "platform-colors": t("settingsColors"),
   "platform-connections": t("settingsPlatforms"),
-  "side-chat-capsule": t("settingsSideCapsule")
+  "side-chat-capsule": t("settingsSideCapsule"),
+  "send-logs": "发送日志"
 }[activeSection.value]));
 
 function setColor(platform: PlatformId, key: ColorSettingKey, value: string): void {

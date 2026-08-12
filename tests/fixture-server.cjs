@@ -233,11 +233,23 @@ const bilibiliHtml = String.raw`<!doctype html>
           style="display:none;top:340px">
           <span class="bili-danmaku-x-dm-content fixture-mixed-cry-content">加油啊<img
               class="bili-danmaku-x-dm-img fixture-mixed-cry-emote"
-              data-emoji-name="[大哭]" data-emoticon-id="official-cry"
               src="/fixture/bili-cry.webp?source=chat-a"><img
               class="bili-danmaku-x-dm-img"
-               data-emoji-name="[大哭]" data-emoticon-id="official-cry"
                src="/fixture/bili-cry.webp?source=chat-b"></span>
+        </div>
+        <div class="bili-danmaku-x-dm fixture-bili-extra-emote-row"
+          style="display:none;top:380px">
+          <span class="bili-danmaku-x-dm-content fixture-single-mixed-sad-content">画面文字<img
+              class="bili-danmaku-x-dm-img fixture-single-mixed-sad-emote"
+              src="/fixture/bili-sad.webp?source=video-mixed"></span>
+        </div>
+        <div class="bili-danmaku-x-dm fixture-bili-extra-emote-row"
+          style="display:none;top:400px">
+          <span class="bili-danmaku-x-dm-content fixture-correlated-inline-content">我们这样真的能上分吗？<img
+              class="bili-danmaku-x-dm-img fixture-correlated-inline-emote"
+              src="/fixture/69312e99a00d1db2de34ef2db9220c5686643a3f.png"><img
+              class="bili-danmaku-x-dm-img"
+              src="/fixture/69312e99a00d1db2de34ef2db9220c5686643a3f.png"></span>
         </div>
         <div class="bili-danmaku-x-dm fixture-bili-extra-emote-row fixture-prefixed-text-row"
           style="display:none;top:360px">
@@ -252,6 +264,16 @@ const bilibiliHtml = String.raw`<!doctype html>
             class="bili-danmaku-x-dm-img fixture-exclusive-favorite-emote"
             alt="[图片表情]"
             src="/fixture/bili-room-happy.webp?source=favorite"></span>
+        </div>
+        <div class="bili-danmaku-x-dm fixture-bili-extra-emote-row"
+          data-fixture-panel-pack="decoration" style="display:none;top:240px">
+          <img class="bili-danmaku-x-dm-img fixture-decoration-emote"
+            style="width:36px;height:36px" src="/fixture/bili-decoration-wave.webp">
+        </div>
+        <div class="bili-danmaku-x-dm fixture-bili-extra-emote-row"
+          data-fixture-panel-pack="supporter" style="display:none;top:280px">
+          <img class="bili-danmaku-x-dm-img fixture-supporter-emote"
+            style="width:36px;height:36px" src="/fixture/bili-fan-club-cheer.webp">
         </div>
       </div>
       <div class="bili-danmaku-x-dm bpx-player-ctrl-dm-input" style="display:none;position:absolute;left:20px;top:auto;bottom:20px;z-index:2">
@@ -272,19 +294,58 @@ const bilibiliHtml = String.raw`<!doctype html>
           <span class="open-menu fixture-streamer-emote-token">主播挥手</span>
         </span>
       </div>
+      <div class="danmaku-item chat-emoticon bulge-emoticon fixture-room-side-row"
+        data-type="1" data-file-id="room-happy-42" data-danmaku="主播表情9">
+        <span class="danmaku-item-right emoticon bulge"><img class="open-menu"
+          alt="主播表情9" src="/fixture/bili-room-happy.webp?source=side"><span>主播表情9</span></span>
+      </div>
+      <div class="danmaku-item chat-emoticon bulge-emoticon fixture-decoration-side-row"
+        data-type="1" data-file-id="decoration-wave-7" data-danmaku="装扮挥手">
+        <span class="danmaku-item-right emoticon bulge"><img class="open-menu"
+          alt="装扮挥手" src="/fixture/bili-decoration-wave.webp?source=side"><span>装扮挥手</span></span>
+      </div>
+      <div class="danmaku-item chat-emoticon bulge-emoticon fixture-supporter-side-row"
+        data-type="1" data-file-id="fan-club-cheer-23" data-danmaku="粉丝团加油">
+        <span class="danmaku-item-right emoticon bulge"><img class="open-menu"
+          alt="粉丝团加油" src="/fixture/bili-fan-club-cheer.webp?source=side"><span>粉丝团加油</span></span>
+      </div>
+      <div class="danmaku-item chat-emoticon bulge-emoticon fixture-honor-tooltip-side-row"
+        data-type="1" data-danmaku="打call">
+        <span class="danmaku-item-right emoticon bulge"><img class="open-menu"
+          alt="这是 TA 的荣耀等级勋章 (●'◡'●)ﾉ♥"
+          src="/fixture/bili-honor-tooltip-call.png@40h.webp"><span>打call</span></span>
+      </div>
+      <div class="danmaku-item fixture-inline-duplicate-side-row" data-type="0"
+        data-danmaku="222[委屈]">
+        <span class="danmaku-item-right"><span>222</span><img class="open-menu"
+          data-emoticon-id="official-sad" alt="[委屈]"
+          src="/fixture/bili-sad.webp?source=side"><span class="fixture-inline-accessible-label">[委屈]</span></span>
+      </div>
+      <div class="danmaku-item fixture-correlated-inline-side-row" data-type="0"
+        data-danmaku="我们这样真的能上分吗？[委屈][委屈]">
+        <span class="danmaku-item-right"><span>我们这样真的能上分吗？</span><img class="open-menu"
+          data-emoticon-id="official-sad" alt="[委屈]"
+          src="/fixture/69312e99a00d1db2de34ef2db9220c5686643a3f.png@20h.webp"><img class="open-menu"
+          data-emoticon-id="official-sad" alt="[委屈]"
+          src="/fixture/69312e99a00d1db2de34ef2db9220c5686643a3f.png@20h.webp"></span>
+      </div>
     </div>
     <div class="chat-input-ctnr">
       <textarea class="chat-input" data-fixture-reply-surface="side" aria-label="弹幕输入框"></textarea>
       <button class="bl-button--primary" type="button">发送</button>
       <button class="fixture-emoji-toggle" aria-label="表情" type="button">表情</button>
-      <div class="emoji-panel fixture-emoji-panel" hidden>
-        <div class="fixture-emoji-tabs">
-          <button class="emoji-tab-item fixture-common-tab" role="tab"
+      <div class="emoticons-pane fixture-emoji-panel" hidden>
+        <div class="tab-pane fixture-emoji-tabs">
+          <button class="tab-pane-item fixture-common-tab active" role="tab"
             aria-selected="true" type="button">常用</button>
-          <button class="emoji-tab-item fixture-exclusive-tab" role="tab"
+          <button class="tab-pane-item fixture-exclusive-tab" role="tab"
             aria-selected="false" type="button">主播专属</button>
+          <button class="tab-pane-item fixture-decoration-tab" role="tab"
+            aria-selected="false" type="button">个性装扮</button>
+          <button class="tab-pane-item fixture-supporter-tab" role="tab"
+            aria-selected="false" type="button">粉丝团</button>
         </div>
-        <div class="fixture-common-pack">
+        <div class="emotion-wrap emoji-wrap fixture-common-pack">
           <button class="emoticon-item fixture-emoji-item"
             data-emoticon="anchor-wave" data-fixture-unmarked-room-emoticon="true" type="button">
             <img data-emoticon="anchor-wave"
@@ -301,21 +362,29 @@ const bilibiliHtml = String.raw`<!doctype html>
             <img data-emoticon-id="official-cry" alt="[大哭]"
               src="/fixture/bili-cry.webp?source=panel">
           </button>
+          <button class="emoticon-item fixture-sad-item"
+            data-emoticon-id="official-sad" title="[委屈]" type="button">
+            <img data-emoticon-id="official-sad" alt="[委屈]"
+              src="/fixture/bili-sad.webp?source=panel">
+          </button>
         </div>
-        <div class="fixture-exclusive-pack" hidden>
+        <div class="emotion-wrap fixture-exclusive-pack" hidden>
           <button class="emoticon-item fixture-exclusive-item"
-            data-type="1" data-file-id="room-happy-42"
             data-fixture-resource-id="room-happy-42" title="[主播表情9]" type="button">
-            <img data-file-id="room-happy-42" alt="[主播表情9]"
+            <img alt="[主播表情9]"
               src="/fixture/bili-room-happy.webp?source=panel">
           </button>
         </div>
-        <div class="fixture-exclusive-duplicate-pack" hidden>
-          <button class="emoticon-item fixture-exclusive-item-duplicate"
-            data-type="1" data-file-id="room-happy-42"
-            data-fixture-resource-id="room-happy-42" title="[主播表情9]" type="button">
-            <img data-file-id="room-happy-42" alt="[主播表情9]"
-              src="/fixture/bili-room-happy.webp?source=panel-duplicate">
+        <div class="emotion-wrap fixture-decoration-pack" hidden>
+          <button class="emoticon-item fixture-decoration-item"
+            data-fixture-resource-id="decoration-wave-7" title="[装扮挥手]" type="button">
+            <img alt="[装扮挥手]" src="/fixture/bili-decoration-wave.webp?source=panel">
+          </button>
+        </div>
+        <div class="emotion-wrap fixture-supporter-pack" hidden>
+          <button class="emoticon-item fixture-supporter-item"
+            data-fixture-resource-id="fan-club-cheer-23" title="[粉丝团加油]" type="button">
+            <img alt="[粉丝团加油]" src="/fixture/bili-fan-club-cheer.webp?source=panel">
           </button>
         </div>
       </div>
@@ -335,24 +404,66 @@ const bilibiliHtml = String.raw`<!doctype html>
       const emojiItem = document.querySelector(".fixture-emoji-item");
       const commonTab = document.querySelector(".fixture-common-tab");
       const exclusiveTab = document.querySelector(".fixture-exclusive-tab");
+      const decorationTab = document.querySelector(".fixture-decoration-tab");
+      const fanClubTab = document.querySelector(".fixture-supporter-tab");
       const commonPack = document.querySelector(".fixture-common-pack");
       const exclusivePack = document.querySelector(".fixture-exclusive-pack");
+      const decorationPack = document.querySelector(".fixture-decoration-pack");
+      const fanClubPack = document.querySelector(".fixture-supporter-pack");
       const wowItem = document.querySelector(".fixture-wow-item");
       const cryItem = document.querySelector(".fixture-cry-item");
+      const sadItem = document.querySelector(".fixture-sad-item");
       const exclusiveItem = document.querySelector(".fixture-exclusive-item");
-      const exclusiveItemDuplicate = document.querySelector(".fixture-exclusive-item-duplicate");
+      const decorationItem = document.querySelector(".fixture-decoration-item");
+      const fanClubItem = document.querySelector(".fixture-supporter-item");
       const richChat = document.querySelector("#chat-history-list");
-      let exclusiveEmojiArmed = false;
+      let armedPanelEmoji = null;
       const parameters = new URLSearchParams(location.search);
+      document.cookie = "bili_jct=fixture-csrf; path=/";
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = async (resource, options = {}) => {
+        const url = String(resource instanceof Request ? resource.url : resource);
+        if (url.includes("/room/v1/Room/room_init")) {
+          return new Response(JSON.stringify({ code: 0, data: { room_id: 8818471 } }), {
+            headers: { "Content-Type": "application/json" }, status: 200
+          });
+        }
+        if (url.includes("/xlive/web-ucenter/v2/emoticon/GetEmoticons")) {
+          document.body.dataset.bilibiliEmoticonCatalogRequests = String(
+            Number(document.body.dataset.bilibiliEmoticonCatalogRequests || 0) + 1
+          );
+          const emoticons = [
+            ["room-happy-42", "主播表情9", "/fixture/bili-room-happy.webp"],
+            ["decoration-wave-7", "装扮挥手", "/fixture/bili-decoration-wave.webp"],
+            ["fan-club-cheer-23", "粉丝团加油", "/fixture/bili-fan-club-cheer.webp"],
+            ["honor-tooltip-call-40", "打call", "/fixture/bili-honor-tooltip-call.png"]
+          ].map(([emoticon_unique, emoji, path]) => ({
+            bulge_display: 1, emoji, emoticon_unique, is_dynamic: 1, perm: 1,
+            url: location.origin + path
+          }));
+          return new Response(JSON.stringify({
+            code: 0, data: { data: [{ emoticons, pkg_id: 42, pkg_name: "测试大表情" }] }
+          }), { headers: { "Content-Type": "application/json" }, status: 200 });
+        }
+        if (url.includes("/msg/send")) {
+          const body = options.body instanceof URLSearchParams
+            ? options.body : new URLSearchParams(String(options.body || ""));
+          if (body.get("dm_type") === "1") {
+            document.body.dataset.bilibiliEmojiSent = body.get("msg") || "";
+            document.body.dataset.bilibiliEmoticonApiSends = String(
+              Number(document.body.dataset.bilibiliEmoticonApiSends || 0) + 1
+            );
+          }
+          return new Response(JSON.stringify({ code: 0, message: "0" }), {
+            headers: { "Content-Type": "application/json" }, status: 200
+          });
+        }
+        return nativeFetch(resource, options);
+      };
       const lazyQuickMode = parameters.get("lazyquick") === "1";
       const lazyEmojiMode = parameters.get("lazyemoji") === "1";
       const nameOnlyPanelMode = parameters.get("nameonlypanel") === "1";
-      if (nameOnlyPanelMode) {
-        exclusiveItem.removeAttribute("data-type");
-        exclusiveItem.removeAttribute("data-file-id");
-        exclusiveItem.querySelector("img")?.removeAttribute("data-file-id");
-        exclusiveItemDuplicate.closest(".fixture-exclusive-duplicate-pack")?.remove();
-      }
+      const mountedPackMode = parameters.get("mountedpacks") !== "0";
       const lazyEmojiNodes = lazyEmojiMode ? Array.from(emojiPanel.childNodes) : [];
       if (lazyEmojiMode) emojiPanel.replaceChildren();
       if (parameters.get("legacyexclusive") === "1") {
@@ -375,18 +486,27 @@ const bilibiliHtml = String.raw`<!doctype html>
         }
         emojiPanel.hidden = false;
       });
-      commonTab.addEventListener("click", () => {
-        commonTab.setAttribute("aria-selected", "true");
-        exclusiveTab.setAttribute("aria-selected", "false");
-        commonPack.hidden = false;
-        exclusivePack.hidden = true;
-      });
-      exclusiveTab.addEventListener("click", () => {
-        commonTab.setAttribute("aria-selected", "false");
-        exclusiveTab.setAttribute("aria-selected", "true");
-        commonPack.hidden = true;
-        exclusivePack.hidden = false;
-      });
+      const panelPacks = [
+        [commonTab, commonPack],
+        [exclusiveTab, exclusivePack],
+        [decorationTab, decorationPack],
+        [fanClubTab, fanClubPack]
+      ];
+      if (mountedPackMode) {
+        panelPacks.slice(1).forEach(([, pack]) => pack.remove());
+      }
+      panelPacks.forEach(([tab, pack]) => tab.addEventListener("click", () => {
+        document.body.dataset.bilibiliEmojiTabClicks = String(
+          Number(document.body.dataset.bilibiliEmojiTabClicks || 0) + 1
+        );
+        panelPacks.forEach(([candidateTab, candidatePack]) => {
+          candidateTab.setAttribute("aria-selected", String(candidateTab === tab));
+          candidateTab.classList.toggle("active", candidateTab === tab);
+          candidatePack.hidden = candidatePack !== pack;
+          if (mountedPackMode && candidatePack !== pack) candidatePack.remove();
+        });
+        if (mountedPackMode && !pack.isConnected) emojiPanel.append(pack);
+      }));
       const appendEmojiEcho = (nativeItem, identityAttribute) => {
         const row = document.createElement("div");
         row.className = "danmaku-item fixture-rich-echo";
@@ -413,7 +533,7 @@ const bilibiliHtml = String.raw`<!doctype html>
       };
       const insertEmojiItem = (nativeItem) => {
         recordEmojiItemClick();
-        exclusiveEmojiArmed = true;
+        armedPanelEmoji = nativeItem;
         const value = nativeItem.getAttribute("title") || "";
         emojiPanel.hidden = true;
         send.disabled = true;
@@ -437,8 +557,10 @@ const bilibiliHtml = String.raw`<!doctype html>
       emojiItem.addEventListener("click", () => sendEmojiItem(emojiItem, "data-emoticon"));
       wowItem.addEventListener("click", () => sendEmojiItem(wowItem, "data-emoticon-id"));
       cryItem.addEventListener("click", () => sendEmojiItem(cryItem, "data-emoticon-id"));
+      sadItem.addEventListener("click", () => sendEmojiItem(sadItem, "data-emoticon-id"));
       exclusiveItem.addEventListener("click", () => insertEmojiItem(exclusiveItem));
-      exclusiveItemDuplicate.addEventListener("click", () => insertEmojiItem(exclusiveItemDuplicate));
+      decorationItem.addEventListener("click", () => insertEmojiItem(decorationItem));
+      fanClubItem.addEventListener("click", () => insertEmojiItem(fanClubItem));
       if (parameters.get("hashed") === "1" && !lazyQuickMode) {
         quickControls.className = "x7Qk2m";
         quickInput.className = "p9Lm4n";
@@ -448,6 +570,11 @@ const bilibiliHtml = String.raw`<!doctype html>
         message.textContent = "这是一条用于验证完整复读能力的超长B站弹幕".repeat(20);
       }
       let bilibiliClickAttempts = 0;
+      const commitArmedPanelEmoji = () => {
+        if (!armedPanelEmoji || input.value !== armedPanelEmoji.getAttribute("title")) return;
+        appendEmojiEcho(armedPanelEmoji, "data-file-id");
+        armedPanelEmoji = null;
+      };
       send.addEventListener("click", () => {
         bilibiliClickAttempts += 1;
         document.body.dataset.bilibiliClickAttempts = String(bilibiliClickAttempts);
@@ -457,10 +584,7 @@ const bilibiliHtml = String.raw`<!doctype html>
         }
         document.body.dataset.bilibiliSendMethod = "button";
         document.body.dataset.bilibiliSent = input.value;
-        if (input.value === "[主播表情9]" && exclusiveEmojiArmed) {
-          appendEmojiEcho(exclusiveItem, "data-file-id");
-          exclusiveEmojiArmed = false;
-        }
+        commitArmedPanelEmoji();
         input.value = "";
       });
       input.addEventListener("keydown", (event) => {
@@ -469,10 +593,7 @@ const bilibiliHtml = String.raw`<!doctype html>
         }
         document.body.dataset.bilibiliSendMethod = "enter";
         document.body.dataset.bilibiliSent = input.value;
-        if (input.value === "[主播表情9]" && exclusiveEmojiArmed) {
-          appendEmojiEcho(exclusiveItem, "data-file-id");
-          exclusiveEmojiArmed = false;
-        }
+        commitArmedPanelEmoji();
         input.value = "";
       });
       const editorValue = (editor) => editor instanceof HTMLInputElement

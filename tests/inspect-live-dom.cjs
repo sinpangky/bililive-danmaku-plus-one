@@ -2177,29 +2177,71 @@ async function inspect() {
         || ownContent?.getAttribute("data-bcp-douyu-own-chat-content") === "true";
 
       let sideRoomEmojiSent = true;
+      let sideDecorationEmojiSent = true;
+      let sideFanClubEmojiSent = true;
+      let sideHonorTooltipEmojiSent = true;
+      let sideHonorTooltipEmojiNotRejected = true;
+      let sideInlineEmojiNotDuplicated = true;
       let sideRoomEmojiNotRejected = true;
       if (platform === "bilibili") {
-        delete document.body.dataset.bilibiliEmojiSent;
-        const roomEmoji = document.querySelector(".fixture-streamer-emote");
-        roomEmoji?.dispatchEvent(new PointerEvent("pointerover", {
+        const exerciseSidePanelEmoji = async (selector, expectedIdentity) => {
+          delete document.body.dataset.bilibiliEmojiSent;
+          const emoji = document.querySelector(selector);
+          emoji?.dispatchEvent(new PointerEvent("pointerover", {
+            bubbles: true,
+            composed: true,
+            pointerType: "mouse"
+          }));
+          await delay(120);
+          document.querySelector(
+            ".bcp-one-actions:not([hidden]) .bcp-one-button"
+          )?.click();
+          for (let attempt = 0; attempt < 45
+              && document.body.dataset.bilibiliEmojiSent !== expectedIdentity; attempt += 1) {
+            await delay(80);
+          }
+          const sent = document.body.dataset.bilibiliEmojiSent === expectedIdentity;
+          await delay(760);
+          return sent;
+        };
+        sideRoomEmojiSent = await exerciseSidePanelEmoji(
+          ".fixture-room-side-row img", "room-happy-42"
+        );
+        const roomEmojiToast = String(
+          document.querySelector(".bcp-one-toast")?.textContent || ""
+        ).trim();
+        sideRoomEmojiNotRejected = !roomEmojiToast.includes("B站大表情只能单独发送");
+        sideDecorationEmojiSent = await exerciseSidePanelEmoji(
+          ".fixture-decoration-side-row img", "decoration-wave-7"
+        );
+        sideFanClubEmojiSent = await exerciseSidePanelEmoji(
+          ".fixture-supporter-side-row img", "fan-club-cheer-23"
+        );
+        sideHonorTooltipEmojiSent = await exerciseSidePanelEmoji(
+          ".fixture-honor-tooltip-side-row img", "honor-tooltip-call-40"
+        );
+        const honorTooltipToast = String(
+          document.querySelector(".bcp-one-toast")?.textContent || ""
+        ).trim();
+        sideHonorTooltipEmojiNotRejected =
+          !honorTooltipToast.includes("B站大表情只能单独发送");
+        delete document.body.dataset.bilibiliSent;
+        const inlineEmoji = document.querySelector(".fixture-inline-duplicate-side-row img");
+        inlineEmoji?.dispatchEvent(new PointerEvent("pointerover", {
           bubbles: true,
           composed: true,
           pointerType: "mouse"
         }));
         await delay(120);
-        const roomEmojiPlusOne = document.querySelector(
+        document.querySelector(
           ".bcp-one-actions:not([hidden]) .bcp-one-button"
-        );
-        roomEmojiPlusOne?.click();
+        )?.click();
         for (let attempt = 0; attempt < 35
-            && document.body.dataset.bilibiliEmojiSent !== "anchor-wave"; attempt += 1) {
+            && document.body.dataset.bilibiliSent !== "222[委屈]"; attempt += 1) {
           await delay(80);
         }
-        const roomEmojiToast = String(
-          document.querySelector(".bcp-one-toast")?.textContent || ""
-        ).trim();
-        sideRoomEmojiSent = document.body.dataset.bilibiliEmojiSent === "anchor-wave";
-        sideRoomEmojiNotRejected = !roomEmojiToast.includes("房间表情只能单独发送");
+        sideInlineEmojiNotDuplicated =
+          document.body.dataset.bilibiliSent === "222[委屈]";
       }
 
       targetContent.dispatchEvent(new PointerEvent("pointerout", {
@@ -2228,6 +2270,11 @@ async function inspect() {
         threeActionUi,
         copyActionAvailable,
         sideRoomEmojiSent,
+        sideDecorationEmojiSent,
+        sideFanClubEmojiSent,
+        sideHonorTooltipEmojiSent,
+        sideHonorTooltipEmojiNotRejected,
+        sideInlineEmojiNotDuplicated,
         sideRoomEmojiNotRejected,
         scrollPauseMarkerAbsent,
         scrollStart,
@@ -2277,6 +2324,11 @@ async function inspect() {
       "threeActionUi",
       "copyActionAvailable",
       "sideRoomEmojiSent",
+      "sideDecorationEmojiSent",
+      "sideFanClubEmojiSent",
+      "sideHonorTooltipEmojiSent",
+      "sideHonorTooltipEmojiNotRejected",
+      "sideInlineEmojiNotDuplicated",
       "sideRoomEmojiNotRejected",
       "scrollPauseMarkerAbsent",
       "scrollingRemainsEnabled",
@@ -2584,6 +2636,7 @@ async function inspect() {
           inputType: "deleteContentBackward"
         }));
       }
+      delete document.body.dataset.bilibiliEmojiSent;
       image.dispatchEvent(new PointerEvent("pointerover", {
         bubbles: true,
         composed: true,
@@ -2787,10 +2840,17 @@ async function inspect() {
       const plusOneAfterReply = document.querySelector(".bcp-one-button:not([hidden])");
       if (plusOneAfterReply) plusOneAfterReply.click();
       for (let attempt = 0; attempt < 30
-          && !document.body.dataset.bilibiliEmojiSent; attempt += 1) {
+          && document.body.dataset.bilibiliEmojiSent !== "anchor-wave"; attempt += 1) {
         await delay(60);
       }
       const sentAsImage = document.body.dataset.bilibiliEmojiSent === "anchor-wave";
+      const firstEmojiSentValue = document.body.dataset.bilibiliEmojiSent || "";
+      const firstEmojiToast = String(
+        document.querySelector(".bcp-one-toast")?.textContent || ""
+      ).trim();
+      const firstEmojiItemClicks = Number(
+        document.body.dataset.bilibiliEmojiItemClicks || 0
+      );
       document.body.dataset.bilibiliRichStage = "video-image-sent";
       const echoImage = document.querySelector(".fixture-rich-echo img[data-emoticon='anchor-wave']");
       const exerciseBilibiliEmoji = async (
@@ -2898,6 +2958,44 @@ async function inspect() {
         false
       );
       document.body.dataset.bilibiliRichStage = "mixed-emoji-sent";
+      const singleMixedToggleClicksBefore = Number(
+        document.body.dataset.bilibiliEmojiToggleClicks || 0
+      );
+      const singleMixedItemClicksBefore = Number(
+        document.body.dataset.bilibiliEmojiItemClicks || 0
+      );
+      const singleMixedSadEmoji = await exerciseBilibiliEmoji(
+        ".fixture-single-mixed-sad-emote",
+        "画面文字[委屈]",
+        false,
+        760,
+        false
+      );
+      const singleMixedSadEmojiUsedTextEditor =
+        Number(document.body.dataset.bilibiliEmojiToggleClicks || 0)
+          === singleMixedToggleClicksBefore
+        && Number(document.body.dataset.bilibiliEmojiItemClicks || 0)
+          === singleMixedItemClicksBefore;
+      document.body.dataset.bilibiliRichStage = "single-mixed-emoji-sent";
+      const correlatedInlineToggleClicksBefore = Number(
+        document.body.dataset.bilibiliEmojiToggleClicks || 0
+      );
+      const correlatedInlineItemClicksBefore = Number(
+        document.body.dataset.bilibiliEmojiItemClicks || 0
+      );
+      const correlatedInlineEmoji = await exerciseBilibiliEmoji(
+        ".fixture-correlated-inline-emote",
+        "我们这样真的能上分吗？[委屈][委屈]",
+        false,
+        760,
+        false
+      );
+      const correlatedInlineEmojiUsedTextEditor =
+        Number(document.body.dataset.bilibiliEmojiToggleClicks || 0)
+          === correlatedInlineToggleClicksBefore
+        && Number(document.body.dataset.bilibiliEmojiItemClicks || 0)
+          === correlatedInlineItemClicksBefore;
+      document.body.dataset.bilibiliRichStage = "correlated-inline-emoji-sent";
       const prefixedText = await exerciseBilibiliEmoji(
         ".fixture-prefix-text",
         "徽章后的文字",
@@ -2914,6 +3012,22 @@ async function inspect() {
         false
       );
       document.body.dataset.bilibiliRichStage = "exclusive-emoji-sent";
+      const decorationEmoji = await exerciseBilibiliEmoji(
+        ".fixture-decoration-emote",
+        "decoration-wave-7",
+        true,
+        760,
+        false
+      );
+      document.body.dataset.bilibiliRichStage = "decoration-emoji-sent";
+      const fanClubEmoji = await exerciseBilibiliEmoji(
+        ".fixture-supporter-emote",
+        "fan-club-cheer-23",
+        true,
+        760,
+        false
+      );
+      document.body.dataset.bilibiliRichStage = "fan-club-emoji-sent";
       const exclusiveFavoriteSource = document.querySelector(
         ".fixture-exclusive-favorite-emote"
       );
@@ -3200,6 +3314,9 @@ async function inspect() {
         favoritesActiveTabColors,
         favoriteWarning,
         sentAsImage,
+        firstEmojiSentValue,
+        firstEmojiToast,
+        firstEmojiItemClicks,
         echoImageRendered: Boolean(echoImage),
         sentInputText: replyInput && replyInput.value || "",
         videoReplyButtonAvailable: Boolean(replyButton),
@@ -3230,6 +3347,10 @@ async function inspect() {
         standardEmojiFavoriteNamed: favoriteNames.some((name) => name.includes("[哇]")),
         singleCryEmojiSent: cryEmoji.sent,
         mixedCryEmojiSentInOrder: mixedCryEmoji.sent,
+        singleMixedSadEmojiSentInOrder: singleMixedSadEmoji.sent,
+        singleMixedSadEmojiUsedTextEditor,
+        correlatedInlineEmojiSentInOrder: correlatedInlineEmoji.sent,
+        correlatedInlineEmojiUsedTextEditor,
         prefixedBadgeIgnored: prefixedText.sent,
         exclusiveEmojiFavoriteAvailable: exclusiveEmoji.favoriteAvailable,
         exclusiveEmojiLabel: exclusiveEmoji.label,
@@ -3250,6 +3371,13 @@ async function inspect() {
         exclusiveEmojiNoAssetLookupError:
           !exclusiveEmoji.immediateToast.includes("未在哔哩哔哩直播表情面板中找到对应 Emoji")
           && !exclusiveEmoji.toast.includes("未在哔哩哔哩直播表情面板中找到对应 Emoji"),
+        decorationEmojiSent: decorationEmoji.sent,
+        decorationEmojiUsedApi:
+          decorationEmoji.itemClicksAfter === decorationEmoji.itemClicksBefore,
+        fanClubEmojiSent: fanClubEmoji.sent,
+        fanClubEmojiUsedApi:
+          fanClubEmoji.itemClicksAfter === fanClubEmoji.itemClicksBefore,
+        fanClubEmojiDetails: fanClubEmoji,
         exclusiveEmojiFavoriteNamed: favoriteNames.some(
           (name) => name.includes("[主播表情9]")
         ),
@@ -3259,14 +3387,20 @@ async function inspect() {
         exclusiveFavoriteSourceFavoriteAvailable: Boolean(exclusiveFavoriteSourceButton),
         exclusiveFavoriteSendAvailable: Boolean(exclusiveFavoriteSend),
         exclusiveFavoriteSentAsImage,
-        exclusiveFavoriteUsedNativePanel,
+        exclusiveFavoriteUsedApi: !exclusiveFavoriteUsedNativePanel,
         exclusiveFavoriteNoAssetLookupError:
           !exclusiveFavoriteToast.includes("未在哔哩哔哩直播表情面板中找到对应 Emoji")
           && !exclusiveFavoriteToast.includes("未找到官方表情"),
         longToastFullyVisible,
         favoriteNames,
         emojiToggleClicks: Number(document.body.dataset.bilibiliEmojiToggleClicks || 0),
-        emojiItemClicks: Number(document.body.dataset.bilibiliEmojiItemClicks || 0)
+        emojiItemClicks: Number(document.body.dataset.bilibiliEmojiItemClicks || 0),
+        emoticonCatalogRequestedOnce:
+          Number(document.body.dataset.bilibiliEmoticonCatalogRequests || 0) === 1,
+        emoticonApiSendCount:
+          Number(document.body.dataset.bilibiliEmoticonApiSends || 0),
+        nativePanelTabClicks:
+          Number(document.body.dataset.bilibiliEmojiTabClicks || 0)
       };
     })()`);
     let bilibiliWatchdog = null;
@@ -3333,18 +3467,27 @@ async function inspect() {
           "standardEmojiFavoriteNamed",
           "singleCryEmojiSent",
           "mixedCryEmojiSentInOrder",
+          "singleMixedSadEmojiSentInOrder",
+          "singleMixedSadEmojiUsedTextEditor",
+          "correlatedInlineEmojiSentInOrder",
+          "correlatedInlineEmojiUsedTextEditor",
           "prefixedBadgeIgnored",
           "exclusiveEmojiFavoriteAvailable",
           "exclusiveEmojiSent",
           "exclusiveEmojiInputCleared",
           "exclusiveEmojiNoConfirmationError",
           "exclusiveEmojiNoAssetLookupError",
+          "decorationEmojiSent",
+          "decorationEmojiUsedApi",
+          "fanClubEmojiSent",
+          "fanClubEmojiUsedApi",
+          "emoticonCatalogRequestedOnce",
           "exclusiveEmojiFavoriteNamed",
           "exclusiveFavoriteNameResolved",
           "exclusiveFavoriteSourceFavoriteAvailable",
           "exclusiveFavoriteSendAvailable",
           "exclusiveFavoriteSentAsImage",
-          "exclusiveFavoriteUsedNativePanel",
+          "exclusiveFavoriteUsedApi",
           "exclusiveFavoriteNoAssetLookupError",
           "longToastFullyVisible",
           "longHoverLatencyBounded",

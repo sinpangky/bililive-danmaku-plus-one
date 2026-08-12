@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { classifyBilibiliRichPayload, isSingleBilibiliEmojiPayload } from '../rich-payload'
+import {
+  classifyBilibiliRichPayload,
+  hasBilibiliInlineTextContent,
+  isSingleBilibiliEmojiPayload,
+} from '../rich-payload'
 
 describe('Bilibili rich payload classification', () => {
   it('keeps Unicode Emoji together with surrounding text', () => {
@@ -34,6 +38,21 @@ describe('Bilibili rich payload classification', () => {
       kind: 'inline-emoji-text',
       text: '加油[大哭]',
     })
+    expect(hasBilibiliInlineTextContent(payload)).toBe(true)
+  })
+
+  it('does not treat the duplicate accessible Emoji label as real surrounding text', () => {
+    const emoji = { keys: ['name:委屈'], token: '[委屈]' }
+    expect(
+      hasBilibiliInlineTextContent({
+        assets: [emoji],
+        parts: [
+          { asset: emoji, type: 'emoji' },
+          { text: '[委屈]', type: 'text' },
+        ],
+        text: '[委屈]',
+      }),
+    ).toBe(false)
   })
 
   it('classifies one native room Emoji as a panel-only send', () => {
@@ -49,7 +68,7 @@ describe('Bilibili rich payload classification', () => {
 
     expect(isSingleBilibiliEmojiPayload(payload)).toBe(true)
     expect(classifyBilibiliRichPayload(payload)).toEqual({
-      kind: 'room-emoji-single',
+      kind: 'panel-emoji-single',
       text: '[主播表情9]',
     })
   })
@@ -70,7 +89,7 @@ describe('Bilibili rich payload classification', () => {
 
     expect(isSingleBilibiliEmojiPayload(payload)).toBe(true)
     expect(classifyBilibiliRichPayload(payload)).toEqual({
-      kind: 'room-emoji-single',
+      kind: 'panel-emoji-single',
       text: '[主播挥手]',
     })
   })
@@ -91,7 +110,7 @@ describe('Bilibili rich payload classification', () => {
 
     expect(isSingleBilibiliEmojiPayload(payload)).toBe(true)
     expect(classifyBilibiliRichPayload(payload)).toEqual({
-      kind: 'room-emoji-single',
+      kind: 'panel-emoji-single',
       text: '[SAD]',
     })
   })
@@ -111,7 +130,7 @@ describe('Bilibili rich payload classification', () => {
     }
 
     expect(isSingleBilibiliEmojiPayload(payload)).toBe(false)
-    expect(classifyBilibiliRichPayload(payload).kind).toBe('room-emoji-mixed')
+    expect(classifyBilibiliRichPayload(payload).kind).toBe('panel-emoji-mixed')
   })
 
   it('does not guess an unidentified image is an inline Emoji', () => {

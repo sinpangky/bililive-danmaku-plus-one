@@ -22,11 +22,7 @@ export const BILIBILI_PREFIX_TEXT_SELECTOR = '.bili-danmaku-x-prefixImage-text-c
 
 export function isBilibiliDecorativePrefixImage(image: Element, candidate: Element): boolean {
   const prefixText = candidate.querySelector(BILIBILI_PREFIX_TEXT_SELECTOR)
-  return Boolean(
-    prefixText &&
-      candidate.contains(image) &&
-      !prefixText.contains(image),
-  )
+  return Boolean(prefixText && candidate.contains(image) && !prefixText.contains(image))
 }
 export const BILIBILI_CHAT_ACTION_SURFACES = [
   "[role='dialog']",
@@ -115,6 +111,7 @@ export const BILIBILI_EMOJI_TOGGLE_SELECTORS = [
   "[role='button'][class*='face' i]",
 ]
 export const BILIBILI_EMOJI_SURFACE_SELECTORS = [
+  '.emoticons-pane',
   "[data-testid*='emoji' i]",
   "[data-e2e*='emoji' i]",
   '[data-emoji-panel]',
