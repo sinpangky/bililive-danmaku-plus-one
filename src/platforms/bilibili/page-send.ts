@@ -26,8 +26,8 @@ export async function sendBilibiliDanmakuInPage(rawMessage: string): Promise<Bil
     if (location.hostname !== 'live.bilibili.com') {
       return { ok: false, error: 'invalid-page' }
     }
-    const message = String(rawMessage || '').trim()
-    if (!message || Array.from(message).length > 1000) {
+    const message = String(rawMessage || '')
+    if (!message.trim() || Array.from(message).length > 1000) {
       return { ok: false, error: 'invalid-message' }
     }
 

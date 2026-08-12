@@ -321,6 +321,10 @@ const bilibiliHtml = String.raw`<!doctype html>
           data-emoticon-id="official-sad" alt="[委屈]"
           src="/fixture/bili-sad.webp?source=side"><span class="fixture-inline-accessible-label">[委屈]</span></span>
       </div>
+      <div class="danmaku-item fixture-leading-mention-side-row" data-type="0"
+        data-danmaku="姐妹你做人真的可以">
+        <span class="danmaku-item-right"><span class="user-name">@久远澪00：</span><span>姐妹你做人真&shy;的可以</span></span>
+      </div>
       <div class="danmaku-item fixture-correlated-inline-side-row" data-type="0"
         data-danmaku="我们这样真的能上分吗？[委屈][委屈]">
         <span class="danmaku-item-right"><span>我们这样真的能上分吗？</span><img class="open-menu"

@@ -31,7 +31,6 @@ import {
   bilibiliPayloadTextFromParts,
   isBilibiliMedalAccessibilityLabel,
   normalizeBilibiliPayloadParts,
-  textPayloadFromAuthoritativeBilibiliText,
 } from '../platforms/bilibili/payload-normalizer'
 import { normalizedAssetKeys as normalizedRichAssetKeys } from '../platforms/douyin/rich-data'
 import { createFavoritesRuntime } from '../features/favorites/launcher'
@@ -1179,12 +1178,7 @@ import { t } from '../core/i18n'
       !candidate.querySelector('img')
     ) {
       const content = candidate.querySelector('.bili-danmaku-x-dm-content') || candidate
-      const text = shared.parseMessageText(
-        candidate.getAttribute('data-danmaku') ||
-          content.getAttribute('data-danmaku') ||
-          content.textContent,
-        config.maxLength,
-      )
+      const text = String(content.textContent || candidate.getAttribute('data-danmaku') || '')
       if (shared.isPlausibleMessage(text, config.maxLength)) {
         return { text, plainText: text, assets: [], parts: [{ type: 'text', text }] }
       }
@@ -1194,10 +1188,17 @@ import { t } from '../core/i18n'
     if (!element) {
       return { text: '', plainText: '', assets: [], parts: [] }
     }
+    const explicitMessageElement = config.messageText.some((selector) => {
+      try {
+        return element.matches(selector)
+      } catch {
+        return false
+      }
+    })
     const parts =
       platformId === 'bilibili'
-        ? normalizeBilibiliPayloadParts(richPartsFromElement(element))
-        : richPartsFromElement(element)
+        ? normalizeBilibiliPayloadParts(richPartsFromElement(element, explicitMessageElement))
+        : richPartsFromElement(element, explicitMessageElement)
     const assets = parts
       .filter((part) => part && part.type === 'emoji' && part.asset)
       .map((part) => part.asset)
@@ -1209,8 +1210,21 @@ import { t } from '../core/i18n'
       plainText: '',
       text: bilibiliPayloadTextFromParts(parts),
     }
-    if (authoritativeText && !isBilibiliExplicitPanelOnlyPayload(candidate, structuralPayload)) {
-      return textPayloadFromAuthoritativeBilibiliText(authoritativeText)
+    const panelOnly = isBilibiliExplicitPanelOnlyPayload(candidate, structuralPayload)
+    if (!panelOnly && (!assets.length || authoritativeText)) {
+      const directText = assets.length
+        ? authoritativeText
+        : explicitMessageElement
+          ? String(element.textContent || '')
+          : structuralPayload.text
+      if (shared.isPlausibleMessage(directText, config.maxLength)) {
+        return {
+          assets: [],
+          parts: [{ text: directText, type: 'text' }],
+          plainText: directText,
+          text: directText,
+        }
+      }
     }
     const plainText = shared.parseMessageText(
       parts
@@ -1366,7 +1380,7 @@ import { t } from '../core/i18n'
     if (state.activeSendLog === entry) state.activeSendLog = null
   }
 
-  function richPartsFromElement(element) {
+  function richPartsFromElement(element, preserveNestedUserNames = false) {
     const parts = []
     const appendText = (value) => {
       const text = String(value || '')
@@ -1388,7 +1402,7 @@ import { t } from '../core/i18n'
           'svg',
           "[aria-hidden='true']",
           '[data-bcp-one-owned]',
-          ...config.userNames,
+          ...(preserveNestedUserNames ? [] : config.userNames),
         ])
       )
         return

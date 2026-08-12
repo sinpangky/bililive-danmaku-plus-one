@@ -2182,6 +2182,8 @@ async function inspect() {
       let sideHonorTooltipEmojiSent = true;
       let sideHonorTooltipEmojiNotRejected = true;
       let sideInlineEmojiNotDuplicated = true;
+      let sideLeadingMentionPreserved = true;
+      let sideLeadingMentionCopyAvailable = true;
       let sideRoomEmojiNotRejected = true;
       if (platform === "bilibili") {
         const exerciseSidePanelEmoji = async (selector, expectedIdentity) => {
@@ -2242,6 +2244,32 @@ async function inspect() {
         }
         sideInlineEmojiNotDuplicated =
           document.body.dataset.bilibiliSent === "222[委屈]";
+        await delay(760);
+        delete document.body.dataset.bilibiliSent;
+        const mentionContent = document.querySelector(
+          ".fixture-leading-mention-side-row .danmaku-item-right"
+        );
+        mentionContent?.dispatchEvent(new PointerEvent("pointerover", {
+          bubbles: true,
+          composed: true,
+          pointerType: "mouse"
+        }));
+        await delay(120);
+        const expectedMention = "@久远澪00：姐妹你做人真\u00AD的可以";
+        sideLeadingMentionCopyAvailable = Boolean(
+          document.querySelector(
+            ".bcp-one-actions:not([hidden]) .bcp-one-action[data-action='copy']"
+          )?.getAttribute("title")?.includes(expectedMention)
+        );
+        document.querySelector(
+          ".bcp-one-actions:not([hidden]) .bcp-one-button"
+        )?.click();
+        for (let attempt = 0; attempt < 35
+            && document.body.dataset.bilibiliSent !== expectedMention; attempt += 1) {
+          await delay(80);
+        }
+        sideLeadingMentionPreserved =
+          document.body.dataset.bilibiliSent === expectedMention;
       }
 
       targetContent.dispatchEvent(new PointerEvent("pointerout", {
@@ -2275,6 +2303,8 @@ async function inspect() {
         sideHonorTooltipEmojiSent,
         sideHonorTooltipEmojiNotRejected,
         sideInlineEmojiNotDuplicated,
+        sideLeadingMentionPreserved,
+        sideLeadingMentionCopyAvailable,
         sideRoomEmojiNotRejected,
         scrollPauseMarkerAbsent,
         scrollStart,
@@ -2329,6 +2359,8 @@ async function inspect() {
       "sideHonorTooltipEmojiSent",
       "sideHonorTooltipEmojiNotRejected",
       "sideInlineEmojiNotDuplicated",
+      "sideLeadingMentionPreserved",
+      "sideLeadingMentionCopyAvailable",
       "sideRoomEmojiNotRejected",
       "scrollPauseMarkerAbsent",
       "scrollingRemainsEnabled",
