@@ -135,7 +135,7 @@ test('all three live adapters use the shared lossless Emoji fallback', () => {
   assert.match(douyinSource, /reason: ["']unicode-emoji-fallback["']/)
 })
 
-test('Bilibili uses its native editor and Emoji panel', () => {
+test('Bilibili preserves the reply editor and native Emoji panel support', () => {
   const contentSource = readFileSync(resolve(root, 'src', 'entries', 'content.ts'), 'utf8')
   const fixtureSource = readFileSync(resolve(root, 'tests', 'fixture-server.cjs'), 'utf8')
   assert.match(contentSource, /function emojiMetadataElements\(element, image\)/)
@@ -180,7 +180,7 @@ test('Bilibili uses its native editor and Emoji panel', () => {
   assert.match(contentSource, /function isBilibiliExplicitPanelOnlyPayload\(candidate, payload\)/)
   assert.match(contentSource, /\[data-room-emoticon\]/)
   assert.match(contentSource, /meaningfulParts\.length === 1/)
-  assert.match(contentSource, /setNativeValue\(input, message\)/)
+  assert.match(contentSource, /setNativeValue\(input, nextValue\)/)
   assert.match(contentSource, /item\.click\(\)/)
   assert.match(contentSource, /button\.click\(\)/)
   assert.doesNotMatch(contentSource, /repeatBilibiliPayload/)

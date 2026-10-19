@@ -2921,6 +2921,8 @@ async function inspect() {
         const itemClicksBefore = Number(
           document.body.dataset.bilibiliEmojiItemClicks || 0
         );
+        const textApiSendsBefore = Number(document.body.dataset.bilibiliTextApiSends || 0);
+        const inputBefore = String(document.querySelector("textarea.chat-input")?.value || "");
         if (plus) plus.click();
         document.body.dataset.bilibiliRichStage = selector + ":plus-one-clicked";
         await delay(120);
@@ -2950,7 +2952,9 @@ async function inspect() {
           itemClicksAfter: Number(document.body.dataset.bilibiliEmojiItemClicks || 0),
           toggleClicksBefore,
           toggleClicksAfter: Number(document.body.dataset.bilibiliEmojiToggleClicks || 0),
-          inputCleared: !String(editor?.value || "").trim(),
+          inputPreserved: String(editor?.value || "") === inputBefore,
+          usedPageApi: document.body.dataset.bilibiliSendMethod === "page-api"
+            && Number(document.body.dataset.bilibiliTextApiSends || 0) === textApiSendsBefore + 1,
           noConfirmationError: !finalToast.includes("图片 Emoji 发送未确认"),
           toast: finalToast
         };
@@ -2967,8 +2971,9 @@ async function inspect() {
           emojiOnlyMode,
           standardEmojiNameExtracted: wowEmoji.label.includes("[哇]"),
           standardEmojiSent: wowEmoji.sent,
-          standardEmojiUsedTextEditor:
-            wowEmoji.toggleClicksBefore === wowEmoji.toggleClicksAfter
+          standardEmojiUsedApi:
+            wowEmoji.usedPageApi && wowEmoji.inputPreserved
+            && wowEmoji.toggleClicksBefore === wowEmoji.toggleClicksAfter
             && wowEmoji.itemClicksBefore === wowEmoji.itemClicksAfter,
           standardEmojiImmediateToast: wowEmoji.immediateToast,
           standardEmojiToast: wowEmoji.toast,
@@ -3003,8 +3008,9 @@ async function inspect() {
         760,
         false
       );
-      const singleMixedSadEmojiUsedTextEditor =
-        Number(document.body.dataset.bilibiliEmojiToggleClicks || 0)
+      const singleMixedSadEmojiUsedApi =
+        singleMixedSadEmoji.usedPageApi && singleMixedSadEmoji.inputPreserved
+        && Number(document.body.dataset.bilibiliEmojiToggleClicks || 0)
           === singleMixedToggleClicksBefore
         && Number(document.body.dataset.bilibiliEmojiItemClicks || 0)
           === singleMixedItemClicksBefore;
@@ -3022,8 +3028,9 @@ async function inspect() {
         760,
         false
       );
-      const correlatedInlineEmojiUsedTextEditor =
-        Number(document.body.dataset.bilibiliEmojiToggleClicks || 0)
+      const correlatedInlineEmojiUsedApi =
+        correlatedInlineEmoji.usedPageApi && correlatedInlineEmoji.inputPreserved
+        && Number(document.body.dataset.bilibiliEmojiToggleClicks || 0)
           === correlatedInlineToggleClicksBefore
         && Number(document.body.dataset.bilibiliEmojiItemClicks || 0)
           === correlatedInlineItemClicksBefore;
@@ -3373,16 +3380,17 @@ async function inspect() {
         ],
         standardEmojiFavoriteAvailable: wowEmoji.favoriteAvailable,
         standardEmojiSent: wowEmoji.sent,
-        standardEmojiUsedTextEditor:
-          wowEmoji.toggleClicksBefore === wowEmoji.toggleClicksAfter
+        standardEmojiUsedApi:
+          wowEmoji.usedPageApi && wowEmoji.inputPreserved
+          && wowEmoji.toggleClicksBefore === wowEmoji.toggleClicksAfter
           && wowEmoji.itemClicksBefore === wowEmoji.itemClicksAfter,
         standardEmojiFavoriteNamed: favoriteNames.some((name) => name.includes("[哇]")),
         singleCryEmojiSent: cryEmoji.sent,
         mixedCryEmojiSentInOrder: mixedCryEmoji.sent,
         singleMixedSadEmojiSentInOrder: singleMixedSadEmoji.sent,
-        singleMixedSadEmojiUsedTextEditor,
+        singleMixedSadEmojiUsedApi,
         correlatedInlineEmojiSentInOrder: correlatedInlineEmoji.sent,
-        correlatedInlineEmojiUsedTextEditor,
+        correlatedInlineEmojiUsedApi,
         prefixedBadgeIgnored: prefixedText.sent,
         exclusiveEmojiFavoriteAvailable: exclusiveEmoji.favoriteAvailable,
         exclusiveEmojiLabel: exclusiveEmoji.label,
@@ -3398,7 +3406,7 @@ async function inspect() {
           exclusiveEmoji.itemClicksAfter
         ],
         exclusiveEmojiSent: exclusiveEmoji.sent,
-        exclusiveEmojiInputCleared: exclusiveEmoji.inputCleared,
+        exclusiveEmojiInputPreserved: exclusiveEmoji.inputPreserved,
         exclusiveEmojiNoConfirmationError: exclusiveEmoji.noConfirmationError,
         exclusiveEmojiNoAssetLookupError:
           !exclusiveEmoji.immediateToast.includes("未在哔哩哔哩直播表情面板中找到对应 Emoji")
@@ -3454,7 +3462,7 @@ async function inspect() {
       clearTimeout(bilibiliWatchdog);
     }
     const bilibiliAssertionKeys = targetParameters.get("emojionly") === "1"
-      ? ["standardEmojiNameExtracted", "standardEmojiSent", "standardEmojiUsedTextEditor"]
+      ? ["standardEmojiNameExtracted", "standardEmojiSent", "standardEmojiUsedApi"]
       : targetParameters.get("hoverperf") === "1"
       ? [
           "longHoverLatencyBounded",
@@ -3495,18 +3503,18 @@ async function inspect() {
           "standardEmojiNameExtracted",
           "standardEmojiFavoriteAvailable",
           "standardEmojiSent",
-          "standardEmojiUsedTextEditor",
+          "standardEmojiUsedApi",
           "standardEmojiFavoriteNamed",
           "singleCryEmojiSent",
           "mixedCryEmojiSentInOrder",
           "singleMixedSadEmojiSentInOrder",
-          "singleMixedSadEmojiUsedTextEditor",
+          "singleMixedSadEmojiUsedApi",
           "correlatedInlineEmojiSentInOrder",
-          "correlatedInlineEmojiUsedTextEditor",
+          "correlatedInlineEmojiUsedApi",
           "prefixedBadgeIgnored",
           "exclusiveEmojiFavoriteAvailable",
           "exclusiveEmojiSent",
-          "exclusiveEmojiInputCleared",
+          "exclusiveEmojiInputPreserved",
           "exclusiveEmojiNoConfirmationError",
           "exclusiveEmojiNoAssetLookupError",
           "decorationEmojiSent",

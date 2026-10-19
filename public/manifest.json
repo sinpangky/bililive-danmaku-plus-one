@@ -3,7 +3,7 @@
   "name": "bililive-danmaku-plus-one",
   "description": "B站直播弹幕 +1、复制、回复、侧栏操作、全屏发送与本地收藏工具。",
   "default_locale": "zh_CN",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "icons": {
     "16": "assets/icons/icon-16.png",
     "32": "assets/icons/icon-32.png",

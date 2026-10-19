@@ -2,6 +2,19 @@
 
 本文件记录 bililive-danmaku-plus-one 的重要变更。
 
+## [0.0.3] - 2026-10-19
+
+### Fixed
+
+- 修复网页全屏时，插件发送弹幕因依赖原生输入框而提示“未找到弹幕输入框”的问题。
+- 修复接口发送失败后回退输入框，导致实际失败原因被掩盖的问题。
+
+### Changed
+
+- 普通模式、网页全屏和播放器全屏下，`+1`、收藏及独轮车的文字、Unicode Emoji 和可混排小表情统一通过 B 站官方弹幕接口发送。
+- 发送弹幕不再覆盖原生输入框中的草稿；请求超时后不自动再次提交，避免重复发送。
+- 增加登录失效、接口拒绝和发送结果未确认的具体提示。
+
 ## [0.0.2] - 2026-08-12
 
 ### Added
@@ -103,4 +116,5 @@
 
 [2.2.0]: https://github.com/SadUnicorn171/danmaku-echo/releases/tag/v2.2.0
 [0.0.2]: https://github.com/sinpangky/bililive-danmaku-plus-one/releases/tag/v0.0.2
+[0.0.3]: https://github.com/sinpangky/bililive-danmaku-plus-one/releases/tag/v0.0.3
 [0.0.1]: https://github.com/sinpangky/bililive-danmaku-plus-one/releases/tag/v0.0.1

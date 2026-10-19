@@ -454,6 +454,14 @@
   "toastAutomaticSendFailed": {
     "message": "Automatic sending failed. The danmaku remains in the editor; try again."
   },
+  "toastBilibiliSendFailed": {
+    "message": "Danmaku sending failed: $reason$",
+    "placeholders": { "reason": { "content": "$1" } }
+  },
+  "toastBilibiliSendUnconfirmed": {
+    "message": "Sending was not confirmed. Check the chat history before trying again."
+  },
+  "toastBilibiliSignInRequired": { "message": "Sign in to Bilibili before sending danmaku." },
   "toastDouyinEmojiInsertFailed": {
     "message": "The matching Douyin emote could not be inserted. +1 canceled."
   },

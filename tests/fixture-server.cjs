@@ -457,6 +457,12 @@ const bilibiliHtml = String.raw`<!doctype html>
             document.body.dataset.bilibiliEmoticonApiSends = String(
               Number(document.body.dataset.bilibiliEmoticonApiSends || 0) + 1
             );
+          } else {
+            document.body.dataset.bilibiliSent = body.get("msg") || "";
+            document.body.dataset.bilibiliSendMethod = "page-api";
+            document.body.dataset.bilibiliTextApiSends = String(
+              Number(document.body.dataset.bilibiliTextApiSends || 0) + 1
+            );
           }
           return new Response(JSON.stringify({ code: 0, message: "0" }), {
             headers: { "Content-Type": "application/json" }, status: 200

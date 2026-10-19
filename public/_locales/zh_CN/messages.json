@@ -423,6 +423,12 @@
     "placeholders": { "emoji": { "content": "$1" } }
   },
   "toastAutomaticSendFailed": { "message": "自动发送失败，弹幕仍在输入框，请重试" },
+  "toastBilibiliSendFailed": {
+    "message": "弹幕发送失败：$reason$",
+    "placeholders": { "reason": { "content": "$1" } }
+  },
+  "toastBilibiliSendUnconfirmed": { "message": "弹幕发送结果未确认，请检查聊天记录后再重试" },
+  "toastBilibiliSignInRequired": { "message": "请先登录B站后再发送弹幕" },
   "toastDouyinEmojiInsertFailed": { "message": "未找到或无法插入对应抖音表情，已取消 +1" },
   "toastDiagnosticsConsole": { "message": "诊断信息已输出到控制台" }
 }

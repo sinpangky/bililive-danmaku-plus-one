@@ -2691,24 +2691,6 @@ import { t } from '../core/i18n'
       : null
   }
 
-  function inputStillContainsMessage(input, message) {
-    if (!input || !input.isConnected) {
-      return false
-    }
-    return shared.normalizeWhitespace(inputText(input)) === shared.normalizeWhitespace(message)
-  }
-
-  async function waitForInputConsumption(input, message, timeout) {
-    const deadline = Date.now() + timeout
-    while (Date.now() < deadline) {
-      if (!inputStillContainsMessage(input, message)) {
-        return true
-      }
-      await new Promise((resolve) => setTimeout(resolve, 50))
-    }
-    return !inputStillContainsMessage(input, message)
-  }
-
   function releaseInputFocus(input) {
     const bilibiliDismissToken = platformId === 'bilibili' ? ++state.bilibiliDismissToken : 0
     const quickBarStyleProperties = ['display', 'visibility', 'opacity', 'pointer-events']
@@ -3875,70 +3857,28 @@ import { t } from '../core/i18n'
     state.ui?.setSending(true)
 
     try {
-      // Bilibili's fullscreen editors are mounted lazily and reject synthetic
-      // key events in several player variants. Send plain text through the
-      // site's authenticated page context first while fullscreen is active.
-      if (fullscreenActive() && (await sendBilibiliViaPageContext(message))) {
-        updateSendLog({
-          confirmation: 'page-api-confirmed',
-          error: '',
-          method: 'page-context-api',
-          resultContent: message,
-        })
-        showToast(t('toastPlusOneSent'), 'success')
-        return true
-      }
-
-      const input = findInput()
-      if (!input) {
-        updateSendLog({
-          error: 'editor-not-found',
-          method: 'not-attempted',
-          resultContent: message,
-        })
-        showToast(t('toastEditorNotFound', platformName), 'error')
+      // Use the authenticated page API in every display mode. A failed or
+      // timed-out request must not trigger a second send through the editor.
+      updateSendLog({ method: 'page-context-api', resultContent: message })
+      const response = await sendBilibiliViaPageContext(message)
+      if (!response.ok) {
+        const error = response.error || 'empty-page-response'
+        updateSendLog({ error })
+        showToast(
+          t(
+            error === 'not-signed-in'
+              ? 'toastBilibiliSignInRequired'
+              : error === 'extension-response-timeout'
+                ? 'toastBilibiliSendUnconfirmed'
+                : 'toastBilibiliSendFailed',
+            error,
+          ),
+          'error',
+        )
         return false
       }
 
-      setNativeValue(input, message)
-      await new Promise((resolve) => setTimeout(resolve, 80))
-      let button = findSendButton(input)
-
-      if (button) {
-        updateSendLog({ method: 'editor-button', resultContent: message })
-        button.click()
-      } else {
-        updateSendLog({ method: 'editor-enter', resultContent: message })
-        pressEnter(input)
-      }
-
-      // Live sites occasionally replace or temporarily disable their send
-      // control after the editor updates. Do not report success merely because a
-      // stale button accepted click(); a successful send consumes the editor.
-      let consumed = await waitForInputConsumption(input, message, 320)
-      if (!consumed) {
-        updateSendLog({ error: 'editor-content-not-consumed' })
-        pressEnter(input)
-        consumed = await waitForInputConsumption(input, message, 260)
-      }
-
-      // Re-query after the framework has processed the input event. Bilibili in
-      // particular may mount an enabled send control only after that update.
-      if (!consumed) {
-        button = findSendButton(input)
-        if (button) {
-          button.click()
-          consumed = await waitForInputConsumption(input, message, 320)
-        }
-      }
-
-      if (!consumed) {
-        showToast(t('toastAutomaticSendFailed'), 'error')
-        return false
-      }
-
-      releaseInputFocus(input)
-      updateSendLog({ confirmation: 'editor-consumed', error: '' })
+      updateSendLog({ confirmation: 'page-api-confirmed', error: '' })
       showToast(t('toastPlusOneSent'), 'success')
       return true
     } finally {
@@ -3950,23 +3890,26 @@ import { t } from '../core/i18n'
   function sendBilibiliViaPageContext(message) {
     return new Promise((resolve) => {
       let settled = false
-      const finish = (success) => {
+      const finish = (response) => {
         if (settled) return
         settled = true
         clearTimeout(timer)
-        resolve(success)
+        resolve(response)
       }
-      const timer = setTimeout(() => finish(false), 5000)
+      const timer = setTimeout(
+        () => finish({ ok: false, error: 'extension-response-timeout' }),
+        5000,
+      )
       try {
         chrome.runtime.sendMessage({ type: BILIBILI_SEND_MESSAGE, message }, (response) => {
           if (chrome.runtime.lastError) {
-            finish(false)
+            finish({ ok: false, error: chrome.runtime.lastError.message })
             return
           }
-          finish(Boolean(response?.ok))
+          finish(response || { ok: false, error: 'empty-page-response' })
         })
-      } catch {
-        finish(false)
+      } catch (error) {
+        finish({ ok: false, error: error instanceof Error ? error.message : String(error) })
       }
     })
   }

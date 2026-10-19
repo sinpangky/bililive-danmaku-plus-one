@@ -1,6 +1,6 @@
 {
   "name": "bililive-danmaku-plus-one",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
   "type": "module",
   "description": "Bilibili Live danmaku +1, copy, replies, side-chat actions, fullscreen sending, and local favorites",
